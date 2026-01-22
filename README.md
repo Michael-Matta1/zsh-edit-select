@@ -10,26 +10,60 @@ like in GUI text editors.
 
 ## Table of Contents
 
--   [Overview](#overview)
--   [Features](#features)
--   [Quick Start](#quick-start)
--   [Installation](#installation)
--   [Configuration](#configuration)
-    -   [Configuration Wizard](#configuration-wizard)
-    -   [Mouse Replacement Modes](#mouse-replacement-modes)
-    -   [Clipboard Integration](#clipboard-integration)
-    -   [Keybinding Customization](#keybinding-customization)
--   [Terminal Setup](#terminal-setup)
-    -   [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut)
-    -   [Step 2: Enable Shift Selection Keys](#step-2-enable-shift-selection-keys)
-    -   [Step 3: Verify Key Sequences](#step-3-verify-key-sequences)
--   [Platform Compatibility](#platform-compatibility)
--   [Key Bindings Reference](#key-bindings-reference)
--   [Common Issues - Quick Fixes](#common-issues---quick-fixes)
--   [Troubleshooting](#troubleshooting)
--   [License](#license)
--   [Acknowledgments](#acknowledgments)
--   [References](#references)
+- [Zsh Edit-Select](#zsh-edit-select)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Features](#features)
+    - [Keyboard Selection](#keyboard-selection)
+    - [Mouse Selection Integration](#mouse-selection-integration)
+    - [Type-to-Replace and Paste-to-Replace](#type-to-replace-and-paste-to-replace)
+    - [Copy, Cut, and Paste](#copy-cut-and-paste)
+    - [Automatic Clipboard Detection](#automatic-clipboard-detection)
+  - [Quick Start](#quick-start)
+    - [1. Install the Plugin](#1-install-the-plugin)
+    - [2. Install Clipboard Tools](#2-install-clipboard-tools)
+    - [3. Configure Your Terminal](#3-configure-your-terminal)
+    - [4. Restart Your Shell](#4-restart-your-shell)
+    - [5. (Optional) Customize Settings](#5-optional-customize-settings)
+  - [Installation](#installation)
+  - [Configuration](#configuration)
+    - [Configuration Wizard](#configuration-wizard)
+    - [Mouse Replacement Modes](#mouse-replacement-modes)
+    - [Clipboard Integration](#clipboard-integration)
+    - [Keybinding Customization](#keybinding-customization)
+        - [Custom Keybinding Notes](#custom-keybinding-notes)
+  - [Terminal Setup](#terminal-setup)
+    - [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut)
+      - [Using Ctrl+Shift+C (Default)](#using-ctrlshiftc-default)
+      - [Using Ctrl+C for Copying (Reversed)](#using-ctrlc-for-copying-reversed)
+      - [Alternative: Without Terminal Remapping](#alternative-without-terminal-remapping)
+    - [Step 2: Enable Shift Selection Keys](#step-2-enable-shift-selection-keys)
+      - [Kitty](#kitty)
+      - [WezTerm](#wezterm)
+      - [VS Code Terminal](#vs-code-terminal)
+      - [Alacritty](#alacritty)
+    - [Step 3: Verify Key Sequences](#step-3-verify-key-sequences)
+  - [Platform Compatibility](#platform-compatibility)
+    - [Mouse Selection Replacement Feature](#mouse-selection-replacement-feature)
+      - [✅ Fully Supported](#-fully-supported)
+      - [⚠️ Limited/No Support](#️-limitedno-support)
+      - [Recommendation](#recommendation)
+    - [Testing Coverage](#testing-coverage)
+    - [Core Features (Available on All Platforms)](#core-features-available-on-all-platforms)
+  - [Key Bindings Reference](#key-bindings-reference)
+    - [Selection Keys](#selection-keys)
+    - [Editing Keys](#editing-keys)
+  - [Common Issues - Quick Fixes](#common-issues---quick-fixes)
+  - [Troubleshooting](#troubleshooting)
+    - [Shift selection doesn't work](#shift-selection-doesnt-work)
+    - [Clipboard operations don't work](#clipboard-operations-dont-work)
+    - [Mouse replacement not working](#mouse-replacement-not-working)
+    - [Duplicate-text prompt](#duplicate-text-prompt)
+    - [Ctrl+C doesn't copy](#ctrlc-doesnt-copy)
+    - [Configuration wizard doesn't launch](#configuration-wizard-doesnt-launch)
+  - [License](#license)
+  - [Acknowledgments](#acknowledgments)
+  - [References](#references)
 
 ---
 
@@ -72,20 +106,15 @@ The plugin intelligently integrates mouse selections:
 -   ✅ Copy mouse selections with Ctrl+C
 -   ✅ Cut mouse selections with Ctrl+X
 -   ✅ Type to replace mouse selections
--   ✅ Delete mouse selections with Backspace
+-   ✅ Delete mouse selections with Backspace/Delete
 -   ✅ Paste over mouse selections with Ctrl+V
 
 **When Mouse Replacement is Disabled:**
 
 -   ✅ Copy mouse selections with Ctrl+C _(still works)_
--   ❌ Other operations only work with keyboard selections
+-   ✅ Replacement/Deletion work with keyboard selections
 
-> **Note:** Configure mouse behavior with `edit-select config` → Option 2
-
-> **⚠️ Important Note on Mouse Selection:** If your command contains multiple occurrences of the exact same
-> selected text, mouse selection will replace/delete the **first matching occurrence** in the buffer—not
-> necessarily the one you visually selected. For more reliable selection, especially with duplicate text, use
-> **Shift + Arrow keys** instead of mouse selection.
+> **Note:** Configure mouse behavior with the command `edit-select config` → Option 2
 
 ### Type-to-Replace and Paste-to-Replace
 
@@ -320,7 +349,7 @@ edit-select config  # → Option 2: Mouse Replacement
 
 > **Note:** If you have mouse replacement enabled, the repositioning of the text cursor (caret) when clicking
 > with the mouse may become slower on some systems when working with long multi-line commands (typically more
-> than 5 lines). If you care more about fast mouse-click cursor positioning than about the mouse-replacement
+> than 10 lines). If you care more about fast mouse-click cursor positioning than about the mouse-replacement
 > feature, you can disable mouse replacement using the wizard.
 
 ### Clipboard Integration
@@ -629,6 +658,17 @@ These features work universally regardless of platform:
 
 ---
 
+**Important:** If the `Delete` key does not remove mouse-selected text, ensure your `~/.zshrc` does not contain a line that forces the Delete key to the default handler such as:
+
+`bindkey '^[[3~' delete-char`
+
+That line will override the plugin's binding for the Delete key and prevent `zsh-edit-select` from handling mouse selections correctly. Remove or comment out that line and reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+
 ## Troubleshooting
 
 ### Shift selection doesn't work
@@ -660,6 +700,19 @@ with PRIMARY selection (or lack thereof on macOS). Try one of the following:
 -   Disable Mouse Replacement: `edit-select config` → Option 2, or set
     `EDIT_SELECT_MOUSE_REPLACEMENT=disabled` in your config file.
 -   Use Shift + Arrow keys for selection, which the plugin fully supports.
+
+### Duplicate-text prompt
+
+If you see the message "Duplicate text: place cursor inside the occurrence you want to modify", the plugin
+has detected multiple identical occurrences of the selected text in your command buffer. Place the cursor
+inside the specific occurrence you want to edit and retry the operation. If you prefer to avoid this prompt,
+use Shift+Arrow keys to create an explicit keyboard selection, or edit the buffer manually to disambiguate
+the occurrences before running the edit action.
+
+This message only appears when the selection was made with the mouse and the selected text occurs more than
+once in the buffer. It's a protective guard for the plugin's mouse-selection workaround: because mouse
+replacement is not enabled by default, the prompt prevents accidental edits across ambiguous duplicate
+occurrences when using the mouse-based selection flow.
 
 ### Ctrl+C doesn't copy
 
