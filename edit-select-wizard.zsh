@@ -1,27 +1,15 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.3.2
+# Version: 0.4.0
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
-# ==============================================================================
-# Configuration Wizard Functions
-# ==============================================================================
-
-# Configuration file
 typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select/config"
-
-# Plugin file path
 typeset -g _EDIT_SELECT_PLUGIN_FILE="${(%):-%x}"
-
-# Default keybindings
 typeset -gr _EDIT_SELECT_DEFAULT_KEY_SELECT_ALL='^A'
 typeset -gr _EDIT_SELECT_DEFAULT_KEY_PASTE='^V'
 typeset -gr _EDIT_SELECT_DEFAULT_KEY_CUT='^X'
 
-# ==============================================================================
-# UI helpers and runtime utilities
-# ==============================================================================
+# UI Helpers
 
-# Initialize color variables
 function _zesw_init_colors() {
 	[[ -n $_ZESW_CLR_ACCENT ]] && return
 	autoload -Uz colors && colors >/dev/null 2>&1 || true
@@ -34,57 +22,24 @@ function _zesw_init_colors() {
 
 function _zesw_banner() {
 	clear
-	local title="$1"
-	local width=62
-	local title_len=${#title}
-	local padding=$(( (width - title_len) / 2 ))
-	local padded_title="$(printf '%*s' $padding '')${title}$(printf '%*s' $((width - title_len - padding)) '')"
-	
-	printf "\n%s┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-	printf "%s┃%s%s%s┃%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_HILITE" "$padded_title" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-	printf "%s┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛%s\n\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+	local title="$1" width=62
+	local padding=$(( (width - ${#title}) / 2 ))
+	local padded_title="$(printf '%*s' $padding '')${title}$(printf '%*s' $((width - ${#title} - padding)) '')"
+	printf "\n%s╔══════════════════════════════════════════════════════════════╗%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+	printf "%s║%s%s%s║%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_HILITE" "$padded_title" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+	printf "%s╚══════════════════════════════════════════════════════════════╝%s\n\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 }
 
-function _zesw_prompt_continue() {
-	printf "\n%s▶ Press Enter to continue...%s " "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
-	read -r
-}
-
-function _zesw_print_option() {
-	printf "  %s%2s.%s %s\n" "$_ZESW_CLR_HILITE" "$1" "$_ZESW_CLR_RESET" "$2"
-}
-
-function _zesw_input_prompt() {
-	printf "\n%s▶%s %s " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"
-}
-
-function _zesw_status_line() {
-	printf "  %s●%s %-18s %s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET" "$1:" "$2"
-}
-
-function _zesw_success() {
-	printf "\n%s✓%s %s\n" "$_ZESW_CLR_HILITE" "$_ZESW_CLR_RESET" "$1"
-}
-
-function _zesw_error() {
-	printf "\n%s✗%s %s\n" "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1"
-}
-
-function _zesw_section_header() {
-	printf "\n%s━━━ %s ━━━%s\n" "$_ZESW_CLR_ACCENT" "$1" "$_ZESW_CLR_RESET"
-}
-
-function _zesw_separator() {
-	printf "%s────────────────────────────────────────────────────────────────%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
-}
-
-function _zesw_info() {
-	printf "  %s ℹ%s  %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"
-}
-
-function _zesw_confirm_prompt() {
-	printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
-}
+function _zesw_prompt_continue() { printf "\n%s▶ Press Enter to continue...%s " "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; read -r; }
+function _zesw_print_option() { printf "  %s%2s.%s %s\n" "$_ZESW_CLR_HILITE" "$1" "$_ZESW_CLR_RESET" "$2"; }
+function _zesw_input_prompt() { printf "\n%s▶%s %s " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"; }
+function _zesw_status_line() { printf "  %s●%s %-18s %s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET" "$1:" "$2"; }
+function _zesw_success() { printf "\n%s✓%s %s\n" "$_ZESW_CLR_HILITE" "$_ZESW_CLR_RESET" "$1"; }
+function _zesw_error() { printf "\n%s✗%s %s\n" "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1"; }
+function _zesw_section_header() { printf "\n%s─── %s ───%s\n" "$_ZESW_CLR_ACCENT" "$1" "$_ZESW_CLR_RESET"; }
+function _zesw_separator() { printf "%s────────────────────────────────────────────────────────────────%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; }
+function _zesw_info() { printf "  %s ℹ%s  %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"; }
+function _zesw_confirm_prompt() { printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; }
 
 function _zesw_apply_clipboard_metadata() {
 	case $_EDIT_SELECT_CLIPBOARD_BACKEND in
@@ -117,9 +72,9 @@ function _zesw_get_clipboard_name() {
 	esac
 }
 
-function _zesw_get_mouse_status() {
-	(( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"
-}
+function _zesw_get_mouse_status() { (( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"; }
+
+# Config Management
 
 function edit-select::delete-config-key() {
 	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] || return
@@ -131,7 +86,6 @@ function edit-select::save-config() {
 	mkdir -p "${_EDIT_SELECT_CONFIG_FILE:h}"
 	local -a lines
 	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] && lines=("${(@f)$(<$_EDIT_SELECT_CONFIG_FILE)}")
-	
 	lines=("${(@)lines:#${1}=*}")
 	lines+=("${1}=\"${2}\"")
 	printf '%s\n' "${lines[@]}" > "$_EDIT_SELECT_CONFIG_FILE"
@@ -145,11 +99,8 @@ function edit-select::load-keybindings() {
 
 function edit-select::apply-keybindings() {
 	local key
-	for key in '^A' '^V' '^X'; do
-		bindkey -M emacs -r "$key" 2>/dev/null
-	done
+	for key in '^A' '^V' '^X'; do bindkey -M emacs -r "$key" 2>/dev/null; done
 	bindkey -r '^X' 2>/dev/null
-
 	[[ -n $EDIT_SELECT_KEY_SELECT_ALL ]] && bindkey -M emacs "$EDIT_SELECT_KEY_SELECT_ALL" edit-select::select-all
 	if [[ -n $EDIT_SELECT_KEY_PASTE ]]; then
 		bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
@@ -162,9 +113,7 @@ function edit-select::apply-keybindings() {
 	fi
 }
 
-# ==============================================================================
-# Wizard UI flows
-# ==============================================================================
+# Wizard UI Flows
 
 function edit-select::show-menu() {
 	_zesw_banner "Edit-Select Configuration Wizard"
@@ -569,19 +518,15 @@ function edit-select::config-wizard() {
 			3) edit-select::configure-keybindings ;;
 			4) edit-select::view-config ;;
 			5) edit-select::reset-config ;;
-			6) 
+			6)
 				clear
-				local exit_msg="Configuration Saved"
-				local width=62
-				local msg_len=${#exit_msg}
-				local padding=$(( (width - msg_len) / 2 ))
-				local padded_msg="$(printf '%*s' $padding '')${exit_msg}$(printf '%*s' $((width - msg_len - padding)) '')"
-				
-				printf "\n%s┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-				printf "%s┃%s%s%s┃%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_HILITE" "$padded_msg" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-				printf "%s┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛%s\n\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+				local exit_msg="Configuration Saved" width=62
+				local padding=$(( (width - ${#exit_msg}) / 2 ))
+				local padded_msg="$(printf '%*s' $padding '')${exit_msg}$(printf '%*s' $((width - ${#exit_msg} - padding)) '')"
+				printf "\n%s╔══════════════════════════════════════════════════════════════╗%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+				printf "%s║%s%s%s║%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_HILITE" "$padded_msg" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+				printf "%s╚══════════════════════════════════════════════════════════════╝%s\n\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 				_zesw_info "Your changes are active and will persist across shell sessions"
-				printf "\n"
 				break
 				;;
 			*) _zesw_error "Invalid choice. Please enter a number between 1-6."; _zesw_prompt_continue ;;

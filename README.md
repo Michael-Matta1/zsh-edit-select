@@ -72,20 +72,15 @@ The plugin intelligently integrates mouse selections:
 -   ✅ Copy mouse selections with Ctrl+C
 -   ✅ Cut mouse selections with Ctrl+X
 -   ✅ Type to replace mouse selections
--   ✅ Delete mouse selections with Backspace
+-   ✅ Delete mouse selections with Backspace/Delete
 -   ✅ Paste over mouse selections with Ctrl+V
 
 **When Mouse Replacement is Disabled:**
 
 -   ✅ Copy mouse selections with Ctrl+C _(still works)_
--   ❌ Other operations only work with keyboard selections
+-   ✅ Replacement/Deletion work with keyboard selections
 
-> **Note:** Configure mouse behavior with `edit-select config` → Option 2
-
-> **⚠️ Important Note on Mouse Selection:** If your command contains multiple occurrences of the exact same
-> selected text, mouse selection will replace/delete the **first matching occurrence** in the buffer—not
-> necessarily the one you visually selected. For more reliable selection, especially with duplicate text, use
-> **Shift + Arrow keys** instead of mouse selection.
+> **Note:** Configure mouse behavior with the command `edit-select config` → Option 2
 
 ### Type-to-Replace and Paste-to-Replace
 
@@ -320,7 +315,7 @@ edit-select config  # → Option 2: Mouse Replacement
 
 > **Note:** If you have mouse replacement enabled, the repositioning of the text cursor (caret) when clicking
 > with the mouse may become slower on some systems when working with long multi-line commands (typically more
-> than 5 lines). If you care more about fast mouse-click cursor positioning than about the mouse-replacement
+> than 10 lines). If you care more about fast mouse-click cursor positioning than about the mouse-replacement
 > feature, you can disable mouse replacement using the wizard.
 
 ### Clipboard Integration
@@ -629,6 +624,17 @@ These features work universally regardless of platform:
 
 ---
 
+**Important:** If the `Delete` key does not remove mouse-selected text, ensure your `~/.zshrc` does not contain a line that forces the Delete key to the default handler such as:
+
+`bindkey '^[[3~' delete-char`
+
+That line will override the plugin's binding for the Delete key and prevent `zsh-edit-select` from handling mouse selections correctly. Remove or comment out that line and reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+
 ## Troubleshooting
 
 ### Shift selection doesn't work
@@ -660,6 +666,19 @@ with PRIMARY selection (or lack thereof on macOS). Try one of the following:
 -   Disable Mouse Replacement: `edit-select config` → Option 2, or set
     `EDIT_SELECT_MOUSE_REPLACEMENT=disabled` in your config file.
 -   Use Shift + Arrow keys for selection, which the plugin fully supports.
+
+### Duplicate-text prompt
+
+If you see the message "Duplicate text: place cursor inside the occurrence you want to modify", the plugin
+has detected multiple identical occurrences of the selected text in your command buffer. Place the cursor
+inside the specific occurrence you want to edit and retry the operation. If you prefer to avoid this prompt,
+use Shift+Arrow keys to create an explicit keyboard selection, or edit the buffer manually to disambiguate
+the occurrences before running the edit action.
+
+This message only appears when the selection was made with the mouse and the selected text occurs more than
+once in the buffer. It's a protective guard for the plugin's mouse-selection workaround: because mouse
+replacement is not enabled by default, the prompt prevents accidental edits across ambiguous duplicate
+occurrences when using the mouse-based selection flow.
 
 ### Ctrl+C doesn't copy
 
