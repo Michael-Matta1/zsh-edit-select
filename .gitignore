@@ -1,0 +1,25 @@
+# Build artifacts
+impl-wayland/backends/wayland/zes-wl-selection-monitor
+impl-wayland/backends/wayland/*-protocol.c
+impl-wayland/backends/wayland/*-client-protocol.h
+impl-wayland/backends/wayland/*.o
+impl-wayland/backends/x11/zes-xwayland-monitor
+impl-wayland/backends/x11/*.o
+impl-x11/backends/x11/zes-x11-selection-monitor
+impl-x11/backends/x11/*.o
+
+# Compiled zsh wordcode
+*.zwc
+
+# Benchmarks
+benchmarks/wayland-benchmark
+benchmarks/x11-benchmark
+benchmarks/*.o
+benchmarks/results/
+benchmarks/*.log
+benchmarks/*.out
+
+# IDE/OS
+.DS_Store
+*.swp
+*~

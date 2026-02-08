@@ -1,9 +1,8 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.4.7
+# Version: 0.5.3
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select/config"
-typeset -g _EDIT_SELECT_PLUGIN_FILE="${(%):-%x}"
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SELECT_ALL='^A'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_PASTE+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_PASTE='^V'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_CUT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_CUT='^X'
@@ -41,37 +40,6 @@ function _zesw_separator() { printf "%s─────────────�
 function _zesw_info() { printf "  %s ℹ%s  %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"; }
 function _zesw_confirm_prompt() { printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; }
 
-function _zesw_apply_clipboard_metadata() {
-	case $_EDIT_SELECT_CLIPBOARD_BACKEND in
-		1) _EDIT_SELECT_CLIPBOARD_CMD="wl-copy"; _EDIT_SELECT_PRIMARY_CMD="wl-paste --primary" ;;
-		2) _EDIT_SELECT_CLIPBOARD_CMD="xclip -selection clipboard"; _EDIT_SELECT_PRIMARY_CMD="xclip -selection primary -o" ;;
-		3) _EDIT_SELECT_CLIPBOARD_CMD="pbcopy"; _EDIT_SELECT_PRIMARY_CMD="pbpaste" ;;
-		*) _EDIT_SELECT_CLIPBOARD_CMD=""; _EDIT_SELECT_PRIMARY_CMD="" ;;
-	esac
-}
-
-function _zesw_detect_clipboard_backend() {
-	if (( ${+_EDIT_SELECT_IS_MACOS} && _EDIT_SELECT_IS_MACOS )) && command -v pbcopy &>/dev/null; then
-		_EDIT_SELECT_CLIPBOARD_BACKEND=3
-	elif command -v wl-copy &>/dev/null && [[ -n $WAYLAND_DISPLAY ]]; then
-		_EDIT_SELECT_CLIPBOARD_BACKEND=1
-	elif command -v xclip &>/dev/null && [[ -n $DISPLAY ]]; then
-		_EDIT_SELECT_CLIPBOARD_BACKEND=2
-	else
-		_EDIT_SELECT_CLIPBOARD_BACKEND=0
-	fi
-	_zesw_apply_clipboard_metadata
-}
-
-function _zesw_get_clipboard_name() {
-	case $_EDIT_SELECT_CLIPBOARD_BACKEND in
-		1) printf "Wayland (wl-copy)" ;;
-		2) printf "X11 (xclip)" ;;
-		3) printf "macOS (pbcopy/pbpaste)" ;;
-		*) printf "None detected" ;;
-	esac
-}
-
 function _zesw_get_mouse_status() { (( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"; }
 
 function edit-select::delete-config-key() {
@@ -81,7 +49,7 @@ function edit-select::delete-config-key() {
 }
 
 function edit-select::save-config() {
-	mkdir -p "${_EDIT_SELECT_CONFIG_FILE:h}"
+	mkdir -p "${_EDIT_SELECT_CONFIG_FILE:h}" >/dev/null 2>&1
 	local -a lines
 	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] && lines=("${(@f)$(<$_EDIT_SELECT_CONFIG_FILE)}")
 	lines=("${(@)lines:#${1}=*}")
@@ -129,81 +97,18 @@ function edit-select::show-menu() {
 	_zesw_banner "Edit-Select Configuration Wizard"
 
 	_zesw_section_header "Current Configuration"
-	_zesw_status_line "Clipboard Mode" "${EDIT_SELECT_CLIPBOARD_TYPE:-auto-detect}"
-	_zesw_status_line "Active Backend" "$(_zesw_get_clipboard_name)"
+	_zesw_status_line "Platform" "X11"
 	_zesw_status_line "Mouse Replace" "$(_zesw_get_mouse_status)"
 
 	_zesw_section_header "Configuration Options"
-	_zesw_print_option 1 "Clipboard Integration  ${_ZESW_CLR_DIM}— Choose copy/paste backend${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Mouse Replacement     ${_ZESW_CLR_DIM}— Enable/disable mouse replacement${_ZESW_CLR_RESET}"
-	_zesw_print_option 3 "Key Bindings          ${_ZESW_CLR_DIM}— Customize Ctrl+A, Ctrl+V, Ctrl+X${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Mouse Replacement     ${_ZESW_CLR_DIM}— Enable/disable mouse replacement${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Key Bindings          ${_ZESW_CLR_DIM}— Customize Ctrl+A, Ctrl+V, Ctrl+X${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option 4 "View Full Configuration"
-	_zesw_print_option 5 "Reset to Defaults"
-	_zesw_print_option 6 "Exit Wizard"
+	_zesw_print_option 3 "View Full Configuration"
+	_zesw_print_option 4 "Reset to Defaults"
+	_zesw_print_option 5 "Exit Wizard"
 
-	_zesw_input_prompt "Choose option (1-6):"
-}
-
-function edit-select::configure-clipboard() {
-	while true; do
-		_zesw_banner "Clipboard Integration"
-
-		_zesw_section_header "Current Settings"
-		_zesw_status_line "Mode" "${EDIT_SELECT_CLIPBOARD_TYPE:-auto-detect}"
-		_zesw_status_line "Backend" "$(_zesw_get_clipboard_name)"
-
-		_zesw_info "Choose the clipboard manager for copy/paste operations"
-
-		_zesw_section_header "Available Options"
-		_zesw_print_option 1 "Wayland  ${_ZESW_CLR_DIM}— For wl-copy/wl-paste (modern Wayland compositors)${_ZESW_CLR_RESET}"
-		_zesw_print_option 2 "X11      ${_ZESW_CLR_DIM}— For xclip (X Window System)${_ZESW_CLR_RESET}"
-		_zesw_print_option 3 "macOS    ${_ZESW_CLR_DIM}— For pbcopy/pbpaste (native macOS clipboard)${_ZESW_CLR_RESET}"
-		_zesw_print_option 4 "Auto     ${_ZESW_CLR_DIM}— Let the plugin detect the best backend ★ Recommended${_ZESW_CLR_RESET}"
-		_zesw_separator
-		_zesw_print_option 5 "Back to main menu"
-
-		_zesw_input_prompt "Choose option (1-5):"
-		read -r choice
-		case "$choice" in
-			1) edit-select::set-clipboard-backend wayland; return ;;
-			2) edit-select::set-clipboard-backend x11; return ;;
-			3) edit-select::set-clipboard-backend macos; return ;;
-			4) edit-select::set-clipboard-backend auto; return ;;
-			5) return ;;
-			*) _zesw_error "Invalid choice. Please enter a number between 1-5."; _zesw_prompt_continue ;;
-		esac
-	done
-}
-
-function edit-select::set-clipboard-backend() {
-	if [[ $1 == auto ]]; then
-		edit-select::delete-config-key EDIT_SELECT_CLIPBOARD_TYPE
-		typeset -g EDIT_SELECT_CLIPBOARD_TYPE=auto-detect
-		_zesw_detect_clipboard_backend
-		_zesw_success "Auto-detection enabled — Backend will be detected at startup"
-		_zesw_info "Detected: $(_zesw_get_clipboard_name)"
-	else
-		edit-select::save-config "EDIT_SELECT_CLIPBOARD_TYPE" "$1"
-		case "$1" in
-			macos)
-				_EDIT_SELECT_CLIPBOARD_BACKEND=3
-				;;
-			wayland)
-				_EDIT_SELECT_CLIPBOARD_BACKEND=1
-				;;
-			x11)
-				_EDIT_SELECT_CLIPBOARD_BACKEND=2
-				;;
-			*)
-				_EDIT_SELECT_CLIPBOARD_BACKEND=0
-				;;
-		esac
-		typeset -g EDIT_SELECT_CLIPBOARD_TYPE="$1"
-		_zesw_apply_clipboard_metadata
-		_zesw_success "Clipboard backend set to: ${_ZESW_CLR_HILITE}$1${_ZESW_CLR_RESET}"
-	fi
-	_zesw_prompt_continue
+	_zesw_input_prompt "Choose option (1-5):"
 }
 
 function edit-select::configure-mouse-replacement() {
@@ -219,7 +124,7 @@ function edit-select::configure-mouse-replacement() {
 		fi
 
 		_zesw_info "Integrates mouse selections into ZLE (Zsh Line Editor)"
-		_zesw_info "Note: Full mouse-replacement requires PRIMARY selection support (X11). macOS does not provide PRIMARY."
+		_zesw_info "Uses X11 PRIMARY selection for mouse-replacement integration"
 
 		_zesw_section_header "Feature Capabilities"
 		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Replace mouse selections by typing over them\n"
@@ -508,18 +413,14 @@ function edit-select::reset-config() {
 	printf "This will permanently delete all custom settings and restore factory defaults.\n\n"
 
 	_zesw_section_header "What Will Be Reset"
-	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Clipboard backend → Auto-detect\n"
 	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Mouse replacement → Enabled\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Keybindings → Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+Shift+Z\n"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Keybindings → Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+Shift+Z\n"
 
 	_zesw_confirm_prompt "Permanently delete configuration and reset to defaults?"
 	read -r confirm
 	if [[ $confirm =~ ^[Yy]$ ]]; then
 		rm -f "$_EDIT_SELECT_CONFIG_FILE"
-		typeset -g EDIT_SELECT_CLIPBOARD_TYPE=auto-detect
-		_zesw_detect_clipboard_backend
-		# macOS defaults to disabled (no PRIMARY selection support)
-		(( _EDIT_SELECT_CLIPBOARD_BACKEND == 3 )) && typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=0 || typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
+		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"
 		typeset -g EDIT_SELECT_KEY_CUT="$_EDIT_SELECT_DEFAULT_KEY_CUT"
@@ -544,7 +445,7 @@ function edit-select::view-config() {
 		printf "\n  %sContents:%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
 		_zesw_separator
 		printf "%s" "$_ZESW_CLR_DIM"
-		sed 's/^/  /' "$_EDIT_SELECT_CONFIG_FILE"
+		while IFS= read -r _line; do printf "  %s\n" "$_line"; done < "$_EDIT_SELECT_CONFIG_FILE"
 		printf "%s" "$_ZESW_CLR_RESET"
 		_zesw_separator
 	else
@@ -553,9 +454,7 @@ function edit-select::view-config() {
 	fi
 
 	_zesw_section_header "Active Runtime Settings"
-	printf "  %sClipboard:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-	_zesw_status_line "  Mode" "${EDIT_SELECT_CLIPBOARD_TYPE:-auto-detect}"
-	_zesw_status_line "  Backend" "$(_zesw_get_clipboard_name)"
+	printf "  %sClipboard:%s xclip (X11)\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 
 	printf "\n  %sMouse Integration:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	local mouse_status="$(_zesw_get_mouse_status)"
@@ -573,23 +472,14 @@ function edit-select::view-config() {
 	_zesw_status_line "  Redo" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_REDO${_ZESW_CLR_RESET}"
 
 	_zesw_section_header "Plugin Information"
-	printf "  %sInstall Path:%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
-	printf "  %s%s%s\n" "$_ZESW_CLR_DIM" "$_EDIT_SELECT_PLUGIN_FILE" "$_ZESW_CLR_RESET"
+	printf "  %sPlugin Directory:%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
+	printf "  %s%s%s\n" "$_ZESW_CLR_DIM" "$_EDIT_SELECT_PLUGIN_DIR" "$_ZESW_CLR_RESET"
 
 	_zesw_prompt_continue
 }
 
 function edit-select::config-wizard() {
 	_zesw_init_colors
-
-	if [[ -z $EDIT_SELECT_CLIPBOARD_TYPE ]]; then
-		typeset -g EDIT_SELECT_CLIPBOARD_TYPE="auto-detect"
-	fi
-
-	if [[ -z $_EDIT_SELECT_CLIPBOARD_BACKEND ]]; then
-		_zesw_detect_clipboard_backend
-	fi
-	_zesw_apply_clipboard_metadata
 
 	if [[ -z $EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
@@ -601,12 +491,11 @@ function edit-select::config-wizard() {
 		edit-select::show-menu
 		read -r choice
 		case "$choice" in
-			1) edit-select::configure-clipboard ;;
-			2) edit-select::configure-mouse-replacement ;;
-			3) edit-select::configure-keybindings ;;
-			4) edit-select::view-config ;;
-			5) edit-select::reset-config ;;
-			6)
+			1) edit-select::configure-mouse-replacement ;;
+			2) edit-select::configure-keybindings ;;
+			3) edit-select::view-config ;;
+			4) edit-select::reset-config ;;
+			5)
 				clear
 				local exit_msg="Configuration Saved" width=62
 				local padding=$(( (width - ${#exit_msg}) / 2 ))
@@ -617,7 +506,7 @@ function edit-select::config-wizard() {
 				_zesw_info "Your changes are active and will persist across shell sessions"
 				break
 				;;
-			*) _zesw_error "Invalid choice. Please enter a number between 1-6."; _zesw_prompt_continue ;;
+			*) _zesw_error "Invalid choice. Please enter a number between 1-5."; _zesw_prompt_continue ;;
 		esac
 	done
 }
