@@ -4,7 +4,7 @@ Zsh plugin for Modern text selection and editing for Zsh command line. Select te
 type-to-replace, paste-to-replace, mouse selection integration, and clipboard integration for copy/cut/paste
 like in GUI text editors.
 
-![Demo](media/demo.gif)
+https://github.com/user-attachments/assets/e92c07e3-532b-4f63-90a2-5f45cf488fb1
 
 ---
 
@@ -12,8 +12,8 @@ like in GUI text editors.
 
 - [Overview](#overview)
 - [Features](#features)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
+- [Auto Installation](#auto-installation)
+- [Manual Installation](#manual-installation)
 - [Configuration Wizard](#configuration-wizard)
 - [Terminal Setup](#terminal-setup)
   - [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut)
@@ -167,7 +167,80 @@ clipboard operations:
 
 ---
 
-## Quick Start
+---
+
+## Auto Installation
+
+The easiest way to install **Zsh Edit-Select** is using the automated installation script. This intelligent script detects your environment (X11, Wayland, or XWayland), installs necessary dependencies, configures the plugin, and even sets up your terminal emulator.
+
+To install, simply run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install.sh -o install.sh && chmod +x install.sh && bash install.sh
+```
+
+### Key Features
+
+The installer is designed for reliability and system safety:
+
+- **Idempotency**: The script checks your configuration files before making changes. It can be run multiple times without creating duplicate entries or corrupting files.
+- **System Safety**: Creates timestamped backups of every file before modification. Implements standard signal trapping (INT, TERM, EXIT) to ensure cleanups even if interrupted.
+- **optimized Compilation**: Builds the monitoring daemons locally using `-O3 -march=native -flto`, ensuring the binary is tailored specifically to your CPU architecture for minimum latency.
+- **Universal Compatibility**: specific support for 11 different package managers (including `apt`, `dnf`, `pacman`, `zypper`, `apk`, and `nix`) across X11 and Wayland environments.
+
+### Automated Capabilities
+
+The script handles the end-to-end setup process:
+
+| Category | Automated Actions |
+| :--- | :--- |
+| **Dependencies** | - Installs system packages (`git`, `zsh`, `gcc`, `make`, `xclip`/`wl-clipboard`)<br>- Detects your OS (Debian, Fedora, Arch, etc.) and uses the correct package manager (`apt`, `dnf`, `pacman`) |
+| **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Installs Oh My Zsh** automatically if you don't have a plugin manager<br>- *Note: It does not install other managers like Zinit/Antigen; install those first if you prefer them over OMZ.* |
+| **Compilation** | - Downloads and **compiles** the custom C monitor daemons (`zes-x11-monitor` / `zes-wl-monitor`)<br>- Optimizes binaries for your specific architecture |
+| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes |
+| **Safeguards** | - Checks for conflicting keybindings in your `.zshrc`<br>- Verifies the installation with a self-test suite |
+
+
+<details>
+<summary><b>Advanced Usage & Options</b></summary>
+
+You can customize the installation behavior with command-line flags. To use them, download the script first or pass them to bash:
+
+| Option | Description |
+| :--- | :--- |
+| `--non-interactive` | Run in headless mode without user prompts (accepts all defaults) |
+| `--skip-deps` | Skip installing system dependencies (useful if you manage packages manually) |
+| `--skip-conflicts` | Skip the configuration conflict detection phase |
+| `--skip-verify` | Skip the post-installation verification tests |
+| `--help` | Show the help message and exit |
+
+**Example: Non-interactive installation (CI/CD friendly)**
+```bash
+bash auto-install.sh --non-interactive
+```
+
+</details>
+
+
+<details>
+<summary><b>Installation Output</b></summary>
+
+The script provides detailed, color-coded feedback for every step:
+- **✅ Success**: Step completed successfully
+- **⚠️ Warning**: Non-critical issue (e.g., optional component missing)
+- **❌ Error**: Critical failure that requires attention
+
+At the end, you'll receive a **Summary Report** listing all installed components and any manual steps required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
+
+</details>
+
+> **Troubleshooting / Manual Preference:** If the automated installation fails or if you prefer to configure everything yourself, you can follow the comprehensive [Manual Installation](#manual-installation) and [Terminal Setup](#terminal-setup) guides below.
+
+---
+
+## Manual Installation
+
+> **Tip:** The [Auto Installation](#auto-installation) script handles all these steps automatically (dependencies, plugin installation, compiling custom monitor daemons). You only need this section if you prefer full manual control or if the auto-installer fails.
 
 ### 1. Prerequisites (Build Dependencies)
 
@@ -306,7 +379,14 @@ sudo dnf install gcc make libX11-devel libXfixes-devel wayland-devel wayland-pro
 
 ### 2. Install the Plugin
 
-**Oh My Zsh:** (for other plugin managers check [Installation](#installation))
+
+> **Important:** Before installing, please ensure you have the required [Build Dependencies](#1-prerequisites-build-dependencies) installed.
+
+<details>
+<summary><b>Oh My Zsh</b></summary>
+
+Expand your plugin manager:
+
 
 ```bash
 git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
@@ -314,67 +394,6 @@ git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
 ```
 
 Add to your `.zshrc`:
-
-```bash
-plugins=(... zsh-edit-select)
-```
-
-**Manual:**
-
-```bash
-git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
-  ~/.local/share/zsh/plugins/zsh-edit-select
-
-# Add to ~/.zshrc:
-source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
-```
-
-### 3. Configure Your Terminal
-
-Some terminals need configuration to support Shift selection. See [Terminal Setup](#terminal-setup) for
-details.
-
-### 4. Restart Your Shell
-
-```bash
-source ~/.zshrc
-```
-
-> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
-> features to work correctly, especially in some terminal emulators.
-
-**You're ready!** Try selecting text with Shift + Arrow keys.
-
-### 5. (Optional) Customize Settings
-
-The plugin works immediately with sensible defaults, but you can customize:
-
-- Mouse replacement behavior
-- Keybindings (Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+Shift+Z)
-
-Run the interactive configuration wizard:
-
-```bash
-edit-select config
-```
-
----
-
-
-
-## Installation
-
-> **Important:** Before installing, please ensure you have the required [Build Dependencies](#1-prerequisites-build-dependencies) installed.
-
-<details>
-<summary><b>Oh My Zsh</b></summary>
-
-```bash
-git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
-  ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select
-```
-
-Add to `.zshrc`:
 
 ```bash
 plugins=(... zsh-edit-select)
@@ -412,6 +431,36 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 ```
 
 </details>
+
+
+### 3. Configure Your Terminal
+
+Some terminals need configuration to support Shift selection. See [Terminal Setup](#terminal-setup) for
+details.
+
+### 4. Restart Your Shell
+
+```bash
+source ~/.zshrc
+```
+
+> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
+> features to work correctly, especially in some terminal emulators.
+
+**You're ready!** Try selecting text with Shift + Arrow keys.
+
+### 5. (Optional) Customize Settings
+
+The plugin works immediately with sensible defaults, but you can customize:
+
+- Mouse replacement behavior
+- Keybindings (Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+Shift+Z)
+
+Run the interactive configuration wizard:
+
+```bash
+edit-select config
+```
 
 ---
 
@@ -590,6 +639,8 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 ---
 
 ## Terminal Setup
+
+> **Tip:** The [Auto Installation](#auto-installation) script can automatically configure supported terminals (Kitty, WezTerm, Alacritty, Foot, VS Code) for you.
 
 <details>
 <summary><b>How to Find Escape Sequences</b></summary>
@@ -980,6 +1031,8 @@ shortcuts for the clipboard the same as the other terminals.
 
 ## Wayland Support
 
+> **Tip:** The [Auto Installation](#auto-installation) script automatically detects your environment and builds the correct optimized monitor daemon.
+
 Wayland is fully supported with native protocol implementation. The plugin automatically detects your Wayland
 setup and uses the optimal selection monitor:
 
@@ -1323,7 +1376,7 @@ speed** with careful attention to minimize overhead at every level.
 
 **Compiled Native Code Performance**
 
-- Custom C daemons compiled with `-O2` optimization flags
+- Custom C daemons compiled with aggressive optimization flags (`-O3`, `-march=native`, `-flto`)
 - Direct system calls without Zsh interpreter overhead
 - No subprocess spawning on clipboard operations
 - Minimal dependencies (only system libraries)
@@ -1566,7 +1619,7 @@ for this plugin, providing **measurable performance improvements** across all pl
 - ✅ **No External Dependencies** — Custom monitors eliminate need for `xclip` or `wl-copy`/`wl-paste`
 - ✅ **Direct Protocol Access** — Native Wayland and X11 communication without subprocess overhead
 - ✅ **File-Based Synchronization** — Cached data read via fast file I/O instead of process spawning
-- ✅ **Compiled Optimization** — C code compiled with `-O2` flags for maximum performance
+- ✅ **Compiled Optimization** — C code compiled with aggressive `-O3` + LTO flags for maximum performance
 - ✅ **Event-Driven Architecture** — Instant notification of selection changes, zero polling
 
 </details>
@@ -1637,7 +1690,7 @@ verified through comprehensive benchmarking with real-world measurements.
 > during interactive use.
 
 > **Run Benchmarks Yourself:** You can verify these performance claims by running the benchmark suite
-> yourself. See the [`benchmarks/`](benchmarks/) directory for comprehensive C-based benchmarking tools and
+> yourself. See the [`assets/benchmarks/`](assets/benchmarks/) directory for comprehensive C-based benchmarking tools and
 > detailed instructions. The suite compares our custom implementations against standard tools (`xclip`,
 > `wl-copy`/`wl-paste`) with precise timing and multiple test scenarios.
 
@@ -1750,9 +1803,9 @@ All platforms now achieve:
 - ✅ **Minimal startup overhead** — One-time initialization, zero per-operation cost
 - ✅ **Event-driven responsiveness** — Instant reaction to selection changes
 
-> **Technical Excellence:** Every component optimized for maximum performance—from compiler flags (`-O2`) to
-> protocol selection to operation ordering. The result is a plugin that feels instant and responsive in every
-> interaction, with measurable proof of performance superiority.
+> **Technical Excellence:** Every component optimized for maximum performance—from compiler flags (`-O3`,
+> `-march=native`, `-flto`) to protocol selection to operation ordering. The result is a plugin that feels
+> instant and responsive in every interaction, with measurable proof of performance superiority.
 
 ---
 
@@ -1880,19 +1933,19 @@ The plugin compiles monitors automatically on first use. To manually build them:
 
 **X11 Monitor:**
 ```bash
-cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-x11/backends/x11
+cd ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select/impl-x11/backends/x11
 make
 ```
 
 **Wayland Monitor:**
 ```bash
-cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wayland/backends/wayland
+cd ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select/impl-wayland/backends/wayland
 make
 ```
 
 **XWayland Monitor:**
 ```bash
-cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wayland/backends/x11
+cd ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select/impl-wayland/backends/x11
 make
 ```
 
@@ -1908,6 +1961,26 @@ make clean && make
 >
 > If compilation fails, the plugin will fall back to using external clipboard tools (`xclip` for X11, `wl-clipboard` for Wayland).
 
+**Build Optimization:**
+
+The default Makefiles already compile with aggressive optimization flags for maximum runtime performance:
+
+| Flag | Purpose |
+|------|---------|
+| `-O3` | Maximum compiler optimization level |
+| `-march=native` | CPU-specific instruction set (SSE, AVX, etc.) |
+| `-mtune=native` | CPU-specific scheduling optimizations |
+| `-flto` | Link-time optimization across compilation units |
+| `-ffunction-sections -fdata-sections` | Granular dead code elimination |
+| `-Wl,--gc-sections` | Remove unused functions/data at link time |
+| `-fomit-frame-pointer` | Free up a register for better performance |
+| `-fno-plt` | Eliminate PLT indirection for faster library calls |
+| `-s` | Strip symbols for smaller production binaries |
+
+> **Important:** `-march=native` produces binaries optimized for the CPU you're building on.
+> These binaries may not run correctly on different CPU architectures. For distributed builds,
+> replace `-march=native -mtune=native` with a portable baseline like `-march=x86-64-v2`.
+
 </details>
 
 ---
@@ -1920,18 +1993,16 @@ This project is licensed under the [MIT License](http://opensource.org/licenses/
 
 ## Acknowledgments
 
-#### This project Began as a fork ([Michael-Matta1/zsh-shift-select](https://github.com/Michael-Matta1/zsh-shift-select)) of [jirutka/zsh-shift-select](https://github.com/jirutka/zsh-shift-select)
-- The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin only supported deleting selected text and did not offer copying by default.
-
-- This feature was frequently requested by the community, as shown in
+- #### This project Began as a fork ([Michael-Matta1/zsh-shift-select](https://github.com/Michael-Matta1/zsh-shift-select)) of [jirutka/zsh-shift-select](https://github.com/jirutka/zsh-shift-select)
+  + The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin only supported deleting selected text and did not offer copying by default. This feature was frequently requested by the community, as shown in
 [issue #8](https://github.com/jirutka/zsh-shift-select/issues/8) and
 [issue #10](https://github.com/jirutka/zsh-shift-select/issues/10).
 
-- Since then, the project has evolved with its own new features, enhancements, bug fixes, design improvements,
+  + Since then, the project has evolved with its own new features, enhancements, bug fixes, design improvements,
 and a fully changed codebase, and it now provides a full editor-like experience.
 
 
-#### The [primary-selection-unstable-v1.xml](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml) protocol definition is Copyright © 2015, 2016 Red Hat.
+- #### The [primary-selection-unstable-v1.xml](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml) protocol definition is Copyright © 2015, 2016 Red Hat.
 
 ---
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env zsh
-# X11 Performance Benchmark Runner
+# Wayland Performance Benchmark Runner
 # Comprehensive testing with clean output (no ANSI codes, no sensitive data)
 
 SCRIPT_DIR="${0:A:h}"
-BENCH_BIN="${SCRIPT_DIR}/x11-benchmark"
-DAEMON_BIN="${SCRIPT_DIR}/../impl-x11/backends/x11/zes-x11-selection-monitor"
+BENCH_BIN="${SCRIPT_DIR}/wayland-benchmark"
+DAEMON_BIN="${SCRIPT_DIR}/../../impl-wayland/backends/wayland/zes-wl-selection-monitor"
 RESULTS_DIR="${SCRIPT_DIR}/results"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-RESULTS_FILE="${RESULTS_DIR}/x11-benchmark-${TIMESTAMP}.txt"
-RESULTS_FILE_CLEAN="${RESULTS_DIR}/x11-benchmark-${TIMESTAMP}-clean.txt"
+RESULTS_FILE="${RESULTS_DIR}/wayland-benchmark-${TIMESTAMP}.txt"
+RESULTS_FILE_CLEAN="${RESULTS_DIR}/wayland-benchmark-${TIMESTAMP}-clean.txt"
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -25,18 +25,20 @@ sanitize_sensitive_data() {
     sed -e "s|$HOME|~|g" \
         -e "s|$(hostname)||g" \
         -e "s|$USER|user|g" \
-        -e "s|$DISPLAY|:0|g" \
+        -e "s|$WAYLAND_DISPLAY|wayland-0|g" \
+        -e "s|$XDG_SESSION_TYPE|wayland|g" \
         -e "s|Hostname:.*|Hostname: [REDACTED]|" \
-        -e "s|Display:.*|Display: X11|" \
+        -e "s|Display:.*|Display: Wayland|" \
+        -e "s|Session:.*|Session: Wayland|" \
         -e "s|Shell:.*|Shell: zsh|" \
-        -e "s|Daemon:.*|Daemon: zes-selection-monitor|"
+        -e "s|Daemon:.*|Daemon: zes-wl-selection-monitor|"
 }
 
 print_header() {
     echo ""
     echo "${BLUE}═══════════════════════════════════════════════════════${NC}"
     echo "${BLUE}  ZSH Edit-Select Performance Benchmark Suite${NC}"
-    echo "${BLUE}         X11 Clipboard Operations${NC}"
+    echo "${BLUE}         Wayland Clipboard Operations${NC}"
     echo "${BLUE}═══════════════════════════════════════════════════════${NC}"
     echo ""
 }
@@ -44,28 +46,28 @@ print_header() {
 check_requirements() {
     local all_ok=true
 
-    if [[ -z "$DISPLAY" ]]; then
-        echo "${RED}✗ Error: DISPLAY not set. This benchmark requires X11.${NC}"
+    if [[ -z "$WAYLAND_DISPLAY" ]]; then
+        echo "${RED}✗ Error: WAYLAND_DISPLAY not set. This benchmark requires Wayland.${NC}"
         return 1
     fi
 
     if [[ ! -x "$DAEMON_BIN" ]]; then
-        echo "${RED}✗ Error: zes-x11-selection-monitor not found or not executable${NC}"
+        echo "${RED}✗ Error: zes-wl-selection-monitor not found or not executable${NC}"
         echo "  Path: $DAEMON_BIN"
-        echo "  Please build it first: cd ../impl-x11/backends/x11 && make"
+        echo "  Please build it first: cd ../../impl-wayland/backends/wayland && make"
         return 1
     fi
 
-    if ! command -v xclip &>/dev/null; then
-        echo "${YELLOW}⚠ Warning: xclip not found.${NC}"
-        echo "  Install it for comparison benchmarks: sudo apt install xclip"
+    if ! command -v wl-copy &>/dev/null; then
+        echo "${YELLOW}⚠ Warning: wl-copy not found.${NC}"
+        echo "  Install it for comparison benchmarks: sudo apt install wl-clipboard"
         all_ok=false
     fi
 
     if [[ ! -f "$BENCH_BIN" ]]; then
         echo "${YELLOW}⚠ Building benchmark tool...${NC}"
         cd "$SCRIPT_DIR"
-        if ! make &>/dev/null; then
+        if ! make wayland-benchmark &>/dev/null; then
             echo "${RED}✗ Error: Failed to build benchmark tool${NC}"
             return 1
         fi
@@ -85,7 +87,8 @@ print_system_info() {
     echo "${BOLD}System Information:${NC}"
     echo "  Date: $(date)"
     echo "  Hostname: $(hostname)"
-    echo "  Display: $DISPLAY"
+    echo "  Display: $WAYLAND_DISPLAY"
+    echo "  Session: $XDG_SESSION_TYPE"
     echo "  Shell: $SHELL $ZSH_VERSION"
     echo "  Daemon: $DAEMON_BIN"
     echo ""
@@ -125,27 +128,27 @@ run_memory_benchmark() {
         echo "    RSS: ${mem_kb} KB (${mem_mb} MB)"
         echo ""
 
-        # Compare with xclip (run it once and measure)
-        if command -v xclip &>/dev/null; then
-            echo "test" | xclip -selection clipboard -in &
-            local xclip_pid=$!
+        # Compare with wl-copy (run it once and measure)
+        if command -v wl-copy &>/dev/null; then
+            echo "test" | wl-copy &
+            local wlcopy_pid=$!
             sleep 0.1
-            if [[ -d "/proc/$xclip_pid" ]]; then
-                local xclip_mem_kb=$(awk '/VmRSS/{print $2}' /proc/$xclip_pid/status 2>/dev/null || echo "0")
-                local xclip_mem_mb=$((xclip_mem_kb / 1024))
-                echo "  xclip Memory Usage (for comparison):"
-                echo "    RSS: ${xclip_mem_kb} KB (${xclip_mem_mb} MB)"
+            if [[ -d "/proc/$wlcopy_pid" ]]; then
+                local wlcopy_mem_kb=$(awk '/VmRSS/{print $2}' /proc/$wlcopy_pid/status 2>/dev/null || echo "0")
+                local wlcopy_mem_mb=$((wlcopy_mem_kb / 1024))
+                echo "  wl-copy Memory Usage (for comparison):"
+                echo "    RSS: ${wlcopy_mem_kb} KB (${wlcopy_mem_mb} MB)"
                 echo ""
 
-                local diff=$(((mem_kb - xclip_mem_kb)))
+                local diff=$(((mem_kb - wlcopy_mem_kb)))
                 if ((diff < 0)); then
-                    echo "  ${GREEN}✓ Custom daemon uses $((xclip_mem_kb - mem_kb)) KB LESS memory${NC}"
+                    echo "  ${GREEN}✓ Custom daemon uses $((wlcopy_mem_kb - mem_kb)) KB LESS memory${NC}"
                 else
                     echo "  ${YELLOW}⚠ Custom daemon uses $diff KB more memory${NC}"
-                    echo "    (Note: daemon is persistent, xclip exits immediately)"
+                    echo "    (Note: daemon is persistent, wl-copy exits immediately)"
                 fi
             fi
-            wait $xclip_pid 2>/dev/null
+            wait $wlcopy_pid 2>/dev/null
         fi
 
         echo ""

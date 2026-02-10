@@ -62,7 +62,7 @@ Results are saved to `results/` with both raw and sanitized output files.
 sudo apt install build-essential xclip
 
 # Build daemon (if not already built)
-cd ../impl-x11/backends/x11
+cd ../../impl-x11/backends/x11
 make
 ```
 
@@ -85,7 +85,7 @@ make
 sudo apt install build-essential wl-clipboard
 
 # Build daemon (if not already built)
-cd ../impl-wayland/backends/wayland
+cd ../../impl-wayland/backends/wayland
 make
 ```
 
@@ -317,7 +317,7 @@ make clean        # Clean all
 ```
 
 > **Note:** The plugin automatically compiles monitors on first use.
-> If you want to rebuild manually: `cd ../impl-x11/backends/x11 && make clean && make`
+> If you want to rebuild manually: `cd ../../impl-x11/backends/x11 && make clean && make`
 
 </details>
 
@@ -330,10 +330,10 @@ Build the daemon first:
 
 ```bash
 # For X11
-cd ../impl-x11/backends/x11 && make
+cd ../../impl-x11/backends/x11 && make
 
 # For Wayland
-cd ../impl-wayland/backends/wayland && make
+cd ../../impl-wayland/backends/wayland && make
 ```
 
 </details>

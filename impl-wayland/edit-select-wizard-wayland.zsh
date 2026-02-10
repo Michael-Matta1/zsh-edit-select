@@ -1,6 +1,10 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.5.3
+# Version: 0.5.6
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
+
+
+# Configuration & Constants
+
 
 typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select/config"
 typeset -g _EDIT_SELECT_WIZARD_DIR="${0:A:h}"
@@ -10,36 +14,304 @@ typeset -g _EDIT_SELECT_WIZARD_DIR="${0:A:h}"
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_UNDO+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_UNDO='^Z'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_REDO+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_REDO='^[[90;6u'
 
+
+# Color & Visual Utilities
+
+
 function _zesw_init_colors() {
 	[[ -n $_ZESW_CLR_ACCENT ]] && return
-	autoload -Uz colors && colors >/dev/null 2>&1 || true
+	autoload -Uz colors && colors > /dev/null 2>&1 || true
 	typeset -g _ZESW_CLR_ACCENT="${fg_bold[cyan]:-}"
 	typeset -g _ZESW_CLR_HILITE="${fg_bold[green]:-}"
 	typeset -g _ZESW_CLR_WARN="${fg_bold[red]:-}"
 	typeset -g _ZESW_CLR_DIM="${fg[245]:-}"
 	typeset -g _ZESW_CLR_RESET="${reset_color:-}"
+	typeset -g _ZESW_CLR_BORDER='\033[38;2;100;150;255m'
+	typeset -g _ZESW_CLR_BLUE='\033[38;2;100;150;255m'
+	typeset -g _ZESW_RESET='\033[0m'
+	typeset -g _ZESW_BOLD='\033[1m'
+
+	# Performance optimization: Pre-cache gradient colors in associative array
+	typeset -g -A _ZESW_GRADIENT_CACHE
+	_ZESW_GRADIENT_CACHE[cyan]='\033[38;2;0;255;255m'
+	_ZESW_GRADIENT_CACHE[c1]='\033[38;2;14;245;255m'
+	_ZESW_GRADIENT_CACHE[c2]='\033[38;2;29;235;255m'
+	_ZESW_GRADIENT_CACHE[c3]='\033[38;2;43;225;255m'
+	_ZESW_GRADIENT_CACHE[c4]='\033[38;2;57;215;255m'
+	_ZESW_GRADIENT_CACHE[c5]='\033[38;2;71;195;255m'
+	_ZESW_GRADIENT_CACHE[c6]='\033[38;2;86;175;255m'
+	_ZESW_GRADIENT_CACHE[blue]='\033[38;2;100;150;255m'
+}
+
+# RGB color helper for gradients
+function _zesw_rgb() { printf "\033[38;2;${1};${2};${3}m"; }
+
+# Animated loading indicator
+function _zesw_loading() {
+	local msg="$1"
+	local duration="${2:-1}"
+	printf "%s⚙%s  %s" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$msg"
+	local i
+	for i in {1..$duration}; do
+		sleep 0.15
+		printf "."
+	done
+	printf " %s✓%s\n" "$_ZESW_CLR_HILITE" "$_ZESW_CLR_RESET"
 }
 
 function _zesw_banner() {
-	clear
-	local title="$1" width=62
-	local padding=$(( (width - ${#title}) / 2 ))
-	local padded_title="$(printf '%*s' $padding '')${title}$(printf '%*s' $((width - ${#title} - padding)) '')"
-	printf "\n%s╔══════════════════════════════════════════════════════════════╗%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-	printf "%s║%s%s%s║%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_HILITE" "$padded_title" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-	printf "%s╚══════════════════════════════════════════════════════════════╝%s\n\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+	# Clear screen and scrollback buffer
+	printf '\033[2J\033[3J\033[H'
+
+	local RESET='\033[0m'
+	local BOLD='\033[1m'
+
+	# Gradient colors (pre-defined for each line for performance)
+	local -a colors
+	colors=(
+		'\033[38;2;0;255;255m'    # Line 1: Cyan
+		'\033[38;2;0;230;255m'    # Line 2
+		'\033[38;2;0;200;255m'    # Line 3
+		'\033[38;2;0;170;255m'    # Line 4
+		'\033[38;2;0;140;255m'    # Line 5
+		'\033[38;2;0;110;255m'    # Line 6: Blue
+		''                         # Line 7: Empty
+		'\033[38;2;100;255;100m'  # Line 8: Green
+		'\033[38;2;100;255;150m'  # Line 9
+		'\033[38;2;100;230;200m'  # Line 10
+		'\033[38;2;100;200;230m'  # Line 11
+		'\033[38;2;100;170;255m'  # Line 12
+		'\033[38;2;100;140;255m'  # Line 13: Blue
+	)
+
+	# ASCII art lines
+	local -a art_lines
+	art_lines=(
+		"           ███████╗███████╗██╗  ██╗    ███████╗██████╗ ██╗████████╗        "
+		"           ╚══███╔╝██╔════╝██║  ██║    ██╔════╝██╔══██╗██║╚══██╔══╝        "
+		"             ███╔╝ ███████╗███████║    █████╗  ██║  ██║██║   ██║           "
+		"            ███╔╝  ╚════██║██╔══██║    ██╔══╝  ██║  ██║██║   ██║           "
+		"           ███████╗███████║██║  ██║    ███████╗██████╔╝██║   ██║           "
+		"           ╚══════╝╚══════╝╚═╝  ╚═╝    ╚══════╝╚═════╝ ╚═╝   ╚═╝           "
+		""
+		"              ███████╗███████╗██╗     ███████╗ ██████╗████████╗            "
+		"              ██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝            "
+		"              ███████╗█████╗  ██║     █████╗  ██║        ██║               "
+		"              ╚════██║██╔══╝  ██║     ██╔══╝  ██║        ██║               "
+		"              ███████║███████╗███████╗███████╗╚██████╗   ██║               "
+		"              ╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝               "
+	)
+
+	# 10-segment gradient colors for smooth transition (cyan to blue)
+	local c1='\033[38;2;0;255;255m'
+	local c2='\033[38;2;11;245;255m'
+	local c3='\033[38;2;22;235;255m'
+	local c4='\033[38;2;33;225;255m'
+	local c5='\033[38;2;44;215;255m'
+	local c6='\033[38;2;56;203;255m'
+	local c7='\033[38;2;67;191;255m'
+	local c8='\033[38;2;78;179;255m'
+	local c9='\033[38;2;89;167;255m'
+	local c10='\033[38;2;100;150;255m'
+
+	# Build border with exactly 75 '═' characters (5×8 + 5×7 across 10 gradient stops)
+	local top_border="${c1}╔════════${c2}════════${c3}═══════${c4}════════${c5}═══════${c6}════════${c7}═══════${c8}════════${c9}═══════${c10}═══════╗"
+	local bottom_border="${c1}╚════════${c2}════════${c3}═══════${c4}════════${c5}═══════${c6}════════${c7}═══════${c8}════════${c9}═══════${c10}═══════╝"
+
+	# Print banner
+	printf "\n${top_border}${RESET}\n"
+	printf "${c1}║${RESET}                                                                           ${c10}║${RESET}\n"
+
+	# Print ASCII art with gradient
+	local i
+	for i in {1..${#art_lines[@]}}; do
+		if [[ -z "${art_lines[$i]}" ]]; then
+			printf "${c1}║${RESET}                                                                           ${c10}║${RESET}\n"
+		else
+			printf "${c1}║${RESET}${colors[$i]}${art_lines[$i]}${RESET}${c10}║${RESET}\n"
+		fi
+	done
+
+	# Subtitle with gradient
+	printf "${c1}║${RESET}                                                                           ${c10}║${RESET}\n"
+	printf "${c1}║${RESET}\033[38;2;255;200;100m${BOLD}                            Configuration Wizard                           ${RESET}${c10}║${RESET}\n"
+	printf "${c1}║${RESET}                                                                           ${c10}║${RESET}\n"
+
+	# Bottom border
+	printf "${bottom_border}${RESET}\n\n"
 }
 
-function _zesw_prompt_continue() { printf "\n%s▶ Press Enter to continue...%s " "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; read -r; }
-function _zesw_print_option() { printf "  %s%2s.%s %s\n" "$_ZESW_CLR_HILITE" "$1" "$_ZESW_CLR_RESET" "$2"; }
-function _zesw_input_prompt() { printf "\n%s▶%s %s " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"; }
-function _zesw_status_line() { printf "  %s●%s %-18s %s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET" "$1:" "$2"; }
-function _zesw_success() { printf "\n%s✓%s %s\n" "$_ZESW_CLR_HILITE" "$_ZESW_CLR_RESET" "$1"; }
-function _zesw_error() { printf "\n%s✗%s %s\n" "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1"; }
-function _zesw_section_header() { printf "\n%s─── %s ───%s\n" "$_ZESW_CLR_ACCENT" "$1" "$_ZESW_CLR_RESET"; }
-function _zesw_separator() { printf "%s────────────────────────────────────────────────────────────────%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; }
-function _zesw_info() { printf "  %s ℹ%s  %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"; }
-function _zesw_confirm_prompt() { printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"; }
+# Enhanced success box with smooth gradient and pulse/glow animation
+function _zesw_success_box() {
+	local msg="$1"
+	local show_animation="${2:-true}"  # Enable pulse animation by default
+
+	local gradient_msg="" i char r g b progress
+
+	# Create gradient for the text
+	for (( i=0; i<${#msg}; i++ )); do
+		char="${msg:$i:1}"
+		progress=$(( i * 100 / ${#msg} ))
+		r=$(( 0 + 150 * progress / 100 ))     # 0 -> 150
+		g=$(( 255 ))                           # constant 255
+		b=$(( 255 - 200 * progress / 100 ))   # 255 -> 55
+		gradient_msg+="\033[38;2;${r};${g};${b}m${char}"  # Inlined: avoid subshell per-char
+	done
+
+	# Add padding
+	local width=62
+	local padding=$(( (width - ${#msg}) / 2 ))
+	local padded_gradient="$(printf '%*s' $padding '')${gradient_msg}$(printf '%*s' $((width - ${#msg} - padding)) '')"
+
+	# Smooth gradient colors (8 layers for smooth transition)
+	local c1='\033[38;2;0;255;255m'      # Cyan
+	local c2='\033[38;2;14;245;255m'
+	local c3='\033[38;2;29;235;255m'
+	local c4='\033[38;2;43;225;255m'
+	local c5='\033[38;2;57;215;255m'
+	local c6='\033[38;2;71;195;255m'
+	local c7='\033[38;2;86;175;255m'
+	local c8='\033[38;2;100;150;255m'    # Blue
+
+	# Build borders with 8-segment gradient (62 chars: 6×8 + 2×7 = 62)
+	local top_border="${c1}╔════════${c2}════════${c3}════════${c4}════════${c5}════════${c6}════════${c7}═══════${c8}═══════╗"
+	local bottom_border="${c1}╚════════${c2}════════${c3}════════${c4}════════${c5}════════${c6}════════${c7}═══════${c8}═══════╝"
+
+	# Pulse/glow animation if enabled
+	if [[ "$show_animation" == "true" ]]; then
+		# Show 3 pulse frames
+		local glow1='\033[38;2;150;220;255m'
+		local glow2='\033[38;2;100;200;255m'
+		local glow3='\033[38;2;50;180;255m'
+
+		# Frame 1: Bright glow
+		printf "\033[s"  # Save cursor position
+		printf "\n${top_border}${_ZESW_RESET}\n"
+		printf "${glow1}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${glow1}║${_ZESW_RESET}\n"
+		printf "${bottom_border}${_ZESW_RESET}\n"
+		sleep 0.08
+
+		# Frame 2: Medium glow
+		printf "\033[u"  # Restore cursor position
+		printf "\n${top_border}${_ZESW_RESET}\n"
+		printf "${glow2}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${glow2}║${_ZESW_RESET}\n"
+		printf "${bottom_border}${_ZESW_RESET}\n"
+		sleep 0.08
+
+		# Frame 3: Subtle glow
+		printf "\033[u"  # Restore cursor position
+		printf "\n${top_border}${_ZESW_RESET}\n"
+		printf "${glow3}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${glow3}║${_ZESW_RESET}\n"
+		printf "${bottom_border}${_ZESW_RESET}\n"
+		sleep 0.08
+
+		# Final state: Standard gradient borders
+		printf "\033[u"  # Restore cursor position
+	fi
+
+	# Display final state
+	printf "\n${top_border}${_ZESW_RESET}\n"
+	printf "${c1}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${c8}║${_ZESW_RESET}\n"
+	printf "${bottom_border}${_ZESW_RESET}\n"
+}
+
+
+# UI Helper Functions
+
+
+function _zesw_prompt_continue() {
+	printf "\n%s▶ Press Enter to continue...%s " "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
+	read -r
+}
+
+function _zesw_print_option() {
+	printf "  %s%2s.%s %s\n" "$_ZESW_CLR_HILITE" "$1" "$_ZESW_CLR_RESET" "$2"
+}
+
+function _zesw_input_prompt() {
+	printf "\n%s▶%s %s " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"
+}
+
+function _zesw_status_line() {
+	printf "  %s●%s %-18s %s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET" "$1:" "$2"
+}
+
+function _zesw_success() {
+	printf "\n%s✓%s %s\n" "$_ZESW_CLR_HILITE" "$_ZESW_CLR_RESET" "$1"
+}
+
+function _zesw_error() {
+	printf "\n%s✗%s %s\n" "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1"
+}
+
+function _zesw_section_header() {
+	printf "\n%s─── %s ───%s\n" "$_ZESW_CLR_ACCENT" "$1" "$_ZESW_CLR_RESET"
+}
+
+function _zesw_separator() {
+	printf "%s────────────────────────────────────────────────────────────────%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
+}
+
+function _zesw_info() {
+	printf "  %s ℹ%s  %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$1"
+}
+
+function _zesw_confirm_prompt() {
+	printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
+}
+
+# Input validation helper
+function _zesw_validate_choice() {
+	local choice="$1" min="$2" max="$3"
+	[[ "$choice" =~ ^[0-9]+$ ]] || return 1
+	(( choice >= min && choice <= max )) || return 1
+	return 0
+}
+
+# Key capture function for custom keybindings
+function _zesw_capture_key() {
+	local -n result_var=$1
+	local key_sequence=""
+
+	printf "%s▶%s Press the key combination you want to use: " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+
+	# Read raw key input
+	read -k 1 key_sequence
+
+	# Handle multi-byte sequences (escape sequences)
+	if [[ "$key_sequence" == $'\e' ]]; then
+		local additional=""
+		# Read additional bytes for escape sequence with timeout
+		read -t 0.1 -k 5 additional 2>/dev/null
+		key_sequence+="$additional"
+	fi
+
+	printf "\n"
+
+	# Convert to ZLE notation if needed
+	if [[ "$key_sequence" == $'\e'* ]]; then
+		# It's an escape sequence, convert to ^[ notation
+		result_var="^[${key_sequence#$'\e'}"
+	elif [[ "$key_sequence" =~ ^[[:cntrl:]]$ ]]; then
+		# It's a control character, convert to ^ notation
+		local char_code=$(printf '%d' "'$key_sequence")
+		if (( char_code < 32 )); then
+			local letter=$(printf "\\$(printf '%03o' $((char_code + 64)))")
+			result_var="^$letter"
+		else
+			result_var="$key_sequence"
+		fi
+	else
+		result_var="$key_sequence"
+	fi
+
+	# Display captured key
+	printf "%s ℹ%s  Captured key: %s%s%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$_ZESW_CLR_HILITE" "$result_var" "$_ZESW_CLR_RESET"
+}
+
+
+# Status Helper Functions
+
 
 function _zesw_get_monitor_type() {
 	case "$_ZES_MONITOR_TYPE" in
@@ -49,7 +321,13 @@ function _zesw_get_monitor_type() {
 	esac
 }
 
-function _zesw_get_mouse_status() { (( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"; }
+function _zesw_get_mouse_status() {
+	(( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"
+}
+
+
+# Configuration Management
+
 
 function edit-select::delete-config-key() {
 	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] || return
@@ -58,15 +336,33 @@ function edit-select::delete-config-key() {
 }
 
 function edit-select::save-config() {
-	mkdir -p "${_EDIT_SELECT_CONFIG_FILE:h}" >/dev/null 2>&1
+	local key="$1"
+	local value="$2"
+	local config_dir="${_EDIT_SELECT_CONFIG_FILE:h}"
+
+	# Create directory if needed
+	if [[ ! -d "$config_dir" ]]; then
+		mkdir -p "$config_dir" || {
+			_zesw_error "Failed to create config directory: $config_dir"
+			return 1
+		}
+	fi
+
+	# Read existing config
 	local -a lines
 	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] && lines=("${(@f)$(<$_EDIT_SELECT_CONFIG_FILE)}")
-	lines=("${(@)lines:#${1}=*}")
-	if [[ $1 == EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
-		lines+=("${1}=${2}")
+
+	# Remove old entry if exists
+	lines=("${(@)lines:#${key}=*}")
+
+	# Add new entry
+	if [[ $key == EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
+		lines+=("${key}=${value}")
 	else
-		lines+=("${1}=\"${2}\"")
+		lines+=("${key}=\"${value}\"")
 	fi
+
+	# Write to file
 	printf '%s\n' "${lines[@]}" > "$_EDIT_SELECT_CONFIG_FILE"
 }
 
@@ -102,8 +398,12 @@ function edit-select::apply-keybindings() {
 	fi
 }
 
+
+# Main Menu
+
+
 function edit-select::show-menu() {
-	_zesw_banner "Edit-Select Configuration Wizard"
+	_zesw_banner
 
 	_zesw_section_header "Current Configuration"
 	_zesw_status_line "Platform" "$(_zesw_get_monitor_type)"
@@ -120,9 +420,13 @@ function edit-select::show-menu() {
 	_zesw_input_prompt "Choose option (1-5):"
 }
 
+
+# Mouse Replacement Configuration
+
+
 function edit-select::configure-mouse-replacement() {
 	while true; do
-		_zesw_banner "Mouse Replacement"
+		_zesw_banner
 
 		_zesw_section_header "Current Status"
 		local mouse_status="$(_zesw_get_mouse_status)"
@@ -148,11 +452,17 @@ function edit-select::configure-mouse-replacement() {
 
 		_zesw_input_prompt "Choose option (1-3):"
 		read -r choice
+
+		if ! _zesw_validate_choice "$choice" 1 3; then
+			_zesw_error "Invalid choice. Please enter a number between 1-3."
+			_zesw_prompt_continue
+			continue
+		fi
+
 		case "$choice" in
 			1) edit-select::set-mouse-replacement enabled; return ;;
 			2) edit-select::set-mouse-replacement disabled; return ;;
 			3) return ;;
-			*) _zesw_error "Invalid choice. Please enter a number between 1-3."; _zesw_prompt_continue ;;
 		esac
 	done
 }
@@ -160,6 +470,9 @@ function edit-select::configure-mouse-replacement() {
 function edit-select::set-mouse-replacement() {
 	local value
 	[[ $1 == enabled ]] && value=1 || value=0
+
+	_zesw_loading "Applying configuration" 2
+
 	edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" "$value"
 	typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=$value
 	edit-select::apply-mouse-replacement-config
@@ -172,8 +485,12 @@ function edit-select::set-mouse-replacement() {
 	_zesw_prompt_continue
 }
 
+
+# Individual Keybinding Configuration
+
+
 function edit-select::configure-select-all() {
-	_zesw_banner "Select-All Keybinding"
+	_zesw_banner
 
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_SELECT_ALL${_ZESW_CLR_RESET}"
@@ -189,21 +506,30 @@ function edit-select::configure-select-all() {
 
 	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
+
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
+		_zesw_prompt_continue
+		return
+	fi
+
 	case "$choice" in
 		1) edit-select::set-keybinding SELECT_ALL "$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL" ;;
 		2) edit-select::set-keybinding SELECT_ALL "^[[65;6u" ;;
 		3)
 			_zesw_input_prompt "Enter key sequence (e.g., ^A or ^[[1;5A):"
 			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding SELECT_ALL "$custom" || { _zesw_error "No binding entered. Operation cancelled."; _zesw_prompt_continue; }
+			[[ -n $custom ]] && edit-select::set-keybinding SELECT_ALL "$custom" || {
+				_zesw_error "No binding entered. Operation cancelled."
+				_zesw_prompt_continue
+			}
 			;;
 		4) return ;;
-		*) _zesw_error "Invalid choice. Please enter a number between 1-4."; _zesw_prompt_continue ;;
 	esac
 }
 
 function edit-select::configure-paste() {
-	_zesw_banner "Paste Keybinding"
+	_zesw_banner
 
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_PASTE${_ZESW_CLR_RESET}"
@@ -219,21 +545,30 @@ function edit-select::configure-paste() {
 
 	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
+
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
+		_zesw_prompt_continue
+		return
+	fi
+
 	case "$choice" in
 		1) edit-select::set-keybinding PASTE "$_EDIT_SELECT_DEFAULT_KEY_PASTE" ;;
 		2) edit-select::set-keybinding PASTE "^[[86;6u" ;;
 		3)
 			_zesw_input_prompt "Enter key sequence (e.g., ^V or ^[[1;5V):"
 			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding PASTE "$custom" || { _zesw_error "No binding entered. Operation cancelled."; _zesw_prompt_continue; }
+			[[ -n $custom ]] && edit-select::set-keybinding PASTE "$custom" || {
+				_zesw_error "No binding entered. Operation cancelled."
+				_zesw_prompt_continue
+			}
 			;;
 		4) return ;;
-		*) _zesw_error "Invalid choice. Please enter a number between 1-4."; _zesw_prompt_continue ;;
 	esac
 }
 
 function edit-select::configure-cut() {
-	_zesw_banner "Cut Keybinding"
+	_zesw_banner
 
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_CUT${_ZESW_CLR_RESET}"
@@ -249,21 +584,30 @@ function edit-select::configure-cut() {
 
 	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
+
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
+		_zesw_prompt_continue
+		return
+	fi
+
 	case "$choice" in
 		1) edit-select::set-keybinding CUT "$_EDIT_SELECT_DEFAULT_KEY_CUT" ;;
 		2) edit-select::set-keybinding CUT "^[[88;6u" ;;
 		3)
 			_zesw_input_prompt "Enter key sequence (e.g., ^X or ^[[1;5X):"
 			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding CUT "$custom" || { _zesw_error "No binding entered. Operation cancelled."; _zesw_prompt_continue; }
+			[[ -n $custom ]] && edit-select::set-keybinding CUT "$custom" || {
+				_zesw_error "No binding entered. Operation cancelled."
+				_zesw_prompt_continue
+			}
 			;;
 		4) return ;;
-		*) _zesw_error "Invalid choice. Please enter a number between 1-4."; _zesw_prompt_continue ;;
 	esac
 }
 
 function edit-select::configure-undo() {
-	_zesw_banner "Undo Keybinding"
+	_zesw_banner
 
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_UNDO${_ZESW_CLR_RESET}"
@@ -278,20 +622,29 @@ function edit-select::configure-undo() {
 
 	_zesw_input_prompt "Choose option (1-3):"
 	read -r choice
+
+	if ! _zesw_validate_choice "$choice" 1 3; then
+		_zesw_error "Invalid choice. Please enter a number between 1-3."
+		_zesw_prompt_continue
+		return
+	fi
+
 	case "$choice" in
 		1) edit-select::set-keybinding UNDO "$_EDIT_SELECT_DEFAULT_KEY_UNDO" ;;
 		2)
 			_zesw_input_prompt "Enter key sequence (e.g., ^Z or ^[[1;5Z):"
 			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding UNDO "$custom" || { _zesw_error "No binding entered. Operation cancelled."; _zesw_prompt_continue; }
+			[[ -n $custom ]] && edit-select::set-keybinding UNDO "$custom" || {
+				_zesw_error "No binding entered. Operation cancelled."
+				_zesw_prompt_continue
+			}
 			;;
 		3) return ;;
-		*) _zesw_error "Invalid choice. Please enter a number between 1-3."; _zesw_prompt_continue ;;
 	esac
 }
 
 function edit-select::configure-redo() {
-	_zesw_banner "Redo Keybinding"
+	_zesw_banner
 
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_REDO${_ZESW_CLR_RESET}"
@@ -307,21 +660,33 @@ function edit-select::configure-redo() {
 
 	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
+
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
+		_zesw_prompt_continue
+		return
+	fi
+
 	case "$choice" in
 		1) edit-select::set-keybinding REDO "$_EDIT_SELECT_DEFAULT_KEY_REDO" ;;
 		2) edit-select::set-keybinding REDO "^Y" ;;
 		3)
 			_zesw_input_prompt "Enter key sequence (e.g., ^Y or ^[[1;5Y):"
 			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding REDO "$custom" || { _zesw_error "No binding entered. Operation cancelled."; _zesw_prompt_continue; }
+			[[ -n $custom ]] && edit-select::set-keybinding REDO "$custom" || {
+				_zesw_error "No binding entered. Operation cancelled."
+				_zesw_prompt_continue
+			}
 			;;
 		4) return ;;
-		*) _zesw_error "Invalid choice. Please enter a number between 1-4."; _zesw_prompt_continue ;;
 	esac
 }
 
 function edit-select::set-keybinding() {
 	[[ -z $2 ]] && return 1
+
+	_zesw_loading "Updating keybinding" 2
+
 	edit-select::save-config "EDIT_SELECT_KEY_${1}" "$2"
 	case "$1" in
 		SELECT_ALL) typeset -g EDIT_SELECT_KEY_SELECT_ALL="$2" ;;
@@ -345,18 +710,19 @@ function edit-select::set-keybinding() {
 }
 
 function edit-select::reset-keybindings() {
-	_zesw_banner "Reset Keybindings"
+	_zesw_banner
 
 	_zesw_section_header "Default Bindings"
-	_zesw_status_line "Select All" "${_ZESW_CLR_HILITE}Ctrl+A${_ZESW_CLR_RESET}"
-	_zesw_status_line "Paste" "${_ZESW_CLR_HILITE}Ctrl+V${_ZESW_CLR_RESET}"
-	_zesw_status_line "Cut" "${_ZESW_CLR_HILITE}Ctrl+X${_ZESW_CLR_RESET}"
-	_zesw_status_line "Undo" "${_ZESW_CLR_HILITE}Ctrl+Z${_ZESW_CLR_RESET}"
-	_zesw_status_line "Redo" "${_ZESW_CLR_HILITE}Ctrl+Shift+Z${_ZESW_CLR_RESET}"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Select All → Ctrl+A\n"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Paste      → Ctrl+V\n"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Cut        → Ctrl+X\n"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Undo       → Ctrl+Z\n"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Redo       → Ctrl+Shift+Z\n"
 
 	_zesw_confirm_prompt "Reset all keybindings to defaults?"
 	read -r confirm
 	if [[ $confirm =~ ^[Yy]$ ]]; then
+		_zesw_loading "Resetting keybindings" 3
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"
 		typeset -g EDIT_SELECT_KEY_CUT="$_EDIT_SELECT_DEFAULT_KEY_CUT"
@@ -375,9 +741,13 @@ function edit-select::reset-keybindings() {
 	_zesw_prompt_continue
 }
 
+
+# Keybindings Menu
+
+
 function edit-select::configure-keybindings() {
 	while true; do
-		_zesw_banner "Key Bindings"
+		_zesw_banner
 
 		_zesw_section_header "Current Bindings"
 		_zesw_status_line "Select All" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_SELECT_ALL${_ZESW_CLR_RESET}"
@@ -390,16 +760,23 @@ function edit-select::configure-keybindings() {
 
 		_zesw_section_header "Configure Individual Keys"
 		_zesw_print_option 1 "Select All ${_ZESW_CLR_DIM}— Select entire command line${_ZESW_CLR_RESET}"
-		_zesw_print_option 2 "Paste     ${_ZESW_CLR_DIM}— Insert from clipboard${_ZESW_CLR_RESET}"
-		_zesw_print_option 3 "Cut       ${_ZESW_CLR_DIM}— Delete and copy to clipboard${_ZESW_CLR_RESET}"
-		_zesw_print_option 4 "Undo      ${_ZESW_CLR_DIM}— Undo last edit${_ZESW_CLR_RESET}"
-		_zesw_print_option 5 "Redo      ${_ZESW_CLR_DIM}— Redo last undone edit${_ZESW_CLR_RESET}"
+		_zesw_print_option 2 "Paste      ${_ZESW_CLR_DIM}— Insert from clipboard${_ZESW_CLR_RESET}"
+		_zesw_print_option 3 "Cut        ${_ZESW_CLR_DIM}— Delete and copy to clipboard${_ZESW_CLR_RESET}"
+		_zesw_print_option 4 "Undo       ${_ZESW_CLR_DIM}— Undo last edit${_ZESW_CLR_RESET}"
+		_zesw_print_option 5 "Redo       ${_ZESW_CLR_DIM}— Redo last undone edit${_ZESW_CLR_RESET}"
 		_zesw_separator
 		_zesw_print_option 6 "Reset All to Defaults ${_ZESW_CLR_DIM}(Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+Shift+Z)${_ZESW_CLR_RESET}"
 		_zesw_print_option 7 "Back to main menu"
 
 		_zesw_input_prompt "Choose option (1-7):"
 		read -r choice
+
+		if ! _zesw_validate_choice "$choice" 1 7; then
+			_zesw_error "Invalid choice. Please enter a number between 1-7."
+			_zesw_prompt_continue
+			continue
+		fi
+
 		case "$choice" in
 			1) edit-select::configure-select-all ;;
 			2) edit-select::configure-paste ;;
@@ -408,13 +785,16 @@ function edit-select::configure-keybindings() {
 			5) edit-select::configure-redo ;;
 			6) edit-select::reset-keybindings ;;
 			7) return ;;
-			*) _zesw_error "Invalid choice. Please enter a number between 1-7."; _zesw_prompt_continue ;;
 		esac
 	done
 }
 
+
+# Configuration View & Reset
+
+
 function edit-select::reset-config() {
-	_zesw_banner "Reset All Configuration"
+	_zesw_banner
 
 	printf "\n%s⚠ WARNING ⚠%s\n" "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET"
 	printf "This will permanently delete all custom settings and restore factory defaults.\n\n"
@@ -426,6 +806,7 @@ function edit-select::reset-config() {
 	_zesw_confirm_prompt "Permanently delete configuration and reset to defaults?"
 	read -r confirm
 	if [[ $confirm =~ ^[Yy]$ ]]; then
+		_zesw_loading "Deleting configuration" 2
 		rm -f "$_EDIT_SELECT_CONFIG_FILE"
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
@@ -444,7 +825,7 @@ function edit-select::reset-config() {
 }
 
 function edit-select::view-config() {
-	_zesw_banner "Configuration Details"
+	_zesw_banner
 
 	_zesw_section_header "Configuration File"
 	if [[ -f "$_EDIT_SELECT_CONFIG_FILE" ]]; then
@@ -486,35 +867,45 @@ function edit-select::view-config() {
 	_zesw_prompt_continue
 }
 
+
+# Main Entry Point
+
+
 function edit-select::config-wizard() {
 	_zesw_init_colors
 
+	# Initialize mouse replacement if not set
 	if [[ -z $EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 	fi
 
+	# Load current keybindings
 	edit-select::load-keybindings
 
+	# Main loop
 	while true; do
 		edit-select::show-menu
 		read -r choice
+
+		if ! _zesw_validate_choice "$choice" 1 5; then
+			_zesw_error "Invalid choice. Please enter a number between 1-5."
+			_zesw_prompt_continue
+			continue
+		fi
+
 		case "$choice" in
 			1) edit-select::configure-mouse-replacement ;;
 			2) edit-select::configure-keybindings ;;
 			3) edit-select::view-config ;;
 			4) edit-select::reset-config ;;
 			5)
-				clear
-				local exit_msg="Configuration Saved" width=62
-				local padding=$(( (width - ${#exit_msg}) / 2 ))
-				local padded_msg="$(printf '%*s' $padding '')${exit_msg}$(printf '%*s' $((width - ${#exit_msg} - padding)) '')"
-				printf "\n%s╔══════════════════════════════════════════════════════════════╗%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-				printf "%s║%s%s%s║%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_HILITE" "$padded_msg" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-				printf "%s╚══════════════════════════════════════════════════════════════╝%s\n\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+				# Exit with success box
+				printf '\033[2J\033[3J\033[H'  # Clear screen and scrollback
+				_zesw_success_box "Configuration Saved"
 				_zesw_info "Your changes are active and will persist across shell sessions"
+				printf "\n"
 				break
 				;;
-			*) _zesw_error "Invalid choice. Please enter a number between 1-5."; _zesw_prompt_continue ;;
 		esac
 	done
 }
