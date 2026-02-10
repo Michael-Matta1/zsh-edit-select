@@ -1,11 +1,12 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.5.3
+// Version: 0.5.6
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // XWayland PRIMARY selection monitor and clipboard helper for zsh-edit-select.
-// Uses X11 XFixes through XWayland — completely invisible on Wayland compositors.
-// Supports PRIMARY monitoring, clipboard operations, and PRIMARY clearing.
-// Compile: gcc -O2 zes-xwayland-monitor.c -o zes-xwayland-monitor -lX11 -lXfixes
+// Uses X11 XFixes through XWayland — completely invisible on Wayland
+// compositors. Supports PRIMARY monitoring, clipboard operations, and PRIMARY
+// clearing. Compile: gcc -O3 zes-xwayland-monitor.c -o zes-xwayland-monitor
+// -lX11 -lXfixes
 
 #define _GNU_SOURCE
 

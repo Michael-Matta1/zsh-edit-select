@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.5.3
+# Version: 0.5.6
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Wayland-native text selection and editing for Zsh command line.
@@ -266,7 +266,7 @@ function edit-select::handle-char() {
 				zle self-insert -w
 				return
 			fi
-			# Delete failed (duplicates), block typing
+			# Block typing on failure
 			return
 		elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
 			return

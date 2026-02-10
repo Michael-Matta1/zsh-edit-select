@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.5.3
+# Version: 0.5.6
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 typeset -g _EDIT_SELECT_MONITOR_BIN="$_EDIT_SELECT_PLUGIN_DIR/backends/x11/zes-x11-selection-monitor"

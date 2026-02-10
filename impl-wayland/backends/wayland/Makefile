@@ -9,10 +9,15 @@
 # Clean: make clean
 
 CC ?= gcc
-CFLAGS ?= -O2 -Wall -Wextra -Wno-unused-parameter
+CFLAGS ?= -O3 -march=native -mtune=native -flto \
+          -ffunction-sections -fdata-sections \
+          -fomit-frame-pointer -funroll-loops \
+          -fno-plt -pipe -fno-semantic-interposition \
+          -Wall -Wextra -Wno-unused-parameter
 WAYLAND_SCANNER ?= $(shell pkg-config --variable=wayland_scanner wayland-scanner 2>/dev/null || echo wayland-scanner)
 WAYLAND_CFLAGS := $(shell pkg-config --cflags wayland-client 2>/dev/null)
 WAYLAND_LIBS := $(shell pkg-config --libs wayland-client 2>/dev/null || echo -lwayland-client)
+LDFLAGS = $(WAYLAND_LIBS) -Wl,--gc-sections -Wl,--as-needed -flto -s
 
 TARGET = zes-wl-selection-monitor
 PROTO_XML = primary-selection-unstable-v1.xml
@@ -40,7 +45,7 @@ $(XDG_SHELL_CODE): $(XDG_SHELL_XML)
 	$(WAYLAND_SCANNER) private-code $(XDG_SHELL_XML) $(XDG_SHELL_CODE)
 
 $(TARGET): zes-wl-selection-monitor.c $(PROTO_HEADER) $(PROTO_CODE) $(XDG_SHELL_HEADER) $(XDG_SHELL_CODE)
-	$(CC) $(CFLAGS) $(WAYLAND_CFLAGS) -o $(TARGET) zes-wl-selection-monitor.c $(PROTO_CODE) $(XDG_SHELL_CODE) $(WAYLAND_LIBS)
+	$(CC) $(CFLAGS) $(WAYLAND_CFLAGS) -o $(TARGET) zes-wl-selection-monitor.c $(PROTO_CODE) $(XDG_SHELL_CODE) $(LDFLAGS)
 
 clean:
 	rm -f $(TARGET) $(PROTO_HEADER) $(PROTO_CODE) $(XDG_SHELL_HEADER) $(XDG_SHELL_CODE)

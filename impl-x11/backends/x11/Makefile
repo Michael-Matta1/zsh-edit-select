@@ -9,8 +9,12 @@
 # Clean: make clean
 
 CC ?= gcc
-CFLAGS ?= -O2 -Wall -Wextra -Wno-unused-parameter
-LDFLAGS = -lX11 -lXfixes
+CFLAGS ?= -O3 -march=native -mtune=native -flto \
+          -ffunction-sections -fdata-sections \
+          -fomit-frame-pointer -funroll-loops \
+          -fno-plt -pipe -fno-semantic-interposition \
+          -Wall -Wextra -Wno-unused-parameter
+LDFLAGS = -lX11 -lXfixes -Wl,--gc-sections -Wl,--as-needed -flto -s
 
 TARGET = zes-x11-selection-monitor
 SRC = zes-x11-selection-monitor.c

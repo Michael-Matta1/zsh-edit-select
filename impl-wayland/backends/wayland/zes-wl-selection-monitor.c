@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.5.3
+// Version: 0.5.6
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // Wayland PRIMARY selection monitor and clipboard helper for zsh-edit-select.

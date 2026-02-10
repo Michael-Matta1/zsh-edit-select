@@ -1,11 +1,13 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.5.3
+// Version: 0.5.6
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
-// X11 XFixes-based PRIMARY selection monitor and clipboard helper for zsh-edit-select
+// X11 XFixes-based PRIMARY selection monitor and clipboard helper for
+// zsh-edit-select
 //
-// Compile: gcc -O2 zes-x11-selection-monitor.c -o zes-x11-selection-monitor -lX11 -lXfixes
-// Usage: zes-x11-selection-monitor [cache_dir] [--oneshot|--get-clipboard|--copy-clipboard|--clear-primary]
+// Compile: gcc -O3 zes-x11-selection-monitor.c -o zes-x11-selection-monitor
+// -lX11 -lXfixes Usage: zes-x11-selection-monitor [cache_dir]
+// [--oneshot|--get-clipboard|--copy-clipboard|--clear-primary]
 
 #define _GNU_SOURCE
 
