@@ -4,7 +4,16 @@ Zsh plugin for Modern text selection and editing for Zsh command line. Select te
 type-to-replace, paste-to-replace, mouse selection integration, and clipboard integration for copy/cut/paste
 like in GUI text editors.
 
-https://github.com/user-attachments/assets/e92c07e3-532b-4f63-90a2-5f45cf488fb1
+[demo video](https://github.com/user-attachments/assets/e92c07e3-532b-4f63-90a2-5f45cf488fb1)
+
+
+<details>
+<summary><b>If the demo video is unavailable, click here to view the GIF.</b></summary>
+
+![Demo](assets/demo.gif)
+
+</details>
+
 
 ---
 
@@ -122,6 +131,8 @@ Standard editing shortcuts:
 - **Ctrl + X**: Cut selected text
 - **Ctrl + V**: Paste (replaces selection if any)
 
+> **Clipboard Managers Compatibility Note:** The plugin is fully compatible with clipboard history managers like **CopyQ**, **GPaste**, and others. Since it uses standard X11 and Wayland clipboard protocols, all copied text is automatically captured by your clipboard manager.
+
 ### Undo and Redo
 
 Navigate through your command line editing history:
@@ -134,13 +145,13 @@ Navigate through your command line editing history:
 > operations for command line editing while preserving the ability to suspend processes when needed.
 
 > **Note:** The Copy and the Redo keybinding (Ctrl+Shift+Z) requires terminal configuration to send the
-> correct escape sequence. See [Terminal Setup](#terminal-setup) for configuration instructions.
+> correct escape sequence. See [Terminal Setup](#terminal-setup) for manual configuration instructions, or use the [Auto Installation](#auto-installation) script to configure this automatically.
 
 ### Selection Monitoring & Clipboard Integration
 
-The plugin uses a high-performance custom C daemon architecture for all clipboard operations:
+The plugin uses a high-performance custom C daemon architecture for clipboard operations:
 
-**Custom Monitor Daemons (All Operations):** Lightweight C programs handle both selection monitoring and
+**Custom Monitor Daemons:** Lightweight C programs handle both selection monitoring and
 clipboard operations:
 
 | Display Server | Monitor Daemon              | Protocol                                               | Performance Gain              |
@@ -158,12 +169,10 @@ clipboard operations:
 
 > **Performance Achievement:** The custom daemon monitors eliminate external tool dependencies entirely. All
 > clipboard operations (copy, paste, clear) are handled by persistent background processes using direct
-> protocol access—delivering **44.6% faster operations** on X11 and **96.4% faster operations** on Wayland
-> with **zero subprocess overhead**.
+> protocol access—delivering **faster operations and more control**.
+> This achieves better performance, better error handling, **zero subprocess overhead**.
 
-> **Architecture:** These monitors run as lightweight background daemons that automatically start when the
-> plugin loads. They use event-driven protocols (XFixes, Wayland native events) for instant selection change
-> notification and cache data in memory-mapped files for sub-millisecond access times.
+> For more details check the [Performance & Optimization](#performance--optimization) section.
 
 ---
 
@@ -181,12 +190,16 @@ curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main
 
 ### Key Features
 
+<details>
+<summary><b>Click to expand</b></summary>
+
 The installer is designed for reliability and system safety:
 
 - **Idempotency**: The script checks your configuration files before making changes. It can be run multiple times without creating duplicate entries or corrupting files.
 - **System Safety**: Creates timestamped backups of every file before modification. Implements standard signal trapping (INT, TERM, EXIT) to ensure cleanups even if interrupted.
 - **optimized Compilation**: Builds the monitoring daemons locally using `-O3 -march=native -flto`, ensuring the binary is tailored specifically to your CPU architecture for minimum latency.
 - **Universal Compatibility**: specific support for 11 different package managers (including `apt`, `dnf`, `pacman`, `zypper`, `apk`, and `nix`) across X11 and Wayland environments.
+- **Robust Pre-flight Checks**: Ensures a smooth installation by validating **network connectivity**, **disk space**, and **package manager health** before starting. It also proactively detects and warns about broken repositories (e.g., problematic apt sources) to prevent install failures.
 
 ### Automated Capabilities
 
@@ -195,11 +208,21 @@ The script handles the end-to-end setup process:
 | Category | Automated Actions |
 | :--- | :--- |
 | **Dependencies** | - Installs system packages (`git`, `zsh`, `gcc`, `make`, `xclip`/`wl-clipboard`)<br>- Detects your OS (Debian, Fedora, Arch, etc.) and uses the correct package manager (`apt`, `dnf`, `pacman`) |
-| **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Installs Oh My Zsh** automatically if you don't have a plugin manager<br>- *Note: It does not install other managers like Zinit/Antigen; install those first if you prefer them over OMZ.* |
+| **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- *Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer.* |
 | **Compilation** | - Downloads and **compiles** the custom C monitor daemons (`zes-x11-monitor` / `zes-wl-monitor`)<br>- Optimizes binaries for your specific architecture |
 | **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes |
 | **Safeguards** | - Checks for conflicting keybindings in your `.zshrc`<br>- Verifies the installation with a self-test suite |
 
+</details>
+
+### Interactive Menu
+
+When run without arguments, the installer provides an interactive menu with the following options:
+
+1. **Full Installation (Recommended)**: The complete setup process. **Required for first-time installations.**
+2. **Configure Terminals Only**: Only detects and configures your terminal emulators.
+3. **Check for Conflicts Only**: Scans your configuration files for conflicting keybindings.
+4. **Update Plugin**: Pulls the latest changes and rebuilds the monitor daemons.
 
 <details>
 <summary><b>Advanced Usage & Options</b></summary>
@@ -212,6 +235,7 @@ You can customize the installation behavior with command-line flags. To use them
 | `--skip-deps` | Skip installing system dependencies (useful if you manage packages manually) |
 | `--skip-conflicts` | Skip the configuration conflict detection phase |
 | `--skip-verify` | Skip the post-installation verification tests |
+| `--test-mode` | Allow running as root (for testing only) |
 | `--help` | Show the help message and exit |
 
 **Example: Non-interactive installation (CI/CD friendly)**
@@ -222,8 +246,7 @@ bash auto-install.sh --non-interactive
 </details>
 
 
-<details>
-<summary><b>Installation Output</b></summary>
+### Installation Output
 
 The script provides detailed, color-coded feedback for every step:
 - **✅ Success**: Step completed successfully
@@ -231,8 +254,6 @@ The script provides detailed, color-coded feedback for every step:
 - **❌ Error**: Critical failure that requires attention
 
 At the end, you'll receive a **Summary Report** listing all installed components and any manual steps required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
-
-</details>
 
 > **Troubleshooting / Manual Preference:** If the automated installation fails or if you prefer to configure everything yourself, you can follow the comprehensive [Manual Installation](#manual-installation) and [Terminal Setup](#terminal-setup) guides below.
 
@@ -381,6 +402,8 @@ sudo dnf install gcc make libX11-devel libXfixes-devel wayland-devel wayland-pro
 
 
 > **Important:** Before installing, please ensure you have the required [Build Dependencies](#1-prerequisites-build-dependencies) installed.
+>
+> **Tip:** The [Auto Installation](#auto-installation) script can perform all of the following installation steps automatically.
 
 <details>
 <summary><b>Oh My Zsh</b></summary>
@@ -600,7 +623,7 @@ chars = "\u001b[88;6u"
 <details>
 <summary><b>VS Code Terminal</b></summary>
 
-Add to `keybindings.json`:
+Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 ```json
 [
@@ -640,7 +663,7 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ## Terminal Setup
 
-> **Tip:** The [Auto Installation](#auto-installation) script can automatically configure supported terminals (Kitty, WezTerm, Alacritty, Foot, VS Code) for you.
+> **Tip:** The [Auto Installation](#auto-installation) script can automatically configure supported terminals (Kitty, WezTerm, Alacritty, Foot, VS Code) for you, saving you from these manual steps.
 
 <details>
 <summary><b>How to Find Escape Sequences</b></summary>
@@ -788,7 +811,7 @@ chars = "\u0003"
 
 ### Using Ctrl+Shift+C (Default)
 
-To use Ctrl+Shift+C for copying, add the following to `keybindings.json`:
+To use Ctrl+Shift+C for copying, add the following to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 ```json
 [
@@ -917,7 +940,7 @@ chars = "\u001b[90;6u"
 <details>
 <summary><b>VS Code Terminal</b></summary>
 
-Add to `keybindings.json`:
+Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 ```json
 [
@@ -986,7 +1009,7 @@ return {
 <details>
 <summary><b>VS Code Terminal</b></summary>
 
-Add to `keybindings.json`:
+Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 ```json
 [
@@ -1811,6 +1834,13 @@ All platforms now achieve:
 
 ## Default Key Bindings Reference
 
+### Navigation Keys
+
+| Key Combination | Action                     |
+| --------------- | -------------------------- |
+| **Ctrl + ←**    | Move cursor one word left  |
+| **Ctrl + →**    | Move cursor one word right |
+
 ### Selection Keys
 
 | Key Combination      | Action                     |
@@ -1825,7 +1855,7 @@ All platforms now achieve:
 | **Shift + Ctrl + →** | Select to word end         |
 | **Ctrl + A**         | Select all text            |
 
-### Editing Keys (for Selected Text)
+### Editing Keys
 
 | Key Combination      | Action                            |
 | -------------------- | --------------------------------- |
@@ -1835,7 +1865,7 @@ All platforms now achieve:
 | **Ctrl + Z**         | Undo last edit                    |
 | **Ctrl + Shift + Z** | Redo last undone edit             |
 | **Delete/Backspace** | Delete selected text              |
-| **Any character**    | Replace selected text             |
+| **Any character**    | Replace selected text if any      |
 
 ---
 
@@ -1879,8 +1909,7 @@ PRIMARY selection. See [Platform Compatibility](#platform-compatibility) for mor
 <details>
 <summary><b>Ctrl+C doesn't copy</b></summary>
 
-**Solution:** Configure your terminal to remap Ctrl+C. See [Kitty](#kitty) or
-[VS Code Terminal](#vs-code-terminal) sections.
+**Solution:** Configure your terminal to remap Ctrl+C. See [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut) at the [Terminal Setup](#terminal-setup) section.
 
 **Alternative:** Use Ctrl+Shift+C for copying, or configure a custom keybinding with `edit-select config`, or
 use the 'Without Terminal Remapping' method if your terminal doesn't support key remapping.
@@ -1987,7 +2016,7 @@ The default Makefiles already compile with aggressive optimization flags for max
 
 ## License
 
-This project is licensed under the [MIT License](http://opensource.org/licenses/MIT/).
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
@@ -2008,9 +2037,8 @@ and a fully changed codebase, and it now provides a full editor-like experience.
 
 ## References
 
-- [Michael-Matta1/dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) — Example dotfiles
-  demonstrating the plugin in action with Kitty terminal, VS Code, and Zsh integration.
+- [Michael-Matta1/dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) — Dotfiles showcasing the plugin with Kitty, VS Code, and Zsh.
 
-- [Zsh zle shift selection — StackOverflow](https://stackoverflow.com/questions/5407916/zsh-zle-shift-selection)
+- [Zsh ZLE shift selection — StackOverflow](https://stackoverflow.com/questions/5407916/zsh-zle-shift-selection) — Q&A on Shift-based selection in ZLE.
 
-- [Zsh Line Editor Documentation](https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html)
+- [Zsh Line Editor Documentation](https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html) — Official ZLE widgets and keybindings reference.

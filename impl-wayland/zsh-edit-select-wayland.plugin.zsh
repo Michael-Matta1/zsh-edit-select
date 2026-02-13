@@ -432,6 +432,9 @@ function {
 	bindkey -M emacs '^[[67;6u' edit-select::copy-region
 	bindkey -M emacs '^X' edit-select::cut-region
 	bindkey '^X' edit-select::cut-region
+
+	bindkey -M emacs '^[[1;5D' backward-word
+	bindkey -M emacs '^[[1;5C' forward-word
 }
 
 function edit-select::zle-line-pre-redraw() {
