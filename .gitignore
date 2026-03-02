@@ -1,11 +1,11 @@
 # Build artifacts
-impl-wayland/backends/wayland/zes-wl-selection-monitor
+impl-wayland/backends/wayland/zes-wl-selection-agent
 impl-wayland/backends/wayland/*-protocol.c
 impl-wayland/backends/wayland/*-client-protocol.h
 impl-wayland/backends/wayland/*.o
-impl-wayland/backends/x11/zes-xwayland-monitor
-impl-wayland/backends/x11/*.o
-impl-x11/backends/x11/zes-x11-selection-monitor
+impl-wayland/backends/xwayland/zes-xwayland-agent
+impl-wayland/backends/xwayland/*.o
+impl-x11/backends/x11/zes-x11-selection-agent
 impl-x11/backends/x11/*.o
 
 # Compiled zsh wordcode

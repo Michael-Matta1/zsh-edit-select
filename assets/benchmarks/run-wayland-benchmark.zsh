@@ -4,7 +4,7 @@
 
 SCRIPT_DIR="${0:A:h}"
 BENCH_BIN="${SCRIPT_DIR}/wayland-benchmark"
-DAEMON_BIN="${SCRIPT_DIR}/../../impl-wayland/backends/wayland/zes-wl-selection-monitor"
+DAEMON_BIN="${SCRIPT_DIR}/../../impl-wayland/backends/wayland/zes-wl-selection-agent"
 RESULTS_DIR="${SCRIPT_DIR}/results"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 RESULTS_FILE="${RESULTS_DIR}/wayland-benchmark-${TIMESTAMP}.txt"
@@ -31,7 +31,7 @@ sanitize_sensitive_data() {
         -e "s|Display:.*|Display: Wayland|" \
         -e "s|Session:.*|Session: Wayland|" \
         -e "s|Shell:.*|Shell: zsh|" \
-        -e "s|Daemon:.*|Daemon: zes-wl-selection-monitor|"
+        -e "s|Daemon:.*|Agent: zes-wl-selection-agent|"
 }
 
 print_header() {
@@ -52,7 +52,7 @@ check_requirements() {
     fi
 
     if [[ ! -x "$DAEMON_BIN" ]]; then
-        echo "${RED}✗ Error: zes-wl-selection-monitor not found or not executable${NC}"
+        echo "${RED}✗ Error: zes-wl-selection-agent not found or not executable${NC}"
         echo "  Path: $DAEMON_BIN"
         echo "  Please build it first: cd ../../impl-wayland/backends/wayland && make"
         return 1
@@ -90,7 +90,7 @@ print_system_info() {
     echo "  Display: $WAYLAND_DISPLAY"
     echo "  Session: $XDG_SESSION_TYPE"
     echo "  Shell: $SHELL $ZSH_VERSION"
-    echo "  Daemon: $DAEMON_BIN"
+    echo "  Agent: $DAEMON_BIN"
     echo ""
 }
 
@@ -142,9 +142,9 @@ run_memory_benchmark() {
 
                 local diff=$(((mem_kb - wlcopy_mem_kb)))
                 if ((diff < 0)); then
-                    echo "  ${GREEN}✓ Custom daemon uses $((wlcopy_mem_kb - mem_kb)) KB LESS memory${NC}"
+                    echo "  ${GREEN}✓ Custom agent uses $((wlcopy_mem_kb - mem_kb)) KB LESS memory${NC}"
                 else
-                    echo "  ${YELLOW}⚠ Custom daemon uses $diff KB more memory${NC}"
+                    echo "  ${YELLOW}⚠ Custom agent uses $diff KB more memory${NC}"
                     echo "    (Note: daemon is persistent, wl-copy exits immediately)"
                 fi
             fi
@@ -169,7 +169,7 @@ print_summary() {
     echo "  Clean: ${RESULTS_FILE_CLEAN}"
     echo ""
     echo "  Key Findings:"
-    echo "  • Custom daemon shows ${GREEN}superior performance${NC}"
+    echo "  • Custom agent shows ${GREEN}superior performance${NC}"
     echo "  • Consistent low latency across all payload sizes"
     echo "  • Minimal memory footprint"
     echo "  • Zero subprocess overhead"

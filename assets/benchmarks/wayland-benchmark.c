@@ -155,7 +155,7 @@ static void print_comparison(benchmark_result *wlcopy_res, benchmark_result *dae
     double improvement = ((wlcopy_res->avg_time - daemon_res->avg_time) / wlcopy_res->avg_time) * 100;
     printf("  Performance: ");
     if (improvement > 0) {
-        printf("Custom daemon is %.1f%% FASTER\n", improvement);
+        printf("Custom agent is %.1f%% FASTER\n", improvement);
     } else {
         printf("wl-copy is %.1f%% faster\n", -improvement);
     }
@@ -163,7 +163,7 @@ static void print_comparison(benchmark_result *wlcopy_res, benchmark_result *dae
     double latency_improvement = ((wlcopy_res->min_time - daemon_res->min_time) / wlcopy_res->min_time) * 100;
     printf("  Best-case latency: ");
     if (latency_improvement > 0) {
-        printf("Custom daemon is %.1f%% BETTER\n", latency_improvement);
+        printf("Custom agent is %.1f%% BETTER\n", latency_improvement);
     } else {
         printf("wl-copy is %.1f%% better\n", -latency_improvement);
     }
@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
     print_result("Small text", "wl-copy", &wlcopy_small);
 
     benchmark_result daemon_small = benchmark_daemon_copy(daemon_path, small_text, small_len, 100);
-    print_result("Small text", "custom daemon", &daemon_small);
+    print_result("Small text", "custom agent", &daemon_small);
 
     print_comparison(&wlcopy_small, &daemon_small);
 
@@ -204,7 +204,7 @@ int main(int argc, char *argv[]) {
     print_result("Medium text", "wl-copy", &wlcopy_medium);
 
     benchmark_result daemon_medium = benchmark_daemon_copy(daemon_path, medium_text, 500, 50);
-    print_result("Medium text", "custom daemon", &daemon_medium);
+    print_result("Medium text", "custom agent", &daemon_medium);
 
     print_comparison(&wlcopy_medium, &daemon_medium);
 
@@ -218,7 +218,7 @@ int main(int argc, char *argv[]) {
     print_result("Large text", "wl-copy", &wlcopy_large);
 
     benchmark_result daemon_large = benchmark_daemon_copy(daemon_path, large_text, 5000, 25);
-    print_result("Large text", "custom daemon", &daemon_large);
+    print_result("Large text", "custom agent", &daemon_large);
 
     print_comparison(&wlcopy_large, &daemon_large);
     free(large_text);
@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
     print_result("Very large text", "wl-copy", &wlcopy_vlarge);
 
     benchmark_result daemon_vlarge = benchmark_daemon_copy(daemon_path, vlarge_text, 50000, 10);
-    print_result("Very large text", "custom daemon", &daemon_vlarge);
+    print_result("Very large text", "custom agent", &daemon_vlarge);
 
     print_comparison(&wlcopy_vlarge, &daemon_vlarge);
     free(vlarge_text);
@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
     print_result("Rapid operations", "wl-copy", &wlcopy_rapid);
 
     benchmark_result daemon_rapid = benchmark_daemon_copy(daemon_path, rapid_text, strlen(rapid_text), 200);
-    print_result("Rapid operations", "custom daemon", &daemon_rapid);
+    print_result("Rapid operations", "custom agent", &daemon_rapid);
 
     print_comparison(&wlcopy_rapid, &daemon_rapid);
 
@@ -262,9 +262,9 @@ int main(int argc, char *argv[]) {
 
     printf("Average operation time:\n");
     printf("  wl-copy:       %.3f ms\n", avg_wlcopy * 1000);
-    printf("  custom daemon: %.3f ms\n", avg_daemon * 1000);
+    printf("  custom agent: %.3f ms\n", avg_daemon * 1000);
     printf("\n");
-    printf("Overall Performance: Custom daemon is %.1f%% FASTER\n", overall_improvement);
+    printf("Overall Performance: Custom agent is %.1f%% FASTER\n", overall_improvement);
     printf("\n");
 
     return 0;
