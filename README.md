@@ -1,11 +1,8 @@
 # Zsh Edit-Select
 
-Zsh plugin for Modern text selection and editing for Zsh command line. Select text with **Shift + Arrow keys**,
-type-to-replace, paste-to-replace, mouse selection integration, and clipboard integration for copy/cut/paste
-like in GUI text editors.
+Zsh plugin that lets you edit your command line like a text editor. Select text with Shift + Arrow keys or the mouse, type or paste to replace selections, use familiar shortcuts like Ctrl+C, Ctrl+X, and Ctrl+V, and customize keybindings through an interactive wizard — with full X11 and Wayland clipboard support.
 
-[demo video](https://github.com/user-attachments/assets/e92c07e3-532b-4f63-90a2-5f45cf488fb1)
-
+[demo video](https://github.com/user-attachments/assets/fa2a84f4-bce5-44c8-9783-76332d9b6243)
 
 <details>
 <summary><b>If the demo video is unavailable, click here to view the GIF.</b></summary>
@@ -13,7 +10,6 @@ like in GUI text editors.
 ![Demo](assets/demo.gif)
 
 </details>
-
 
 ---
 
@@ -33,6 +29,7 @@ like in GUI text editors.
 - [Performance & Optimization](#performance--optimization)
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgments](#acknowledgments)
 - [References](#references)
@@ -53,9 +50,6 @@ like in GUI text editors.
 
 > **Customization:** The plugin works after installation with editor-like defaults. Use the command
 > `edit-select config` to customize mouse behavior and keybindings.
->
-> **Example Setup:** Check out [dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) to see how this
-> plugin is integrated into a complete real-world environment (Kitty + Zsh + VS Code).
 
 ---
 
@@ -131,7 +125,9 @@ Standard editing shortcuts:
 - **Ctrl + X**: Cut selected text
 - **Ctrl + V**: Paste (replaces selection if any)
 
-> **Clipboard Managers Compatibility Note:** The plugin is fully compatible with clipboard history managers like **CopyQ**, **GPaste**, and others. Since it uses standard X11 and Wayland clipboard protocols, all copied text is automatically captured by your clipboard manager.
+> **Clipboard Managers Compatibility Note:** The plugin is fully compatible with clipboard history managers
+> like **CopyQ**, **GPaste**, and others. Since it uses standard X11 and Wayland clipboard protocols, all
+> copied text is automatically captured by your clipboard manager.
 
 ### Undo and Redo
 
@@ -145,34 +141,34 @@ Navigate through your command line editing history:
 > operations for command line editing while preserving the ability to suspend processes when needed.
 
 > **Note:** The Copy and the Redo keybinding (Ctrl+Shift+Z) requires terminal configuration to send the
-> correct escape sequence. See [Terminal Setup](#terminal-setup) for manual configuration instructions, or use the [Auto Installation](#auto-installation) script to configure this automatically.
+> correct escape sequence. See [Terminal Setup](#terminal-setup) for manual configuration instructions, or use
+> the [Auto Installation](#auto-installation) script to configure this automatically.
 
-### Selection Monitoring & Clipboard Integration
+### Clipboard Integration
 
-The plugin uses a high-performance custom C daemon architecture for clipboard operations:
+The plugin includes purpose-built clipboard agents that replace external tools entirely:
 
-**Custom Monitor Daemons:** Lightweight C programs handle both selection monitoring and
-clipboard operations:
+**Clipboard Integration Agents:** Small compiled programs built specifically for this plugin handle all
+clipboard and selection operations:
 
-| Display Server | Monitor Daemon              | Protocol                                               | Performance Gain              |
-| -------------- | --------------------------- | ------------------------------------------------------ | ----------------------------- |
-| **X11**        | `zes-x11-selection-monitor` | XFixes extension + CLIPBOARD atom                      | **44.6% faster than xclip**   |
-| **Wayland**    | `zes-wl-selection-monitor`  | `zwp_primary_selection_unstable_v1` + `wl_data_device` | **96.4% faster than wl-copy** |
-| **XWayland**   | `zes-xwayland-monitor`      | X11 XFixes through XWayland                            | **Enhance Wayland behaviour**       |
+| Display Server | Agent                     | Protocol                                               | Performance vs. External Tool |
+| -------------- | ------------------------- | ------------------------------------------------------ | ----------------------------- |
+| **X11**        | `zes-x11-selection-agent` | XFixes extension + CLIPBOARD atom                      | **44.6% faster than xclip**   |
+| **Wayland**    | `zes-wl-selection-agent`  | `zwp_primary_selection_unstable_v1` + `wl_data_device` | **96.4% faster than wl-copy** |
+| **XWayland**   | `zes-xwayland-agent`      | X11 XFixes through XWayland                            | XWayland compatibility layer  |
 
 **External Tools (Fallback Only):**
 
-| Display Server | Tool                   | When Used                          |
-| -------------- | ---------------------- | ---------------------------------- |
-| **X11**        | `xclip`                | Only if custom monitor unavailable |
-| **Wayland**    | `wl-copy` / `wl-paste` | Only if custom monitor unavailable |
+| Display Server | Tool                   | When Used                 |
+| -------------- | ---------------------- | ------------------------- |
+| **X11**        | `xclip`                | Only if agent unavailable |
+| **Wayland**    | `wl-copy` / `wl-paste` | Only if agent unavailable |
 
-> **Performance Achievement:** The custom daemon monitors eliminate external tool dependencies entirely. All
-> clipboard operations (copy, paste, clear) are handled by persistent background processes using direct
-> protocol access—delivering **faster operations and more control**.
-> This achieves better performance, better error handling, **zero subprocess overhead**.
+> The agents handle copy, paste, and clipboard operations directly through native protocols—no external tools
+> needed. They run as background processes and communicate with the plugin through a fast in-memory cache,
+> giving you instant clipboard response with zero subprocess overhead.
 
-> For more details check the [Performance & Optimization](#performance--optimization) section.
+> See [Performance & Optimization](#performance--optimization) for benchmarks and implementation details.
 
 ---
 
@@ -180,9 +176,29 @@ clipboard operations:
 
 ## Auto Installation
 
-The easiest way to install **Zsh Edit-Select** is using the automated installation script. This intelligent script detects your environment (X11, Wayland, or XWayland), installs necessary dependencies, configures the plugin, and even sets up your terminal emulator.
+> **Recommendation:** If you are comfortable editing dotfiles and prefer full control over your system
+> configuration, [Manual Installation](#manual-installation) is the recommended approach.
 
-To install, simply run:
+Installation consists of three straightforward steps:
+
+1. install dependencies
+2. plugin to your plugin manager
+3. configure your terminal
+
+Each documented with exact commands and copy-paste configurations.
+
+- Completing all three steps should take no longer than **8 minutes** on a first install.
+- All instructions are organized incollapsed sections so you can expand only what applies to your specific
+  setup and platform.
+
+The auto-installer is provided as a convenience for users who are less comfortable with terminal configuration
+or who prefer a fully guided, hands-off setup. It detects your environment (X11, Wayland, or XWayland),
+installs dependencies, sets up the plugin, and configures your terminal in a single run. It has been tested
+across multiple distributions using Docker containers and virtual machines, and handles the most common
+configurations — but not every edge case can be guaranteed. If you encounter an issue, please
+[report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) so it can be addressed.
+
+To use the auto-installer, simply run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install.sh -o install.sh && chmod +x install.sh && bash install.sh
@@ -195,23 +211,26 @@ curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main
 
 The installer is designed for reliability and system safety:
 
-- **Idempotency**: The script checks your configuration files before making changes. It can be run multiple times without creating duplicate entries or corrupting files.
-- **System Safety**: Creates timestamped backups of every file before modification. Implements standard signal trapping (INT, TERM, EXIT) to ensure cleanups even if interrupted.
-- **optimized Compilation**: Builds the monitoring daemons locally using `-O3 -march=native -flto`, ensuring the binary is tailored specifically to your CPU architecture for minimum latency.
-- **Universal Compatibility**: specific support for 11 different package managers (including `apt`, `dnf`, `pacman`, `zypper`, `apk`, and `nix`) across X11 and Wayland environments.
-- **Robust Pre-flight Checks**: Ensures a smooth installation by validating **network connectivity**, **disk space**, and **package manager health** before starting. It also proactively detects and warns about broken repositories (e.g., problematic apt sources) to prevent install failures.
+- **Idempotency**: The script checks your configuration files before making changes. It can be run multiple
+  times without creating duplicate entries or corrupting files.
+- **System Safety**: Creates timestamped backups of every file before modification. Implements standard signal
+  trapping (INT, TERM, EXIT) to ensure clean rollbacks even if interrupted.
+- **Universal Compatibility**: Supports 11 different package managers (including `apt`, `dnf`, `pacman`,
+  `zypper`, `apk`, and `nix`) across X11, Wayland, and XWayland environments.
+- **Robust Pre-flight Checks**: Validates **network connectivity**, **disk space**, and **package manager
+  health** before starting. Also proactively detects and reports broken repositories (e.g., problematic apt
+  sources) to prevent installation failures.
 
 ### Automated Capabilities
 
 The script handles the end-to-end setup process:
 
-| Category | Automated Actions |
-| :--- | :--- |
-| **Dependencies** | - Installs system packages (`git`, `zsh`, `gcc`, `make`, `xclip`/`wl-clipboard`)<br>- Detects your OS (Debian, Fedora, Arch, etc.) and uses the correct package manager (`apt`, `dnf`, `pacman`) |
-| **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- *Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer.* |
-| **Compilation** | - Downloads and **compiles** the custom C monitor daemons (`zes-x11-monitor` / `zes-wl-monitor`)<br>- Optimizes binaries for your specific architecture |
-| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes |
-| **Safeguards** | - Checks for conflicting keybindings in your `.zshrc`<br>- Verifies the installation with a self-test suite |
+| Category           | Automated Actions                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dependencies**   | - Installs system packages (`git`, `zsh`, `gcc`, `make`, `xclip`/`wl-clipboard`)<br>- Detects your OS (Debian, Fedora, Arch, etc.) and uses the correct package manager (`apt`, `dnf`, `pacman`)                                                                                                                                                                                                                                                                        |
+| **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- _Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer._ |
+| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                                                                                          |
+| **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc`<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                                                                                                                                             |
 
 </details>
 
@@ -222,46 +241,65 @@ When run without arguments, the installer provides an interactive menu with the 
 1. **Full Installation (Recommended)**: The complete setup process. **Required for first-time installations.**
 2. **Configure Terminals Only**: Only detects and configures your terminal emulators.
 3. **Check for Conflicts Only**: Scans your configuration files for conflicting keybindings.
-4. **Update Plugin**: Pulls the latest changes and rebuilds the monitor daemons.
+4. **Update Plugin**: Pulls the latest changes from the repository.
+5. **Build Agents Only**: Rebuild clipboard agents for your display server.
+6. **Uninstall**: Remove the plugin, configuration entries, and agents.
 
 <details>
 <summary><b>Advanced Usage & Options</b></summary>
 
-You can customize the installation behavior with command-line flags. To use them, download the script first or pass them to bash:
+You can customize the installation behavior with command-line flags. To use them, download the script first or
+pass them to bash:
 
-| Option | Description |
-| :--- | :--- |
-| `--non-interactive` | Run in headless mode without user prompts (accepts all defaults) |
-| `--skip-deps` | Skip installing system dependencies (useful if you manage packages manually) |
-| `--skip-conflicts` | Skip the configuration conflict detection phase |
-| `--skip-verify` | Skip the post-installation verification tests |
-| `--test-mode` | Allow running as root (for testing only) |
-| `--help` | Show the help message and exit |
+| Option              | Description                                                                  |
+| :------------------ | :--------------------------------------------------------------------------- |
+| `--non-interactive` | Run in headless mode without user prompts (accepts all defaults)             |
+| `--skip-deps`       | Skip installing system dependencies (useful if you manage packages manually) |
+| `--skip-conflicts`  | Skip the configuration conflict detection phase                              |
+| `--skip-verify`     | Skip the post-installation verification tests                                |
+| `--test-mode`       | Allow running as root (for testing only)                                     |
+| `--help`            | Show the help message and exit                                               |
 
 **Example: Non-interactive installation (CI/CD friendly)**
+
 ```bash
 bash auto-install.sh --non-interactive
 ```
 
 </details>
 
-
 ### Installation Output
 
 The script provides detailed, color-coded feedback for every step:
+
 - **✅ Success**: Step completed successfully
 - **⚠️ Warning**: Non-critical issue (e.g., optional component missing)
 - **❌ Error**: Critical failure that requires attention
 
-At the end, you'll receive a **Summary Report** listing all installed components and any manual steps required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
+At the end, you'll receive a **Summary Report** listing all installed components and any manual steps
+required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
-> **Troubleshooting / Manual Preference:** If the automated installation fails or if you prefer to configure everything yourself, you can follow the comprehensive [Manual Installation](#manual-installation) and [Terminal Setup](#terminal-setup) guides below.
+> **Troubleshooting / Manual Preference:** If the automated installation fails or if you prefer to configure
+> everything yourself, you can follow the comprehensive [Manual Installation](#manual-installation) and
+> [Terminal Setup](#terminal-setup) guides below.
 
 ---
 
 ## Manual Installation
 
-> **Tip:** The [Auto Installation](#auto-installation) script handles all these steps automatically (dependencies, plugin installation, compiling custom monitor daemons). You only need this section if you prefer full manual control or if the auto-installer fails.
+Manual installation is the recommended approach if you are comfortable with dotfiles and want complete
+visibility and control over every change made to your system. The process consists of three steps:
+
+1. **Install build dependencies** — A one-line command for your distribution.
+2. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
+3. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
+
+All steps are fully documented with exact commands and copy-paste configuration snippets. The instructions are
+organized in collapsed sections labeled by distribution and terminal — expand only what applies to your setup.
+
+> If you prefer an automated setup, the [Auto Installation](#auto-installation) script can handle all of these
+> steps for you. If you run into any difficulty at any step, please
+> [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) and it will be addressed.
 
 ### 1. Prerequisites (Build Dependencies)
 
@@ -281,46 +319,53 @@ echo $XDG_SESSION_TYPE
 
 </details>
 
-The plugin automatically compiles native monitor daemons on first use. Install the required build tools and libraries for your platform:
+The plugin automatically compiles native agents on first use. Install the required build tools and libraries
+for your platform:
 
 ### For X11 Users
 
 <details>
 <summary><b>Debian/Ubuntu</b></summary>
 
-The plugin includes a native X11 monitor daemon with full clipboard support. External clipboard tools are optional:
+The plugin includes a native X11 clipboard agent with full clipboard support. External clipboard tools are
+optional:
 
 ```bash
 sudo apt install build-essential libx11-dev libxfixes-dev pkg-config xclip
 ```
 
-> **Note:** The `zes-x11-selection-monitor` daemon provides **44.6% faster** clipboard operations compared to `xclip` and does not require external tools for core functionality.
+> **Note:** `zes-x11-selection-agent` provides **44.6% faster** clipboard operations compared to `xclip` and
+> does not require external tools for core functionality.
 
 </details>
 
 <details>
 <summary><b>Arch Linux</b></summary>
 
-The plugin includes a native X11 monitor daemon with full clipboard support. External clipboard tools are optional:
+The plugin includes a native X11 clipboard agent with full clipboard support. External clipboard tools are
+optional:
 
 ```bash
 sudo pacman -S --needed base-devel libx11 libxfixes pkgconf xclip
 ```
 
-> **Note:** The `zes-x11-selection-monitor` daemon provides **44.6% faster** clipboard operations compared to `xclip` and does not require external tools for core functionality.
+> **Note:** `zes-x11-selection-agent` provides **44.6% faster** clipboard operations compared to `xclip` and
+> does not require external tools for core functionality.
 
 </details>
 
 <details>
 <summary><b>Fedora</b></summary>
 
-The plugin includes a native X11 monitor daemon with full clipboard support. External clipboard tools are optional:
+The plugin includes a native X11 clipboard agent with full clipboard support. External clipboard tools are
+optional:
 
 ```bash
 sudo dnf install gcc make libX11-devel libXfixes-devel pkgconfig xclip
 ```
 
-> **Note:** The `zes-x11-selection-monitor` daemon provides **44.6% faster** clipboard operations compared to `xclip` and does not require external tools for core functionality.
+> **Note:** `zes-x11-selection-agent` provides **44.6% faster** clipboard operations compared to `xclip` and
+> does not require external tools for core functionality.
 
 </details>
 
@@ -329,45 +374,52 @@ sudo dnf install gcc make libX11-devel libXfixes-devel pkgconfig xclip
 <details>
 <summary><b>Debian/Ubuntu</b></summary>
 
-The plugin includes a native Wayland monitor daemon with full PRIMARY selection support. External clipboard tools are optional:
+The plugin includes a native Wayland clipboard agent with full PRIMARY selection support. External clipboard
+tools are optional:
 
 ```bash
 sudo apt install build-essential libwayland-dev wayland-protocols pkg-config wl-clipboard
 ```
 
-> **Note:** The `zes-wl-selection-monitor` daemon uses native Wayland protocols directly and does not require these tools for core functionality.
+> **Note:** `zes-wl-selection-agent` uses native Wayland protocols directly and does not require these tools
+> for core functionality.
 
 </details>
 
 <details>
 <summary><b>Arch Linux</b></summary>
 
-The plugin includes a native Wayland monitor daemon with full PRIMARY selection support. External clipboard tools are optional:
+The plugin includes a native Wayland clipboard agent with full PRIMARY selection support. External clipboard
+tools are optional:
 
 ```bash
 sudo pacman -S --needed base-devel wayland wayland-protocols pkgconf wl-clipboard
 ```
 
-> **Note:** The `zes-wl-selection-monitor` daemon uses native Wayland protocols directly and does not require these tools for core functionality.
+> **Note:** `zes-wl-selection-agent` uses native Wayland protocols directly and does not require these tools
+> for core functionality.
 
 </details>
 
 <details>
 <summary><b>Fedora</b></summary>
 
-The plugin includes a native Wayland monitor daemon with full PRIMARY selection support. External clipboard tools are optional:
+The plugin includes a native Wayland clipboard agent with full PRIMARY selection support. External clipboard
+tools are optional:
 
 ```bash
 sudo dnf install gcc make wayland-devel wayland-protocols-devel pkgconfig wl-clipboard
 ```
 
-> **Note:** The `zes-wl-selection-monitor` daemon uses native Wayland protocols directly and does not require these tools for core functionality.
+> **Note:** `zes-wl-selection-agent` uses native Wayland protocols directly and does not require these tools
+> for core functionality.
 
 </details>
 
 ### For XWayland Users
 
-If you're running Wayland but need X11 compatibility (XWayland) and enhance the behaviour, install both X11 and Wayland dependencies.
+If you're running Wayland but need X11 compatibility (XWayland) and enhance the behaviour, install both X11
+and Wayland dependencies.
 
 <details>
 <summary><b>Debian/Ubuntu</b></summary>
@@ -400,16 +452,16 @@ sudo dnf install gcc make libX11-devel libXfixes-devel wayland-devel wayland-pro
 
 ### 2. Install the Plugin
 
-
-> **Important:** Before installing, please ensure you have the required [Build Dependencies](#1-prerequisites-build-dependencies) installed.
+> **Important:** Before installing, ensure you have the required
+> [Build Dependencies](#1-prerequisites-build-dependencies) installed.
 >
-> **Tip:** The [Auto Installation](#auto-installation) script can perform all of the following installation steps automatically.
+> You may use the [Auto Installation](#auto-installation) script to perform this step automatically, or
+> [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you run into any difficulty.
 
 <details>
 <summary><b>Oh My Zsh</b></summary>
 
 Expand your plugin manager:
-
 
 ```bash
 git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
@@ -454,7 +506,6 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 ```
 
 </details>
-
 
 ### 3. Configure Your Terminal
 
@@ -504,7 +555,6 @@ The wizard provides:
 
 All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions.
 
-
 <details>
 <summary><b> Mouse Replacement Modes </b></summary>
 
@@ -514,13 +564,11 @@ Configure how the plugin handles mouse selections:
 
 - Full integration: type, paste, cut, and delete work with mouse selections
 - Best for users who want seamless mouse+keyboard workflow
-- A lightweight background daemon monitors PRIMARY selection changes for instant mouse selection detection
 
 **Disabled:**
 
 - Mouse selections can be copied with Ctrl+C
 - Typing, pasting, cutting, and deleting only work with keyboard selections
-- The background daemon is still running but mouse replacement actions are disabled
 - Best for users who prefer strict keyboard-only editing
 
 Change the mode:
@@ -645,7 +693,6 @@ Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 > **Note:** The plugin automatically uses the correct implementation (X11 or Wayland) based on your system.
 
-
 ### Environment Variables
 
 ```bash
@@ -663,7 +710,10 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ## Terminal Setup
 
-> **Tip:** The [Auto Installation](#auto-installation) script can automatically configure supported terminals (Kitty, WezTerm, Alacritty, Foot, VS Code) for you, saving you from these manual steps.
+> The [Auto Installation](#auto-installation) script can configure supported terminals (Kitty, WezTerm,
+> Alacritty, Foot, VS Code) automatically. If you prefer to configure manually follow the steps below.
+> [Open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you need help with a terminal
+> that is not covered.
 
 <details>
 <summary><b>How to Find Escape Sequences</b></summary>
@@ -1054,40 +1104,40 @@ shortcuts for the clipboard the same as the other terminals.
 
 ## Wayland Support
 
-> **Tip:** The [Auto Installation](#auto-installation) script automatically detects your environment and builds the correct optimized monitor daemon.
+> The [Auto Installation](#auto-installation) script automatically detects your display server and selects the
+> correct agent. For manual setup, follow the Wayland-specific instructions in
+> [Manual Installation](#manual-installation).
 
 Wayland is fully supported with native protocol implementation. The plugin automatically detects your Wayland
-setup and uses the optimal selection monitor:
+setup and uses the optimal clipboard agent:
 
-**Selection Monitor Priority (automatically selected):**
+**Clipboard Agent Priority (automatically selected):**
 
-1. **`zes-wl-selection-monitor` (Native Wayland)** — Custom C daemon with direct Wayland protocol support
-   - Uses `zwp_primary_selection_unstable_v1` for PRIMARY selection
-   - Uses `wl_data_device` for CLIPBOARD operations
-   - Works on all Wayland compositors with protocol support (Sway, Hyprland, KDE Plasma, River, Wayfire)
-   - Provides full mouse selection replacement feature
-   - Best performance with zero external tool overhead
+1. **`zes-wl-selection-agent` (Native Wayland)** — Clipboard integration with direct Wayland protocol support
+   - Handles PRIMARY selection and CLIPBOARD using native Wayland protocols
+   - Works on all compositors with protocol support (Sway, Hyprland, KDE Plasma, River, Wayfire)
+   - Full mouse selection replacement — no external tools needed
+   - Sub-2.2ms clipboard latency (96.4% faster than `wl-copy`)
 
-2. **`zes-xwayland-monitor` (XWayland)** — Recommended X11 compatibility layer
-   - Uses XWayland's X11 XFixes extension when available
-   - Provides seamless support for mixed X11/Wayland environments
-   - Recommended for maximum compatibility with older applications
+2. **`zes-xwayland-agent` (XWayland)** — XWayland compatibility layer (used when `DISPLAY` is available)
+   - Uses X11 XFixes via XWayland for clipboard integration
+   - Seamless support for mixed X11/Wayland environments
+   - Complements the native Wayland agent for maximum compatibility
 
-> **Technical Achievement:** The native Wayland implementation eliminates reliance on external clipboard tools
-> (`wl-copy`/`wl-paste`). Our custom C daemon connects directly to Wayland protocols, providing instant
-> PRIMARY selection monitoring with zero process-spawn overhead. This architecture delivers superior
-> performance and responsiveness compared to traditional clipboard utility approaches.
+> The native Wayland implementation connects directly to Wayland protocols, eliminating reliance on
+> `wl-copy`/`wl-paste`. All clipboard operations happen within the persistent agent process — zero subprocess
+> overhead.
 >
-> **Architecture:** The selection monitor daemons (`zes-wl-selection-monitor`, `zes-xwayland-monitor`,
-> `zes-x11-selection-monitor`) are lightweight background processes that monitor selection changes via
-> event-driven protocols and write updates to cache files. This zero-fork design ensures instant
-> responsiveness without performance overhead during typing.
+> **Architecture:** The clipboard agents (`zes-wl-selection-agent`, `zes-xwayland-agent`,
+> `zes-x11-selection-agent`) are lightweight background processes that integrate with display server clipboard
+> protocols. Updates are written to a fast in-memory cache (typically on `XDG_RUNTIME_DIR` or `/dev/shm`). The
+> shell reads this cache via a single `stat()` call per keypress — no forks, no pipes, no latency.
 
 <details>
 <summary><b>Native Wayland Protocol Support (Fully Implemented)</b></summary>
 
-Our `zes-wl-selection-monitor` daemon provides complete PRIMARY selection support on all Wayland compositors
-with protocol implementation:
+`zes-wl-selection-agent` provides complete clipboard and selection support on all Wayland compositors with
+protocol implementation:
 
 **Supported Compositors:**
 
@@ -1111,22 +1161,21 @@ provides seamless fallback.
 <details>
 <summary><b>XWayland Bridge (Recommended, for Enhanced Compatibility)</b></summary>
 
-The plugin includes a recommended XWayland bridge for environments where native Wayland protocol support
-is limited. XWayland provides:
+`zes-xwayland-agent` uses XWayland (if available) for an extra X11 compatibility layer for clipboard
+integration. XWayland provides:
 
 - Seamless fallback for hybrid X11/Wayland environments
 - Support for legacy applications running under XWayland
 - Alternative PRIMARY selection detection when native Wayland protocols unavailable
-
 
 </details>
 
 <details>
 <summary><b>Enabling XWayland (Recommended)</b></summary>
 
-The recommended selection monitor (`zes-xwayland-monitor`) requires XWayland. XWayland provides an X11
-compatibility layer on top of Wayland, allowing the monitor to use X11's XFixes extension for completely
-invisible PRIMARY selection tracking — no windows, no dock entries, no compositor artifacts.
+`zes-xwayland-agent` uses XWayland for clipboard integration — it requires XWayland to be available. XWayland
+provides an X11 compatibility layer on top of Wayland, allowing the agent to use X11's XFixes extension —
+completely invisible: no windows, no dock entries, no compositor artifacts.
 
 **Check if XWayland is already running:**
 
@@ -1190,11 +1239,11 @@ XWayland is enabled by default in Hyprland.
 
 </details>
 
-**Without XWayland:** The plugin falls back to the pure Wayland monitor (`zes-wl-selection-monitor`), which
-uses `zwp_primary_selection_v1`. This works on wlroots-based compositors (Sway, Hyprland) and KDE Plasma, but
-may show a small surface in the dock/taskbar on GNOME/Mutter.
-</details>
+**Without XWayland:** The plugin uses `zes-wl-selection-agent` directly, which uses
+`zwp_primary_selection_v1`. This works on wlroots-based compositors (Sway, Hyprland) and KDE Plasma, but may
+show a small surface in the dock/taskbar on GNOME/Mutter.
 
+</details>
 
 ---
 
@@ -1204,7 +1253,7 @@ may show a small surface in the dock/taskbar on GNOME/Mutter.
 <summary><b>Mouse Selection Replacement Feature</b></summary>
 
 The **Mouse Selection Replacement** feature (automatically detecting and replacing mouse-selected text) has
-comprehensive support across platforms via our custom daemon implementations:
+comprehensive support across platforms via our custom agent implementations:
 
 ### ✅ Fully Supported
 
@@ -1223,7 +1272,7 @@ comprehensive support across platforms via our custom daemon implementations:
 
 ### Performance Advantage on Wayland
 
-Our native Wayland implementation (`zes-wl-selection-monitor`) provides:
+The native Wayland agent (`zes-wl-selection-agent`) provides:
 
 - ✅ Direct protocol access (no `wl-copy`/`wl-paste` subprocess overhead)
 - ✅ Zero typing lag with instant selection detection
@@ -1276,43 +1325,21 @@ instant responsiveness and zero typing lag.
 
 ## Performance & Optimization
 
-This plugin is engineered for **maximum performance and responsiveness**, ensuring **zero lag** even during
-intensive text editing operations. The architecture prioritizes both **startup efficiency** and **runtime
-speed** with careful attention to minimize overhead at every level.
+This plugin is engineered for maximum performance and responsiveness. The architecture eliminates subprocess
+overhead at every level: a compiled native C agent tracks selections in the background, caches results to
+RAM-backed files, and delivers data to the shell via a single `stat()` syscall — never by spawning an external
+tool per keystroke.
 
-### Performance-First Design
+Key design principles:
 
-**Zero Runtime Overhead:**
-
-- ✅ All operations execute instantly without processing delays
-- ✅ Near-zero latency response to user interactions
-- ✅ No background polling or inefficient loops
-
-**One-Time Initialization:**
-
-- ✅ Plugin loads once at shell startup with optimized initialization
-- ✅ Backend detection happens a single time, not on every operation
-- ✅ Subsequent operations have zero initialization cost
-
-**Minimized Load Cost:**
-
-- ✅ Startup overhead is optimized and amortized across the shell session
-- ✅ Plugin files are automatically compiled to `.zwc` (Zsh bytecode) on first load for faster execution
-- ✅ One-time daemon startup eliminates repeated process creation
-
-**Minimized Runtime Cost:**
-
-- ✅ Operations execute with near-zero latency
-- ✅ File-based caching avoids expensive system calls for every operation
-- ✅ Direct protocol access eliminates subprocess overhead
-
-**Maximized Speed and Responsiveness:**
-
-- ✅ Instant feedback for all user interactions
-- ✅ No lag between typing and completion
-- ✅ Seamless clipboard operations without delays
-
----
+- **One-time cost, zero per-operation cost** — backend detection, agent startup, and config loading happen
+  once at shell load; subsequent operations pay zero initialization overhead
+- **Event-driven detection** — X11 XFixes events and Wayland compositor events trigger immediate cache
+  updates; no busy-waiting
+- **Compiled C agents** — direct system calls with aggressive compiler optimization
+  (`-O3 -march=native -flto -fipa-pta`) eliminate interpreter overhead entirely
+- **RAM-backed cache** — agents write to `XDG_RUNTIME_DIR` (tmpfs) with `/dev/shm` fallback; I/O stays in
+  memory, never touches spinning disk
 
 ### Optimization Techniques
 
@@ -1345,11 +1372,11 @@ speed** with careful attention to minimize overhead at every level.
 - No repeated file I/O on every operation
 - Settings applied globally and cached
 
-**Single Daemon Initialization**
+**Single Agent Initialization**
 
-- Selection monitor daemon started once when plugin loads
+- Selection agent started once when plugin loads
 - Remains active for entire shell session
-- Eliminates daemon startup overhead on subsequent operations
+- Eliminates agent startup overhead on subsequent operations
 
 </details>
 
@@ -1358,7 +1385,7 @@ speed** with careful attention to minimize overhead at every level.
 
 **File-Based Caching with mtime Detection**
 
-- Background daemon writes selection data to cache files
+- Background agent writes selection data to cache files
 - Shell detects changes via file modification times (mtime)
 - Only one `stat()` syscall needed, no file content reads
 - mtime comparisons are instant memory comparisons
@@ -1371,68 +1398,104 @@ speed** with careful attention to minimize overhead at every level.
 - Early return checks prevent re-detection of active selections
 - State invalidation only when actual changes detected
 
-**Periodic Health Checks (30-second interval)**
+**Periodic Agent Health Check (30-second interval)**
 
-- Daemon PID checked only every 30 seconds, not on every operation
-- Reduces syscall frequency
-- Graceful fallback if daemon dies detected quickly anyway
-- Balances responsiveness with minimal overhead
+- Shell checks agent PID via `kill(pid, 0)` once every 30 seconds — not on every keystroke
+- If the agent has exited unexpectedly it is transparently restarted
+- Throttling keeps the liveness-check overhead negligible
 
-**Fast Path Execution**
+**Early Return Checks**
 
-- Optimized code paths for common scenarios
-- Mtime-based detection faster than content comparison
-- Skips expensive operations when conditions don't apply
-- Early returns eliminate unnecessary processing
+- `_zes_sync_selection_state()` returns immediately if mtime is unchanged
+- Keyboard selections skip the mouse detection path entirely
+- State is invalidated only on confirmed changes
 
-**No Polling Architecture**
+**Event-Driven Detection**
 
-- Event-driven instead of polling-based
-- Wayland: Uses native event loops from Wayland display
-- X11: Uses XFixes extension events for instant notifications
-- Eliminates busy-waiting and wasted CPU cycles
+- **X11**: XFixes `SelectionNotify` events deliver instant PRIMARY selection change notification — no spin
+  loop
+- **Wayland**: Compositor sends primary selection events on owner change; a 50 ms poll fallback catches
+  content changes within the same owner (e.g. user extends a selection without releasing the mouse)
+- Neither agent busy-waits; both sleep in `poll()` until activity arrives
 
 </details>
 
 <details>
-<summary><b>Custom C Daemon Architecture</b></summary>
+<summary><b>Custom C Agent Architecture</b></summary>
 
 **Compiled Native Code Performance**
 
-- Custom C daemons compiled with aggressive optimization flags (`-O3`, `-march=native`, `-flto`)
+- Custom C agents compiled with aggressive optimization flags (`-O3`, `-march=native`, `-flto`)
 - Direct system calls without Zsh interpreter overhead
 - No subprocess spawning on clipboard operations
 - Minimal dependencies (only system libraries)
 
-**Event-Driven Monitoring**
+**Event-Driven Architecture**
 
-- Wayland daemon: Connects to Wayland display server directly
+- Wayland agent: Connects to Wayland display server directly
   - Uses `zwp_primary_selection_unstable_v1` protocol for PRIMARY selection events
   - Uses `wl_data_device` protocol for clipboard events
-  - Listens to server events instead of polling
-- X11 daemon: Uses XFixes extension for selection change notifications
+  - Blocks on `poll()` for server events — zero CPU usage between events
+- X11 agent: Uses XFixes extension for selection change notifications
   - Instant event notification on PRIMARY selection changes
-  - No polling loops or busy-waiting
+  - `poll()`-based main loop; no spinning or busy-waiting
 
 **Efficient Cache Updates**
 
-- Daemon writes only when selection actually changes
+- Agent writes only when selection content actually changes (conditional write skip)
+- Skipping redundant writes saves ~80 write syscalls/sec under rapid selection activity
 - File writes ordered: primary content first, then sequence number
-- Shell detects only the mtime update of sequence file
+- Shell detects only the mtime update of the sequence file, not full content reads
 - Prevents redundant updates and wasted disk I/O
 
-**Non-Blocking I/O with Timeout**
+**Non-Blocking I/O**
 
-- Clipboard reads use non-blocking I/O with poll timeout
-- Prevents hanging on unavailable clipboard data -Efficient resource usage during read operations
+- Clipboard reads use non-blocking I/O with `poll()` timeout
+- `poll()` replaces `usleep()` — wakes immediately on fd activity, avoids over-sleeping
+- Prevents hanging on unavailable clipboard data
 
-**Daemon Mode Efficiency**
+**Operation Mode Efficiency**
 
-- Single daemon supports multiple operation modes:
-  - Daemon mode: Continuous monitoring with periodic updates
+- Single agent binary supports multiple operation modes:
+  - Long-running mode: Continuous selection tracking with periodic cache updates
   - Oneshot mode: Single selection read without persistence
-  - Clipboard operations: Direct clipboard access
-- Eliminates need for multiple processes
+  - Clipboard operations: Direct clipboard read/write
+- Eliminates need for separate per-mode processes
+
+**C-Level Runtime Optimizations**
+
+Specific low-level improvements applied across all three agents:
+
+- **Persistent file descriptors** — Cache file FDs opened once and kept alive; eliminates `open()`/`close()`
+  overhead on every selection write
+- **`pwrite()` instead of `write()`** — Atomic positional write without a preceding `lseek()`; one syscall
+  instead of two
+- **`ftruncate()` after every write** — File is truncated to the exact written length after each `pwrite()`;
+  without this, shrinking selections leave stale bytes from the previous (longer) content in the cache file
+- **`O_CLOEXEC` everywhere** — All `open()`, `pipe2(O_CLOEXEC)`, and `memfd_create(MFD_CLOEXEC)` calls set
+  `O_CLOEXEC` to prevent fd inheritance across `exec()`
+- **Conditional write skip** — `write_primary()` compares new and existing content; skips the write entirely
+  when unchanged
+- **`XInternAtom` result caching** _(X11 agent)_ — X11 atom lookups performed once at startup and reused
+  per-event, not re-queried on every selection notification
+- **`poll()` replacing `usleep()`** — More accurate waits with immediate wake-up on fd activity; no wasted
+  cycles on over-sleeping
+- **`/dev/shm` cache fallback** — Falls back to `/dev/shm` when `XDG_RUNTIME_DIR` is unavailable, keeping
+  cache in RAM
+- **Eliminated redundant `fcntl(F_GETFL)`** _(Wayland agent)_ — Clipboard read pipes are created fresh with
+  `pipe2(O_CLOEXEC)`; `F_SETFL O_NONBLOCK` is applied directly without a preceding `F_GETFL` read. Saves 1
+  syscall per clipboard read operation
+
+**Event Loop Design**
+
+- **X11 daemon** — XFixes `SelectionNotify` events + `poll()` with 1-second timeout. The timeout exists solely
+  for clean `SIGTERM` shutdown; no periodic work is done on timeout
+- **Wayland daemon** — Wayland event loop + `poll()` with 50 ms timeout; on timeout calls
+  `check_and_update_primary()` to catch content changes within the same selection owner
+- **Clipboard copy (X11)** — `poll()` 100 ms loop serving `SelectionRequest` events; `timeout_count` resets to
+  zero every time a paste is served — exits after 500 idle cycles (~50 seconds without any paste activity)
+- **Clipboard copy (Wayland)** — Event loop exits immediately after the first successful paste
+  (`copy_done = true`)
 
 </details>
 
@@ -1473,10 +1536,10 @@ speed** with careful attention to minimize overhead at every level.
 
 **X11-Specific**
 
-- Uses `xclip` for copy operations (already optimized)
+- `zes-x11-selection-agent` handles all copy/paste natively; `xclip` only used as fallback
 - XFixes extension for instant selection notifications
-- No polling loops
-- Direct X11 server connection
+- `poll()`-based main loop; no spinning or busy-waiting
+- Direct X11 server connection with persistent atom caching
 
 **Wayland-Specific**
 
@@ -1485,7 +1548,8 @@ speed** with careful attention to minimize overhead at every level.
   - PRIMARY selection via `zwp_primary_selection_unstable_v1`
   - Clipboard via `wl_data_device` standard protocol
 - XWayland compatibility layer for hybrid environments
-- Invisible daemon surface only when needed (Mutter/GNOME)
+- Permanent 1×1 transparent `xdg_toplevel` surface created at startup with an empty input region; required for
+  Mutter/GNOME to deliver PRIMARY selection events, harmless on wlroots/KDE
 
 **XWayland Bridge**
 
@@ -1498,48 +1562,17 @@ speed** with careful attention to minimize overhead at every level.
 <details>
 <summary><b>What Was Eliminated</b></summary>
 
-**Eliminated Process Spawning**
-
-- ✅ No subprocess creation on clipboard operations
-- ✅ No shell overhead from executing external commands
-- ✅ No IPC overhead for inter-process communication
-- ✅ No repeated daemon startup cycles
-
-**Eliminated Polling Loops**
-
-- ✅ Event-driven architecture replaces polling
-- ✅ No busy-waiting or CPU spinning
-- ✅ No wasted cycles checking conditions repeatedly
-- ✅ Instant response to actual changes
-
-**Eliminated Repeated System Calls**
-
-- ✅ File mtime compared in memory, not repeated stat calls
-- ✅ Backend detection happens once, not per-operation decision-making
-- ✅ Configuration loaded once, no repeated file reads
-- ✅ PID checks throttled to 30-second intervals
-
-**Eliminated Unnecessary Overhead**
-
-- ✅ No unnecessary selection re-detection with early returns
-- ✅ No redundant state checks when conditions unchanged
-- ✅ No repeated clipboard queries for same selection
-- ✅ No parsing or interpretation overhead in compiled C code
-
-**Eliminated Interpreter Overhead**
-
-- ✅ Custom C daemons have no scripting language overhead
-- ✅ Zsh scripts compiled to bytecode for faster execution
-- ✅ Direct system calls without wrapper overhead
-- ✅ Minimal dependency chain
-
-**Multi-Pane & Multi-Window Resilience**
-
-- ✅ Handles multiple panes (splits) within the same terminal window seamlessly
-- ✅ Works correctly across multiple terminal windows without conflicts
-- ✅ Manages multiple independent terminal instances reliably
-- ✅ Maintains independent selection state per pane and window
-- ✅ Resilient against edge cases and complex multi-terminal scenarios
+- ✅ No subprocess creation on clipboard operations — no fork/exec overhead per action
+- ✅ No shell overhead from executing external commands (`xclip`, `wl-copy`, etc.)
+- ✅ No busy-waiting — event-driven detection throughout; Wayland's 50 ms fallback poll exists only to catch
+  in-selection content changes, not as the primary detection method
+- ✅ No repeated system calls — backend detection and configuration loaded once at startup
+- ✅ File mtime compared in memory; no full file reads per selection check
+- ✅ PID checks throttled to 30-second intervals, not per-operation
+- ✅ No redundant selection re-detection — early return checks skip unchanged state
+- ✅ No scripting language overhead in C agents — direct system calls only
+- ✅ Zsh scripts compiled to `.zwc` bytecode; raw script parsing eliminated after first load
+- ✅ Handles multiple panes and windows without cross-pane state leakage
 
 </details>
 
@@ -1593,7 +1626,7 @@ speed** with careful attention to minimize overhead at every level.
 
 - ✅ State variables use efficient types (integers for flags, strings for selections)
 - ✅ Only active implementation loaded (X11 or Wayland, not both)
-- ✅ Lazy daemon initialization (only started when needed)
+- ✅ Lazy agent initialization (only started when needed)
 - ✅ Cache files use temporary directory (XDG_RUNTIME_DIR, typically in RAM on modern systems)
 - ✅ No memory leaks from repeated operations
 
@@ -1615,45 +1648,12 @@ speed** with careful attention to minimize overhead at every level.
 </details>
 
 <details>
-<summary><b>Custom C Performance Layer</b></summary>
-
-Unlike standard clipboard utilities, **zsh-edit-select** uses custom-built C programs specifically optimized
-for this plugin, providing **measurable performance improvements** across all platforms.
-
-**Architecture Overview:**
-
-- **Selection Monitoring** — Custom C daemons track PRIMARY selection changes using native protocols
-- **Clipboard Operations** — Direct protocol implementation replaces external tools (`xclip`, `wl-copy`,
-  `wl-paste`)
-- **File-Based Caching** — Background monitors cache selection data, eliminating subprocess overhead
-- **Event-Driven Design** — Native event loops replace polling for instant responsiveness
-- **Zero Typing Lag** — All operations execute without process-spawn delays
-
-**Custom Daemon Monitors:**
-
-| Monitor                     | Platform | Protocol                                               | Features                                  |
-| --------------------------- | -------- | ------------------------------------------------------ | ----------------------------------------- |
-| `zes-x11-selection-monitor` | X11      | XFixes extension                                       | PRIMARY monitoring + clipboard operations |
-| `zes-wl-selection-monitor`  | Wayland  | `zwp_primary_selection_unstable_v1` + `wl_data_device` | Native Wayland protocols                  |
-| `zes-xwayland-monitor`      | XWayland | X11 via XWayland bridge                                | Hybrid environment support + clipboard    |
-
-**Key Performance Features:**
-
-- ✅ **No External Dependencies** — Custom monitors eliminate need for `xclip` or `wl-copy`/`wl-paste`
-- ✅ **Direct Protocol Access** — Native Wayland and X11 communication without subprocess overhead
-- ✅ **File-Based Synchronization** — Cached data read via fast file I/O instead of process spawning
-- ✅ **Compiled Optimization** — C code compiled with aggressive `-O3` + LTO flags for maximum performance
-- ✅ **Event-Driven Architecture** — Instant notification of selection changes, zero polling
-
-</details>
-
-<details>
 <summary><b>Clipboard Operation Performance Benchmarks</b></summary>
 
 Our custom clipboard implementations deliver **exceptional performance improvements** over standard tools,
 verified through comprehensive benchmarking with real-world measurements.
 
-**X11 Performance (Custom Monitor vs xclip):**
+**X11 Performance (Custom Agent vs xclip):**
 
 | Test Scenario                          | xclip Avg    | Custom Avg   | Improvement      |
 | -------------------------------------- | ------------ | ------------ | ---------------- |
@@ -1664,7 +1664,7 @@ verified through comprehensive benchmarking with real-world measurements.
 | Rapid consecutive (200 iterations)     | 4.206 ms     | 2.321 ms     | **44.8% faster** |
 | **Overall Average**                    | **4.187 ms** | **2.320 ms** | **44.6% faster** |
 
-**Wayland Performance (Custom Monitor vs wl-copy):**
+**Wayland Performance (Custom Agent vs wl-copy):**
 
 | Test Scenario                          | wl-copy Avg   | Custom Avg   | Improvement      |
 | -------------------------------------- | ------------- | ------------ | ---------------- |
@@ -1677,8 +1677,8 @@ verified through comprehensive benchmarking with real-world measurements.
 
 **Performance Summary:**
 
-- **X11 Improvement:** Custom daemon **44.6% faster** than xclip (2.320ms vs 4.187ms)
-- **Wayland Improvement:** Custom daemon **96.4% faster** than wl-copy (2.134ms vs 59.535ms)
+- **X11 Improvement:** Custom agent **44.6% faster** than xclip (2.320ms vs 4.187ms)
+- **Wayland Improvement:** Custom agent **96.4% faster** than wl-copy (2.134ms vs 59.535ms)
 - **Best-case Latency:**
   - X11: 2.211ms minimum (48.7% better than xclip's 4.307ms)
   - Wayland: 1.152ms minimum (97.7% better than wl-copy's 49.066ms)
@@ -1689,22 +1689,22 @@ verified through comprehensive benchmarking with real-world measurements.
 
 - **X11 Operations:** Sub-2.5ms average latency means instant clipboard operations
 - **Wayland Operations:** Sub-2.2ms average latency (27x faster than wl-copy)
-- **Paste Operations:** Immediate data retrieval from daemon cache
+- **Paste Operations:** Immediate data retrieval from agent cache
 - **Selection Detection:** Near-zero latency for mouse selection changes
 - **High-Frequency Usage:** No performance degradation during rapid copy/paste workflows
 
 **Why Wayland Shows Exceptional Gains:**
 
 - wl-copy's high process spawn overhead (~60ms per operation) makes subprocess-based approaches extremely slow
-- Our persistent daemon architecture eliminates all subprocess calls
+- Our persistent agent architecture eliminates all subprocess calls
 - Direct Wayland protocol access provides native performance
 - Result: **96.4% improvement** (27x performance multiplier) on Wayland vs **44.6% improvement** on X11
 
 **Technical Implementation:**
 
-- Custom monitors implement full clipboard protocol support
+- Custom agents implement full clipboard protocol support
 - Background server maintains clipboard ownership (auto-cleanup after 50 seconds)
-- Graceful fallback to standard tools if custom monitors unavailable
+- Graceful fallback to standard tools if custom agents unavailable
 - X11 achieves 44.6% performance gains, Wayland achieves 96.4% performance gains
 
 > **Benchmark Methodology:** Tests conducted using high-precision C benchmarking tools with
@@ -1713,9 +1713,9 @@ verified through comprehensive benchmarking with real-world measurements.
 > during interactive use.
 
 > **Run Benchmarks Yourself:** You can verify these performance claims by running the benchmark suite
-> yourself. See the [`assets/benchmarks/`](assets/benchmarks/) directory for comprehensive C-based benchmarking tools and
-> detailed instructions. The suite compares our custom implementations against standard tools (`xclip`,
-> `wl-copy`/`wl-paste`) with precise timing and multiple test scenarios.
+> yourself. See the [`assets/benchmarks/`](assets/benchmarks/) directory for comprehensive C-based
+> benchmarking tools and detailed instructions. The suite compares our custom implementations against standard
+> tools (`xclip`, `wl-copy`/`wl-paste`) with precise timing and multiple test scenarios.
 
 </details>
 
@@ -1738,11 +1738,11 @@ Every mouse selection detection:
 Total: Multiple subprocess calls per operation
 ```
 
-**After (Custom C Daemon):**
+**After (Custom C Agent):**
 
 ```
-One-time daemon startup:
-  1. Daemon monitors selection changes → 0ms per check
+One-time agent startup:
+  1. Agent tracks selection changes → 0ms per check
   2. Writes updates to cache file
   3. Shell reads cached data via file I/O → <0.1ms
 
@@ -1752,12 +1752,12 @@ Total: Zero subprocess calls during normal operation
 **Performance Impact:**
 
 - **Traditional:** ~4.3ms per clipboard query (subprocess overhead)
-- **Custom Daemon:** ~0.1ms per check (file mtime comparison)
+- **Custom Agent:** ~0.1ms per check (file mtime comparison)
 - **Improvement:** ~97% reduction in selection detection latency
 
 **Additional Optimizations:**
 
-- ✅ `_zes_sync_selection_state()` — Reads daemon cache before selection detection
+- ✅ `_zes_sync_selection_state()` — Reads agent cache before selection detection
 - ✅ Early return checks — Avoids redundant operations when selection unchanged
 - ✅ Memory caching — Previous selection cached in memory variables
 - ✅ mtime-based detection — Single `stat()` call instead of full file reads
@@ -1774,50 +1774,10 @@ though total execution time is unchanged.
 
 </details>
 
-<details>
-<summary><b>Platform-Specific Implementation Details</b></summary>
-
-**X11 Implementation:**
-
-- **Monitor:** `zes-x11-selection-monitor` with full clipboard support
-- **Protocols:** XFixes extension for events, X11 CLIPBOARD atom
-- **Operations:** `--get-clipboard`, `--copy-clipboard`, `--clear-primary`
-- **Performance:** 44.6% faster than `xclip` across all operations
-- **Fallback:** Graceful degradation to `xclip` if monitor unavailable
-
-**Native Wayland Implementation:**
-
-- **Monitor:** `zes-wl-selection-monitor` with native protocol support
-- **Protocols:**
-  - PRIMARY: `zwp_primary_selection_unstable_v1`
-  - Clipboard: `wl_data_device` standard protocol
-- **Operations:** Direct protocol calls, no external tools needed
-- **Performance:** Zero subprocess overhead, instant responsiveness
-- **Fallback:** Optional `wl-copy`/`wl-paste` if monitor unavailable
-
-**XWayland Implementation:**
-
-- **Monitor:** `zes-xwayland-monitor` for hybrid environments
-- **Protocols:** X11 XFixes through XWayland bridge
-- **Operations:** Full clipboard support matching X11 performance
-- **Performance:** Unified architecture with X11-level optimizations
-- **Compatibility:** Seamless support for mixed X11/Wayland applications
-
-**Unified Performance:**
-
-All platforms now achieve:
-
-- ✅ Zero external tool dependencies for core functionality
-- ✅ 44.6% faster on X11, 96.4% faster on Wayland vs standard clipboard tools
-- ✅ Consistent sub-2.5ms latency for clipboard operations (X11: 2.3ms avg, Wayland: 2.1ms avg)
-- ✅ Event-driven selection monitoring with instant notification
-
-</details>
-
 ### Performance Benefits Summary
 
-- ✅ **X11: 44.6% faster** — Custom daemon (2.320ms) vs xclip (4.187ms)
-- ✅ **Wayland: 96.4% faster** — Custom daemon (2.134ms) vs wl-copy (59.535ms)
+- ✅ **X11: 44.6% faster** — Custom agent (2.320ms) vs xclip (4.187ms)
+- ✅ **Wayland: 96.4% faster** — Custom agent (2.134ms) vs wl-copy (59.535ms)
 - ✅ **97% reduction in selection detection latency** — Eliminated subprocess overhead
 - ✅ **Zero typing lag** — No process spawning during normal editing operations
 - ✅ **Sub-2.5ms clipboard latency** — Operations complete faster than human perception threshold
@@ -1909,7 +1869,9 @@ PRIMARY selection. See [Platform Compatibility](#platform-compatibility) for mor
 <details>
 <summary><b>Ctrl+C doesn't copy</b></summary>
 
-**Solution:** Configure your terminal to remap Ctrl+C. See [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut) at the [Terminal Setup](#terminal-setup) section.
+**Solution:** Configure your terminal to remap Ctrl+C. See
+[Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut) at the [Terminal Setup](#terminal-setup)
+section.
 
 **Alternative:** Use Ctrl+Shift+C for copying, or configure a custom keybinding with `edit-select config`, or
 use the 'Without Terminal Remapping' method if your terminal doesn't support key remapping.
@@ -1956,61 +1918,141 @@ source ~/.zshrc
 </details>
 
 <details>
+<summary><b>Mouse selection replaces text in a different pane (tmux users)</b></summary>
+
+**Symptoms:** When using tmux with multiple panes, selecting text with the mouse in one pane and then
+switching to another pane causes typed text to unexpectedly replace the previously selected text from the
+other pane.
+
+**Solution:** Enable focus events in tmux. The plugin uses terminal focus reporting (DECSET 1004) to
+distinguish between selections made in the active pane versus other panes.
+
+Add this line to your `~/.tmux.conf`:
+
+```bash
+set-option -g focus-events on
+```
+
+Then reload your tmux configuration:
+
+```bash
+tmux source-file ~/.tmux.conf
+```
+
+> **Note:** `focus-events on` has been the default since tmux 3.3a (released April 2023). If you're running an
+> older version of tmux, either upgrade or add the line above to your configuration.
+
+**Alternative:** If you cannot enable focus events, you can disable mouse replacement entirely with
+`edit-select config` → Option 1 → Disable. This will preserve keyboard selection functionality while
+preventing cross-pane mouse selection issues.
+
+</details>
+
+<details>
 <summary><b>Manual Build (Optional)</b></summary>
 
-The plugin compiles monitors automatically on first use. To manually build them:
+The plugin compiles agents automatically on first use. To manually build them, first locate your plugin
+directory — this depends on your plugin manager:
 
-**X11 Monitor:**
 ```bash
-cd ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select/impl-x11/backends/x11
+# Common locations (adjust to wherever you installed the plugin):
+#   Oh My Zsh:  ~/.oh-my-zsh/custom/plugins/zsh-edit-select
+#   Zinit:      ~/.local/share/zinit/plugins/Michael-Matta1---zsh-edit-select
+#   Sheldon:    ~/.local/share/sheldon/repos/github.com/Michael-Matta1/zsh-edit-select
+#   Manual:     wherever you ran: git clone https://github.com/Michael-Matta1/zsh-edit-select
+PLUGIN_DIR=~/.oh-my-zsh/custom/plugins/zsh-edit-select  # ← change this to your path
+```
+
+**X11 Agent:**
+
+```bash
+cd "$PLUGIN_DIR/impl-x11/backends/x11"
 make
 ```
 
-**Wayland Monitor:**
+**Wayland Agent:**
+
 ```bash
-cd ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select/impl-wayland/backends/wayland
+cd "$PLUGIN_DIR/impl-wayland/backends/wayland"
 make
 ```
 
-**XWayland Monitor:**
+**XWayland Agent:**
+
 ```bash
-cd ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select/impl-wayland/backends/x11
+cd "$PLUGIN_DIR/impl-wayland/backends/xwayland"
 make
 ```
 
 To clean/rebuild:
+
 ```bash
 make clean && make
 ```
 
-> **Note:** The plugin will automatically detect your display server and compile the appropriate monitor daemon on first shell startup. The Makefiles require:
+> **Note:** The plugin will automatically detect your display server and compile the appropriate agent on
+> first shell startup. The Makefiles require:
 >
 > - **X11 builds:** `libX11` and `libXfixes` development headers/libraries
 > - **Wayland builds:** `wayland-client` development headers, `wayland-scanner`, and `wayland-protocols`
 >
-> If compilation fails, the plugin will fall back to using external clipboard tools (`xclip` for X11, `wl-clipboard` for Wayland).
+> If compilation fails, the plugin will fall back to using external clipboard tools (`xclip` for X11,
+> `wl-clipboard` for Wayland).
 
 **Build Optimization:**
 
-The default Makefiles already compile with aggressive optimization flags for maximum runtime performance:
+The default Makefiles compile with aggressive optimization flags for maximum runtime performance:
 
-| Flag | Purpose |
-|------|---------|
-| `-O3` | Maximum compiler optimization level |
-| `-march=native` | CPU-specific instruction set (SSE, AVX, etc.) |
-| `-mtune=native` | CPU-specific scheduling optimizations |
-| `-flto` | Link-time optimization across compilation units |
-| `-ffunction-sections -fdata-sections` | Granular dead code elimination |
-| `-Wl,--gc-sections` | Remove unused functions/data at link time |
-| `-fomit-frame-pointer` | Free up a register for better performance |
-| `-fno-plt` | Eliminate PLT indirection for faster library calls |
-| `-s` | Strip symbols for smaller production binaries |
+| Flag                                  | Purpose                                              |
+| ------------------------------------- | ---------------------------------------------------- |
+| `-O3`                                 | Maximum compiler optimization level                  |
+| `-march=native`                       | CPU-specific instruction set (SSE, AVX, etc.)        |
+| `-mtune=native`                       | CPU-specific scheduling optimizations                |
+| `-flto`                               | Link-time optimization across compilation units      |
+| `-ffunction-sections -fdata-sections` | Granular dead code elimination                       |
+| `-Wl,--gc-sections`                   | Remove unused functions/data at link time            |
+| `-Wl,--as-needed`                     | Skip linking unused shared libraries                 |
+| `-Wl,-z,now`                          | Resolve all symbols at load time (security + perf)   |
+| `-Wl,-z,relro`                        | Read-only relocations after startup                  |
+| `-fomit-frame-pointer`                | Free up a register for better performance            |
+| `-fno-plt`                            | Eliminate PLT indirection for faster library calls   |
+| `-fno-semantic-interposition`         | Enable inlining across translation units             |
+| `-fno-strict-aliasing`                | Avoid aliasing-related missed optimizations          |
+| `-fno-asynchronous-unwind-tables`     | Omit unwind info not needed for signal handlers      |
+| `-fmerge-all-constants`               | Deduplicate identical constants across units         |
+| `-fipa-pta`                           | Interprocedural pointer analysis for better inlining |
+| `-DNDEBUG`                            | Disable assertions in release builds                 |
+| `-funroll-loops`                      | Unroll small loops for throughput                    |
+| `-s`                                  | Strip symbols for smaller production binaries        |
 
-> **Important:** `-march=native` produces binaries optimized for the CPU you're building on.
-> These binaries may not run correctly on different CPU architectures. For distributed builds,
-> replace `-march=native -mtune=native` with a portable baseline like `-march=x86-64-v2`.
+> **Important:** `-march=native` produces binaries optimized for the CPU you're building on. These binaries
+> may not run correctly on different CPU architectures. For distributed builds, replace
+> `-march=native -mtune=native` with a portable baseline like `-march=x86-64-v2`.
 
 </details>
+
+---
+
+## Contributing
+
+Contributions, suggestions, and recommendations are welcome. If you encounter a bug or unexpected behavior,
+please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with a clear description and
+steps to reproduce. Pull requests are open for any meaningful improvement — bug fixes, new features, or
+compatibility with additional environments.
+
+If you have ideas for enhancements, feature requests, or recommendations to improve the plugin's functionality
+or documentation, feel free to share them. Your feedback helps shape the direction of the project and ensures
+it meets the needs of the community.
+
+**A note on development:** This plugin is developed and tested privately over an extended period before any
+public release. After every change — whether a fix, enhancement, or new feature — the plugin is heavy-tested
+to validate stability and catch regressions under real conditions. New features are typically accompanied by
+new edge cases; each one is identified and resolved before the code is released. The goal is to ship complete,
+reliable increments rather than incremental works-in-progress. As a result, public commits tend to represent
+significant, well-tested milestones rather than a continuous stream of small changes.
+
+If something does not work as expected, please report it — every issue report directly improves the plugin's
+reliability for everyone.
 
 ---
 
@@ -2023,22 +2065,31 @@ This project is licensed under the [MIT License](LICENSE).
 ## Acknowledgments
 
 - #### This project Began as a fork ([Michael-Matta1/zsh-shift-select](https://github.com/Michael-Matta1/zsh-shift-select)) of [jirutka/zsh-shift-select](https://github.com/jirutka/zsh-shift-select)
-  + The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin only supported deleting selected text and did not offer copying by default. This feature was frequently requested by the community, as shown in
-[issue #8](https://github.com/jirutka/zsh-shift-select/issues/8) and
-[issue #10](https://github.com/jirutka/zsh-shift-select/issues/10).
+  - The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin
+    only supported deleting selected text and did not offer copying by default and this feature was frequently
+    requested by the community.
 
-  + Since then, the project has evolved with its own new features, enhancements, bug fixes, design improvements,
-and a fully changed codebase, and it now provides a full editor-like experience.
+  - Since then, the project has evolved with its own new features, enhancements, bug fixes, design
+    improvements, and a fully changed codebase, and it now provides a full editor-like experience.
 
-
-- #### The [primary-selection-unstable-v1.xml](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml) protocol definition is Copyright © 2015, 2016 Red Hat.
+- #### Wayland Primary Selection Protocol
+  The [`primary-selection-unstable-v1.xml`](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml)
+  Wayland protocol specification is Copyright © 2015, 2016 Red Hat, distributed under the MIT License. The
+  bundled C binding files (`primary-selection-unstable-v1-protocol.c` and
+  `primary-selection-unstable-v1-client-protocol.h`) are generated directly from this XML definition via
+  `wayland-scanner` and are covered by the same copyright and license terms. The `xdg-shell` binding files
+  follow the same pattern, generated from the `xdg-shell.xml` specification in the wayland-protocols
+  repository.
 
 ---
 
 ## References
 
-- [Michael-Matta1/dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) — Dotfiles showcasing the plugin with Kitty, VS Code, and Zsh.
+- [Michael-Matta1/dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) — Dotfiles showcasing the
+  plugin with Kitty, VS Code, and Zsh.
 
-- [Zsh ZLE shift selection — StackOverflow](https://stackoverflow.com/questions/5407916/zsh-zle-shift-selection) — Q&A on Shift-based selection in ZLE.
+- [Zsh ZLE shift selection — StackOverflow](https://stackoverflow.com/questions/5407916/zsh-zle-shift-selection)
+  — Q&A on Shift-based selection in ZLE.
 
-- [Zsh Line Editor Documentation](https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html) — Official ZLE widgets and keybindings reference.
+- [Zsh Line Editor Documentation](https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html) — Official ZLE
+  widgets and keybindings reference.

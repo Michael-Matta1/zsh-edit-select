@@ -4,7 +4,7 @@
 
 SCRIPT_DIR="${0:A:h}"
 BENCH_BIN="${SCRIPT_DIR}/x11-benchmark"
-DAEMON_BIN="${SCRIPT_DIR}/../../impl-x11/backends/x11/zes-x11-selection-monitor"
+DAEMON_BIN="${SCRIPT_DIR}/../../impl-x11/backends/x11/zes-x11-selection-agent"
 RESULTS_DIR="${SCRIPT_DIR}/results"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 RESULTS_FILE="${RESULTS_DIR}/x11-benchmark-${TIMESTAMP}.txt"
@@ -29,7 +29,7 @@ sanitize_sensitive_data() {
         -e "s|Hostname:.*|Hostname: [REDACTED]|" \
         -e "s|Display:.*|Display: X11|" \
         -e "s|Shell:.*|Shell: zsh|" \
-        -e "s|Daemon:.*|Daemon: zes-selection-monitor|"
+        -e "s|Daemon:.*|Agent: zes-x11-selection-agent|"
 }
 
 print_header() {
@@ -50,7 +50,7 @@ check_requirements() {
     fi
 
     if [[ ! -x "$DAEMON_BIN" ]]; then
-        echo "${RED}✗ Error: zes-x11-selection-monitor not found or not executable${NC}"
+        echo "${RED}✗ Error: zes-x11-selection-agent not found or not executable${NC}"
         echo "  Path: $DAEMON_BIN"
         echo "  Please build it first: cd ../../impl-x11/backends/x11 && make"
         return 1
@@ -87,7 +87,7 @@ print_system_info() {
     echo "  Hostname: $(hostname)"
     echo "  Display: $DISPLAY"
     echo "  Shell: $SHELL $ZSH_VERSION"
-    echo "  Daemon: $DAEMON_BIN"
+    echo "  Agent: $DAEMON_BIN"
     echo ""
 }
 
@@ -139,9 +139,9 @@ run_memory_benchmark() {
 
                 local diff=$(((mem_kb - xclip_mem_kb)))
                 if ((diff < 0)); then
-                    echo "  ${GREEN}✓ Custom daemon uses $((xclip_mem_kb - mem_kb)) KB LESS memory${NC}"
+                    echo "  ${GREEN}✓ Custom agent uses $((xclip_mem_kb - mem_kb)) KB LESS memory${NC}"
                 else
-                    echo "  ${YELLOW}⚠ Custom daemon uses $diff KB more memory${NC}"
+                    echo "  ${YELLOW}⚠ Custom agent uses $diff KB more memory${NC}"
                     echo "    (Note: daemon is persistent, xclip exits immediately)"
                 fi
             fi
@@ -166,7 +166,7 @@ print_summary() {
     echo "  Clean: ${RESULTS_FILE_CLEAN}"
     echo ""
     echo "  Key Findings:"
-    echo "  • Custom daemon shows ${GREEN}superior performance${NC}"
+    echo "  • Custom agent shows ${GREEN}superior performance${NC}"
     echo "  • Consistent low latency across all payload sizes"
     echo "  • Minimal memory footprint"
     echo "  • Zero subprocess overhead"

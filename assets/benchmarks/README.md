@@ -7,7 +7,8 @@ empirical data.
 
 ### Clipboard Operation Performance
 
-These benchmarks compare standard clipboard tools against the custom selection daemon across five comprehensive test scenarios:
+These benchmarks compare standard clipboard tools against the custom selection daemon across five
+comprehensive test scenarios:
 
 - **Small text copy** (50 chars) - 100 iterations
 - **Medium text copy** (500 chars) - 50 iterations
@@ -51,7 +52,7 @@ Results are saved to `results/` with both raw and sanitized output files.
 **Required:**
 
 - GCC compiler
-- Custom daemon built (`zes-x11-selection-monitor`)
+- Custom agent built (`zes-x11-selection-agent`)
 
 **Optional (for comparison):**
 
@@ -74,7 +75,7 @@ make
 **Required:**
 
 - GCC compiler
-- Custom daemon built (`zes-wl-selection-monitor`)
+- Custom agent built (`zes-wl-selection-agent`)
 
 **Optional (for comparison):**
 
@@ -101,7 +102,7 @@ Each benchmark consists of two components:
 1. **C Benchmark Tool** (`x11-benchmark.c` or `wayland-benchmark.c`)
    - Written in C for accurate, low-overhead timing
    - Uses `clock_gettime(CLOCK_MONOTONIC)` for nanosecond precision
-   - Measures both standard tools and custom daemon
+   - Measures both standard tools and custom agent
    - Records CPU time via `getrusage()`
 
 2. **Runner Script** (`run-x11-benchmark.zsh` or `run-wayland-benchmark.zsh`)
@@ -146,9 +147,9 @@ Benchmark results:
 ```
 Average operation time:
   xclip:         4.187 ms
-  custom daemon: 2.320 ms
+  custom agent: 2.320 ms
 
-Overall Performance: Custom daemon is 44.6% FASTER
+Overall Performance: Custom agent is 44.6% FASTER
 ```
 
 #### Detailed Results by Test Category
@@ -187,9 +188,9 @@ Benchmark results:
 ```
 Average operation time:
   wl-copy:       59.535 ms
-  custom daemon: 2.134 ms
+  custom agent: 2.134 ms
 
-Overall Performance: Custom daemon is 96.4% FASTER
+Overall Performance: Custom agent is 96.4% FASTER
 ```
 
 #### Detailed Results by Test Category
@@ -237,15 +238,15 @@ Test 1: Small Text Copy (50 chars, 100 iterations)
     Max:    0.005375 s (5.375 ms)    ← Worst-case latency
     CPU:    0.015027 s                ← CPU time consumed
 
-  Small text (custom daemon):
+  Small text (custom agent):
     Total:  0.238895 s
     Avg:    0.002389 s (2.389 ms)    ← 43% improvement
     Min:    0.002008 s (2.008 ms)
     Max:    0.003017 s (3.017 ms)
     CPU:    0.013218 s
 
-  Performance: Custom daemon is 43.3% FASTER
-  Best-case latency: Custom daemon is 42.1% BETTER
+  Performance: Custom agent is 43.3% FASTER
+  Best-case latency: Custom agent is 42.1% BETTER
 ```
 
 **Wayland Example:**
@@ -260,15 +261,15 @@ Test 1: Small Text Copy (50 chars, 100 iterations)
     Max:    0.088885 s (88.885 ms)   ← Worst-case latency
     CPU:    0.013679 s
 
-  Small text (custom daemon):
+  Small text (custom agent):
     Total:  0.196554 s
     Avg:    0.001966 s (1.966 ms)    ← 97% improvement
     Min:    0.001452 s (1.452 ms)
     Max:    0.013372 s (13.372 ms)
     CPU:    0.011516 s
 
-  Performance: Custom daemon is 96.6% FASTER
-  Best-case latency: Custom daemon is 96.9% BETTER
+  Performance: Custom agent is 96.6% FASTER
+  Best-case latency: Custom agent is 96.9% BETTER
 ```
 
 **Key Metrics:**
@@ -316,8 +317,8 @@ make wayland-benchmark  # Build Wayland only
 make clean        # Clean all
 ```
 
-> **Note:** The plugin automatically compiles monitors on first use.
-> If you want to rebuild manually: `cd ../../impl-x11/backends/x11 && make clean && make`
+> **Note:** The plugin automatically compiles monitors on first use. If you want to rebuild manually:
+> `cd ../../impl-x11/backends/x11 && make clean && make`
 
 </details>
 
@@ -391,13 +392,13 @@ To verify the claimed performance improvements:
 
 - Overall performance improvement: **~44.6%**
 - Individual test improvements: **41-49%** range
-- Average latency: **~2.5ms** (custom daemon) vs **~4ms** (xclip)
+- Average latency: **~2.5ms** (custom agent) vs **~4ms** (xclip)
 
 **Wayland:**
 
 - Overall performance improvement: **~96%**
 - Individual test improvements: **95-97%** range
-- Average latency: **~2ms** (custom daemon) vs **~60ms** (wl-copy)
+- Average latency: **~2ms** (custom agent) vs **~60ms** (wl-copy)
 
 </details>
 

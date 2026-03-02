@@ -14,8 +14,8 @@ if [[ -z "${BASH_VERSINFO[0]}" ]] || [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
     echo "ERROR: Bash 4.0 or higher is required (found ${BASH_VERSION:-unknown})"
     echo "This script uses associative arrays which require Bash 4.0+"
     echo ""
-    echo "On macOS: brew install bash"
-    echo "On Linux: Your distribution should have bash 4+ by default"
+    echo "Your distribution should have bash 4+ by default."
+    echo "Try: sudo apt install bash  (or equivalent for your distro)"
     exit 1
 fi
 
@@ -43,7 +43,7 @@ fi
 # - Install all required dependencies
 # - Install and configure the plugin
 # - Configure your terminal emulator(s)
-# - Build monitor daemons
+# - Build agents
 # - Check for configuration conflicts
 # - Verify the installation
 # - Provide a detailed summary
@@ -52,26 +52,23 @@ fi
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.5.6"
+readonly SCRIPT_VERSION="0.5.7"
 
 # Color codes
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
-readonly MAGENTA='\033[0;35m'
 readonly CYAN='\033[0;36m'
 readonly BOLD='\033[1m'
 readonly DIM='\033[2m'
 readonly NC='\033[0m'
-readonly RESET='\033[0m'
 
 # Global state variables
 declare -A INSTALLATION_LOG
 declare -A FAILED_STEPS
 declare -a MANUAL_STEPS
 declare -a DETECTED_TERMINALS
-declare -A TERMINAL_CONFIGS
 declare -A CONFLICTS
 declare -i TOTAL_CONFLICTS=0
 declare -i PASSED_TESTS=0
@@ -88,7 +85,6 @@ DETECTED_PACKAGE_MANAGER=""
 DETECTED_PLUGIN_MANAGER=""
 PLUGIN_INSTALL_DIR=""
 USER_WANTS_REVERSED_COPY="n" # Default value
-USER_WANTS_MOUSE_REPLACEMENT="y"
 CHOICE_RESULT="" # Global variable for ask_choice results to avoid subshell issues
 
 # Script timing
@@ -162,66 +158,6 @@ trap 'echo -e "\n${RED}Installation interrupted by user${NC}"; exit 130' INT
 trap 'echo -e "\n${RED}Installation terminated${NC}"; exit 143' TERM
 trap 'echo -e "\n${RED}Hangup detected${NC}"; exit 129' HUP
 trap 'echo -e "\n${RED}Quit detected${NC}"; exit 131' QUIT
-
-# Safely append content to a file with validation
-safe_append_to_file() {
-    local file="$1"
-    local content="$2"
-
-    # Validate inputs
-    if [[ -z "$file" ]] || [[ -z "$content" ]]; then
-        log_message "SAFE_APPEND_ERROR: Empty file or content"
-        return 1
-    fi
-
-    # Check file is writable
-    if [[ -f "$file" ]] && [[ ! -w "$file" ]]; then
-        print_error "File not writable: $file"
-        return 1
-    fi
-
-    # Check directory is writable
-    local dir
-    dir="$(dirname "$file")"
-    if [[ ! -d "$dir" ]] || [[ ! -w "$dir" ]]; then
-        print_error "Directory not writable: $dir"
-        return 1
-    fi
-
-    # Use temp file for atomic operation
-    local tmp_file
-    tmp_file=$(mktemp "${file}.XXXXXX" 2>/dev/null) || {
-        log_message "SAFE_APPEND_ERROR: Cannot create temp file"
-        # Fallback to direct append
-        if echo "$content" >> "$file" 2>/dev/null; then
-            return 0
-        else
-            return 1
-        fi
-    }
-
-    # Copy original content if file exists
-    if [[ -f "$file" ]]; then
-        if ! cat "$file" > "$tmp_file" 2>/dev/null; then
-            rm -f "$tmp_file"
-            return 1
-        fi
-    fi
-
-    # Append new content
-    if ! echo "$content" >> "$tmp_file" 2>/dev/null; then
-        rm -f "$tmp_file"
-        return 1
-    fi
-
-    # Atomic move
-    if mv "$tmp_file" "$file" 2>/dev/null; then
-        return 0
-    else
-        rm -f "$tmp_file"
-        return 1
-    fi
-}
 
 log_message() {
     local message="$1"
@@ -365,8 +301,8 @@ acquire_lock() {
                         if grep -q "auto-install.sh" "/proc/$pid/cmdline" 2>/dev/null; then
                             is_our_script=1
                         fi
-                    elif [[ "$(uname)" == "Darwin" ]]; then
-                        # macOS: use ps to check command
+                    else
+                        # Fallback: use ps to check command
                         if ps -p "$pid" -o command= 2>/dev/null | grep -q "auto-install.sh"; then
                             is_our_script=1
                         fi
@@ -459,26 +395,26 @@ print_banner() {
 
     local BORDER='\033[38;2;100;150;255m' # Light blue border
 
-    echo -e "${BORDER}╔═══════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BORDER}║${RESET}                                                                           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 0 255 255)           ███████╗███████╗██╗  ██╗    ███████╗██████╗ ██╗████████╗        ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 0 230 255)           ╚══███╔╝██╔════╝██║  ██║    ██╔════╝██╔══██╗██║╚══██╔══╝        ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 0 200 255)             ███╔╝ ███████╗███████║    █████╗  ██║  ██║██║   ██║           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 0 170 255)            ███╔╝  ╚════██║██╔══██║    ██╔══╝  ██║  ██║██║   ██║           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 0 140 255)           ███████╗███████║██║  ██║    ███████╗██████╔╝██║   ██║           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 0 110 255)           ╚══════╝╚══════╝╚═╝  ╚═╝    ╚══════╝╚═════╝ ╚═╝   ╚═╝           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║${RESET}                                                                           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 100 255 100)              ███████╗███████╗██╗     ███████╗ ██████╗████████╗            ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 100 255 150)              ██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝            ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 100 230 200)              ███████╗█████╗  ██║     █████╗  ██║        ██║               ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 100 200 230)              ╚════██║██╔══╝  ██║     ██╔══╝  ██║        ██║               ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 100 170 255)              ███████║███████╗███████╗███████╗╚██████╗   ██║               ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 100 140 255)              ╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝               ${BORDER}║${RESET}"
-    echo -e "${BORDER}║${RESET}                                                                           ${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 255 200 100)${BOLD}                       Automated Installation Script                       ${RESET}${BORDER}║${RESET}"
-    echo -e "${BORDER}║$(rgb 255 100 200)                              Version $SCRIPT_VERSION                                ${RESET}${BORDER}║${RESET}"
-    echo -e "${BORDER}║${RESET}                                                                           ${BORDER}║${RESET}"
-    echo -e "${BORDER}╚═══════════════════════════════════════════════════════════════════════════╝${RESET}"
+    echo -e "${BORDER}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BORDER}║${NC}                                                                           ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 0 255 255)           ███████╗███████╗██╗  ██╗    ███████╗██████╗ ██╗████████╗        ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 0 230 255)           ╚══███╔╝██╔════╝██║  ██║    ██╔════╝██╔══██╗██║╚══██╔══╝        ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 0 200 255)             ███╔╝ ███████╗███████║    █████╗  ██║  ██║██║   ██║           ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 0 170 255)            ███╔╝  ╚════██║██╔══██║    ██╔══╝  ██║  ██║██║   ██║           ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 0 140 255)           ███████╗███████║██║  ██║    ███████╗██████╔╝██║   ██║           ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 0 110 255)           ╚══════╝╚══════╝╚═╝  ╚═╝    ╚══════╝╚═════╝ ╚═╝   ╚═╝           ${BORDER}║${NC}"
+    echo -e "${BORDER}║${NC}                                                                           ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 100 255 100)              ███████╗███████╗██╗     ███████╗ ██████╗████████╗            ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 100 255 150)              ██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝            ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 100 230 200)              ███████╗█████╗  ██║     █████╗  ██║        ██║               ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 100 200 230)              ╚════██║██╔══╝  ██║     ██╔══╝  ██║        ██║               ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 100 170 255)              ███████║███████╗███████╗███████╗╚██████╗   ██║               ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 100 140 255)              ╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝               ${BORDER}║${NC}"
+    echo -e "${BORDER}║${NC}                                                                           ${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 255 200 100)${BOLD}                       Automated Installation Script                       ${NC}${BORDER}║${NC}"
+    echo -e "${BORDER}║$(rgb 255 100 200)                              Version $SCRIPT_VERSION                                ${NC}${BORDER}║${NC}"
+    echo -e "${BORDER}║${NC}                                                                           ${BORDER}║${NC}"
+    echo -e "${BORDER}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -530,19 +466,27 @@ print_conflict() {
     existing=$(echo "$existing" | tr -d '\r\n\t' | sed 's/\x1b\[[0-9;]*m//g' | tr -cd '[:print:] ')
     new=$(echo "$new" | tr -d '\r\n\t' | sed 's/\x1b\[[0-9;]*m//g' | tr -cd '[:print:] ')
 
-    # Ensure output starts on a new line
+    # Trim leading/trailing whitespace from sanitized strings
+    existing="${existing#"${existing%%[![:space:]]*}"}"
+    existing="${existing%"${existing##*[![:space:]]}"}"
+    new="${new#"${new%%[![:space:]]*}"}"
+    new="${new%"${new##*[![:space:]]}"}"
+
+    # Ensure output starts on a new line and is visually distinct
     echo ""
-    echo -e "${RED}✗ CONFLICT in $file${NC}"
-    echo -e "  ${YELLOW}Detected:${NC} $existing"
-    echo -e "  ${YELLOW}Issue:${NC}    $new"
-    echo -e "  ${DIM}Action: Remove or comment out the existing line to avoid conflicts.${NC}"
-    echo ""
+    echo -e "  ${RED}┌─ CONFLICT in ${BOLD}$file${NC}"
+    echo -e "  ${RED}│${NC}  ${YELLOW}Existing:${NC} $existing"
+    echo -e "  ${RED}│${NC}  ${YELLOW}Issue:${NC}    $new"
+    echo -e "  ${RED}│${NC}  ${DIM}Action:   Remove or comment out the existing line to avoid conflicts.${NC}"
+    echo -e "  ${RED}└──────────────────────────────────────────────────${NC}"
 
     # Force output flush
     sync 2>/dev/null || true
 
     CONFLICTS["$file"]="${CONFLICTS[$file]:-}${existing}|${new};"
     ((TOTAL_CONFLICTS++))
+
+    log_message "CONFLICT: $file - Existing: $existing | Issue: $new"
 }
 
 test_pass() {
@@ -640,10 +584,6 @@ flush_stdin() {
         for i in {1..5}; do
             read -r -t 0.01 -n 10000 2>/dev/null && continue || break
         done
-        # Additional cleanup using dd if available
-        if command_exists dd; then
-            dd if=/dev/stdin of=/dev/null bs=1 count=0 2>/dev/null || true
-        fi
     fi
 }
 
@@ -714,27 +654,7 @@ command_exists() {
     command -v "$1" &>/dev/null
 }
 
-# Check if a command exists and report error if missing
-require_command() {
-    local cmd="$1"
-    local package="${2:-$1}" # Package name might differ from command name
-    local optional="${3:-0}" # 0 = required, 1 = optional
 
-    if command_exists "$cmd"; then
-        return 0
-    fi
-
-    if [[ $optional -eq 1 ]]; then
-        print_warning "Optional command '$cmd' not found (install via package: $package)"
-        log_message "MISSING_OPTIONAL_CMD: $cmd (package: $package)"
-        return 1
-    else
-        print_error "Required command '$cmd' not found (install via package: $package)"
-        log_message "MISSING_REQUIRED_CMD: $cmd (package: $package)"
-        FAILED_STEPS["Missing command: $cmd"]="Install package: $package"
-        return 1
-    fi
-}
 
 # Verify that a package was successfully installed
 verify_package_installed() {
@@ -802,6 +722,9 @@ verify_package_manager() {
     apk)
         "$pm" --version &>/dev/null || return 1
         ;;
+    *)
+        log_message "PKG_MGR_VERIFY: No specific check for $pm, assuming OK"
+        ;;
     esac
 
     return 0
@@ -814,29 +737,17 @@ check_network_connectivity() {
 
     # Try ping first (fastest) - with reduced timeout for quicker results
     for url in "${test_urls[@]}"; do
-        # Detect ping version and use appropriate flags
-        # -W is timeout in seconds on Linux; -W is milliseconds on macOS (use -t instead)
-        # macOS: -t timeout, -c count
-        # Linux: -c count, -W timeout
-        if [[ "$(uname)" == "Darwin" ]]; then
-            # macOS ping - doesn't need timeout command
-            if ping -c 1 -t 2 "$url" &>/dev/null 2>&1; then
+        # Linux: -c count, -W timeout (seconds)
+        if command_exists timeout; then
+            if timeout 3 ping -c 1 -W 2 "$url" &>/dev/null 2>&1; then
                 connected=1
                 break
             fi
         else
-            # Linux ping
-            if command_exists timeout; then
-                if timeout 3 ping -c 1 -W 2 "$url" &>/dev/null 2>&1; then
-                    connected=1
-                    break
-                fi
-            else
-                # Fallback without timeout
-                if ping -c 1 -W 2 "$url" &>/dev/null 2>&1; then
-                    connected=1
-                    break
-                fi
+            # Fallback without timeout command
+            if ping -c 1 -W 2 "$url" &>/dev/null 2>&1; then
+                connected=1
+                break
             fi
         fi
     done
@@ -897,7 +808,7 @@ check_network_connectivity() {
     fi
 }
 
-# Portable sed in-place replacement (compatible with both GNU and BSD sed)
+# Portable sed in-place replacement using temp file
 sed_inplace() {
     local pattern="$1"
     local file="$2"
@@ -909,9 +820,14 @@ sed_inplace() {
         return 1
     }
 
+    # Preserve original file permissions
+    local orig_perms
+    orig_perms=$(stat -c '%a' "$file" 2>/dev/null)
+
     if sed "$pattern" "$file" >"$tmp_file" 2>/dev/null; then
         # Ensure mv succeeds before claiming success
         if mv "$tmp_file" "$file" 2>/dev/null; then
+            [[ -n "$orig_perms" ]] && chmod "$orig_perms" "$file" 2>/dev/null
             return 0
         else
             print_error "Failed to update file: $file (mv failed)"
@@ -967,14 +883,6 @@ strip_line() {
     echo "$line"
 }
 
-# Check if two config lines are functionally equivalent
-lines_equivalent() {
-    local line1 line2
-    line1="$(strip_line "$1")"
-    line2="$(strip_line "$2")"
-    [[ "$line1" == "$line2" ]]
-}
-
 # Check if a configuration line already exists in a file (ignoring comments/whitespace)
 config_line_exists() {
     local file="$1"
@@ -991,13 +899,8 @@ config_line_exists() {
     # Safety check: skip files larger than 10MB to prevent performance issues
     if command_exists stat; then
         local file_size
-        # macOS uses -f%z, Linux uses -c%s
-        if [[ "$(uname)" == "Darwin" ]]; then
-            file_size=$(stat -f%z "$file" 2>/dev/null || echo 0)
-        else
-            file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
-        fi
-        if [[ $file_size -gt 10485760 ]]; then  # 10MB
+        file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+        if [[ $file_size -gt 10485760 ]]; then # 10MB
             log_message "CONFIG_CHECK_WARNING: File too large, skipping: $file ($file_size bytes)"
             return 1
         fi
@@ -1042,7 +945,9 @@ config_line_exists() {
 
 # Run command with sudo if available
 run_with_sudo() {
-    if [[ $SUDO_AVAILABLE -eq 1 ]]; then
+    if [[ $EUID -eq 0 ]]; then
+        "$@"  # Already root, no need for sudo
+    elif [[ $SUDO_AVAILABLE -eq 1 ]]; then
         sudo "$@"
     else
         print_error "Cannot run command (sudo not available): $*"
@@ -1333,6 +1238,7 @@ detect_package_manager() {
         local check_cmd="$DETECTED_PACKAGE_MANAGER"
         [[ "$DETECTED_PACKAGE_MANAGER" == "apt" ]] && check_cmd="apt-get"
         [[ "$DETECTED_PACKAGE_MANAGER" == "xbps" ]] && check_cmd="xbps-install"
+        [[ "$DETECTED_PACKAGE_MANAGER" == "nix" ]] && check_cmd="nix-env"
 
         if ! command_exists "$check_cmd"; then
             print_warning "Detected package manager '$DETECTED_PACKAGE_MANAGER' but command '$check_cmd' not found"
@@ -1622,54 +1528,54 @@ install_oh_my_zsh() {
             # Install git based on package manager
             local git_install_success=0
             case "$DETECTED_PACKAGE_MANAGER" in
-                apt)
-                    if run_with_sudo apt-get install -y -qq git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                dnf)
-                    if run_with_sudo dnf install -y -q git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                yum)
-                    if run_with_sudo yum install -y -q git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                pacman)
-                    if run_with_sudo pacman -S --noconfirm --needed git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                zypper)
-                    if run_with_sudo zypper install -y git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                emerge)
-                    if run_with_sudo emerge --ask=n dev-vcs/git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                apk)
-                    if run_with_sudo apk add git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                xbps)
-                    if run_with_sudo xbps-install -y git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                eopkg)
-                    if run_with_sudo eopkg install -y git; then
-                        git_install_success=1
-                    fi
-                    ;;
-                *)
-                    print_warning "Cannot auto-install git for $DETECTED_PACKAGE_MANAGER"
-                    ;;
+            apt)
+                if run_with_sudo apt-get install -y -qq git; then
+                    git_install_success=1
+                fi
+                ;;
+            dnf)
+                if run_with_sudo dnf install -y -q git; then
+                    git_install_success=1
+                fi
+                ;;
+            yum)
+                if run_with_sudo yum install -y -q git; then
+                    git_install_success=1
+                fi
+                ;;
+            pacman)
+                if run_with_sudo pacman -S --noconfirm --needed git; then
+                    git_install_success=1
+                fi
+                ;;
+            zypper)
+                if run_with_sudo zypper install -y git; then
+                    git_install_success=1
+                fi
+                ;;
+            emerge)
+                if run_with_sudo emerge --ask=n dev-vcs/git; then
+                    git_install_success=1
+                fi
+                ;;
+            apk)
+                if run_with_sudo apk add git; then
+                    git_install_success=1
+                fi
+                ;;
+            xbps)
+                if run_with_sudo xbps-install -y git; then
+                    git_install_success=1
+                fi
+                ;;
+            eopkg)
+                if run_with_sudo eopkg install -y git; then
+                    git_install_success=1
+                fi
+                ;;
+            *)
+                print_warning "Cannot auto-install git for $DETECTED_PACKAGE_MANAGER"
+                ;;
             esac
 
             # Verify git installation succeeded
@@ -1796,9 +1702,6 @@ detect_terminals() {
             print_substep "Found: VS Code (integrated terminal)"
         fi
     fi
-
-    # Check for Kitty terminal
-    check_recommended_terminal
 
     if [[ ${#DETECTED_TERMINALS[@]} -eq 0 ]]; then
         print_warning "No known terminal emulators detected"
@@ -1941,8 +1844,8 @@ apply_kitty_downloaded_config() {
 
     if [[ "$choice" == "2" ]]; then
         print_substep "Applying traditional mappings..."
-        # Apply traditional mappings
-        sed_inplace 's/map ctrl+shift+c.*send_text all .*/map ctrl+shift+c copy_to_clipboard/' "$config_file"
+        # Apply traditional mappings: Ctrl+Shift+C sends escape sequence for plugin copy
+        sed_inplace 's/map ctrl+shift+c.*send_text all .*/map ctrl+shift+c send_text all \\x1b[67;6u/' "$config_file"
         sed_inplace 's/map ctrl+c.*send_text all .*/map ctrl+c send_text all \\x03/' "$config_file"
         print_success "Reverted to traditional shortcuts" "kitty_keybinds"
     else
@@ -1950,22 +1853,26 @@ apply_kitty_downloaded_config() {
     fi
 }
 
-check_recommended_terminal() {
-    # Check if kitty is installed checks are done in detect_terminals loop,
-    # but we want to know if it IS installed right now.
-    local kitty_installed=0
-
-    if command_exists kitty; then
-        kitty_installed=1
+offer_kitty_installation() {
+    # Offer Kitty installation after dependencies are set up,
+    # so package manager is ready and sudo is confirmed.
+    # Only offer in interactive mode.
+    if [[ $NON_INTERACTIVE -eq 1 ]]; then
+        return
     fi
 
-    if [[ $kitty_installed -eq 0 ]]; then
-        echo ""
-        print_info "Optional: For maximum compatibility with the zsh plugin, I recommend installing the Kitty terminal emulator."
-        if ask_yes_no "Would you like me to install it? (This is an optional step)" "y"; then
-            if install_kitty; then
-                kitty_installed=1
-                # KITTY_FRESHLY_INSTALLED is set inside install_kitty
+    # Skip if kitty is already detected
+    if command_exists kitty || [[ " ${DETECTED_TERMINALS[*]:-} " =~ " kitty " ]]; then
+        return
+    fi
+
+    echo ""
+    print_info "Optional: For maximum compatibility with the zsh plugin, I recommend installing the Kitty terminal emulator."
+    if ask_yes_no "Would you like me to install it? (This is an optional step)" "y"; then
+        if install_kitty; then
+            # Add to detected terminals if not already there
+            if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " kitty " ]]; then
+                DETECTED_TERMINALS+=("kitty")
             fi
         fi
     fi
@@ -1976,11 +1883,11 @@ ask_kitty_configuration() {
     # 1. Kitty was just installed by this script (KITTY_FRESHLY_INSTALLED=1)
     # 2. We're in interactive mode (user can respond to prompts)
     if [[ $KITTY_FRESHLY_INSTALLED -ne 1 ]]; then
-        return 0  # Skip if kitty wasn't freshly installed
+        return 0 # Skip if kitty wasn't freshly installed
     fi
 
     if [[ $NON_INTERACTIVE -eq 1 ]]; then
-        return 0  # Skip in non-interactive mode
+        return 0 # Skip in non-interactive mode
     fi
 
     echo ""
@@ -2583,7 +2490,7 @@ clone_with_retry() {
 
         # Use timeout if available
         if command_exists timeout; then
-            if timeout "$timeout" git clone --depth 1 "$url" "$dest" >> "$LOG_FILE" 2>&1; then
+            if timeout "$timeout" git clone --depth 1 "$url" "$dest" >>"$LOG_FILE" 2>&1; then
                 # Verify .git directory exists
                 if [[ -d "$dest/.git" ]]; then
                     log_message "GIT_CLONE_SUCCESS: Cloned $url to $dest"
@@ -2594,7 +2501,7 @@ clone_with_retry() {
                 fi
             fi
         else
-            if git clone --depth 1 "$url" "$dest" >> "$LOG_FILE" 2>&1; then
+            if git clone --depth 1 "$url" "$dest" >>"$LOG_FILE" 2>&1; then
                 # Verify .git directory exists
                 if [[ -d "$dest/.git" ]]; then
                     log_message "GIT_CLONE_SUCCESS: Cloned $url to $dest"
@@ -2607,10 +2514,10 @@ clone_with_retry() {
         fi
 
         print_warning "Clone attempt $i failed"
-        # Clean up failed clone attempt before retry, with validation
-        if [[ $i -lt $retries ]] && [[ -n "$dest" ]] && [[ "$dest" != "/" ]] &&
+        # Clean up failed clone attempt before retry (or on final failure)
+        if [[ -n "$dest" ]] && [[ "$dest" != "/" ]] &&
             [[ "$dest" != "$HOME" ]] && [[ -e "$dest" ]]; then
-            sleep 5
+            [[ $i -lt $retries ]] && sleep 5
             rm -rf "$dest"
         fi
     done
@@ -2656,21 +2563,50 @@ configure_zshrc() {
             # Single-line array format: plugins=(git vim docker)
             local tmp_zshrc
             tmp_zshrc=$(mktemp)
-            awk '{
+            if awk '{
                     if ($0 ~ /^plugins=\(/ && $0 !~ /zsh-edit-select/) {
                         sub(/^plugins=\(/, "plugins=(zsh-edit-select ", $0)
                     }
                     print
-                }' "$zshrc" >"$tmp_zshrc" && mv "$tmp_zshrc" "$zshrc"
-            echo "$marker" >>"$zshrc"
-            print_success "Added zsh-edit-select to Oh My Zsh plugins" "zshrc_config"
+                }' "$zshrc" >"$tmp_zshrc" && mv "$tmp_zshrc" "$zshrc"; then
+                echo "$marker" >>"$zshrc"
+                print_success "Added zsh-edit-select to Oh My Zsh plugins" "zshrc_config"
+            else
+                rm -f "$tmp_zshrc"
+                print_error "Failed to update plugins array in .zshrc"
+                return 1
+            fi
         else
-            # Either no plugins array, or multi-line array - use plugins+= which works in both cases
-            echo "" >>"$zshrc"
-            echo "$marker" >>"$zshrc"
-            echo "# Zsh Edit-Select plugin" >>"$zshrc"
-            echo "plugins+=(zsh-edit-select)" >>"$zshrc"
-            print_success "Added plugins+=(zsh-edit-select) to .zshrc" "zshrc_config"
+            # Either no plugins array, or multi-line array - use plugins+=
+            # Insert BEFORE 'source $ZSH/oh-my-zsh.sh' so OMZ sees the plugin
+            local insert_block
+            insert_block=$(printf '%s\n%s\n%s' "$marker" "# Zsh Edit-Select plugin" "plugins+=(zsh-edit-select)")
+            if grep -q 'source.*\$ZSH/oh-my-zsh\.sh' "$zshrc" 2>/dev/null; then
+                local tmp_zshrc
+                tmp_zshrc=$(mktemp)
+                if awk -v block="$insert_block" '
+                    /source.*\$ZSH\/oh-my-zsh\.sh/ && !done {
+                        print ""
+                        n = split(block, lines, "\n")
+                        for (i = 1; i <= n; i++) print lines[i]
+                        done = 1
+                    }
+                    { print }
+                ' "$zshrc" >"$tmp_zshrc" && mv "$tmp_zshrc" "$zshrc"; then
+                    print_success "Added plugins+=(zsh-edit-select) to .zshrc (before oh-my-zsh source)" "zshrc_config"
+                else
+                    rm -f "$tmp_zshrc"
+                    print_error "Failed to insert plugin config into .zshrc"
+                    return 1
+                fi
+            else
+                # No source line found - append at end as fallback
+                echo "" >>"$zshrc"
+                echo "$marker" >>"$zshrc"
+                echo "# Zsh Edit-Select plugin" >>"$zshrc"
+                echo "plugins+=(zsh-edit-select)" >>"$zshrc"
+                print_success "Added plugins+=(zsh-edit-select) to .zshrc" "zshrc_config"
+            fi
         fi
         ;;
 
@@ -2774,10 +2710,10 @@ SHELDON
     esac
 }
 
-# Monitor Daemon Build Functions
+# Agent Build Functions
 
 build_monitor_daemons() {
-    print_header "Phase 4: Building Monitor Daemons"
+    print_header "Phase 4: Building Agents"
 
     if [[ ! -d "$PLUGIN_INSTALL_DIR" ]]; then
         print_error "Plugin directory not found: $PLUGIN_INSTALL_DIR" "monitor_build"
@@ -2796,7 +2732,7 @@ build_monitor_daemons() {
 }
 
 build_x11_monitor() {
-    print_step "Building X11 selection monitor daemon..."
+    print_step "Building X11 selection agent..."
 
     # Check for required build tools and headers
     local missing_tools=()
@@ -2834,7 +2770,7 @@ build_x11_monitor() {
 
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "x11_monitor_build"
-        MANUAL_STEPS+=("Build X11 monitor daemon manually")
+        MANUAL_STEPS+=("Build X11 agent manually")
         return
     fi
 
@@ -2843,22 +2779,22 @@ build_x11_monitor() {
         cd "$build_dir" && { make clean 2>/dev/null || true; } && make 2>&1
     ); then
         # Verify the binary was actually created
-        if [[ -f "$build_dir/zes-x11-selection-monitor" ]]; then
-            print_success "X11 monitor daemon built successfully" "x11_monitor_build"
+        if [[ -f "$build_dir/zes-x11-selection-agent" ]]; then
+            print_success "X11 clipboard agent built successfully" "x11_monitor_build"
         else
             print_warning "Build reported success but binary not found" "x11_monitor_build"
-            MANUAL_STEPS+=("Verify X11 monitor binary in $build_dir")
+            MANUAL_STEPS+=("Verify X11 agent binary in $build_dir")
         fi
     else
-        print_error "Failed to build X11 monitor daemon" "x11_monitor_build"
+        print_error "Failed to build X11 clipboard agent" "x11_monitor_build"
         print_info "Build output (last 10 lines):"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
-        MANUAL_STEPS+=("Build X11 monitor: cd $build_dir && make")
+        MANUAL_STEPS+=("Build X11 agent: cd $build_dir && make")
     fi
 }
 
 build_wayland_monitor() {
-    print_step "Building Wayland selection monitor daemon..."
+    print_step "Building Wayland selection agent..."
 
     # Check for required build tools and headers
     local missing_tools=()
@@ -2890,7 +2826,7 @@ build_wayland_monitor() {
 
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "wayland_monitor_build"
-        MANUAL_STEPS+=("Build Wayland monitor daemon manually")
+        MANUAL_STEPS+=("Build Wayland agent manually")
         return
     fi
 
@@ -2910,22 +2846,22 @@ build_wayland_monitor() {
         cd "$build_dir" && { make clean 2>/dev/null || true; } && make 2>&1
     ); then
         # Verify the binary was actually created
-        if [[ -f "$build_dir/zes-wl-selection-monitor" ]]; then
-            print_success "Wayland monitor daemon built successfully" "wayland_monitor_build"
+        if [[ -f "$build_dir/zes-wl-selection-agent" ]]; then
+            print_success "Wayland clipboard agent built successfully" "wayland_monitor_build"
         else
             print_warning "Build reported success but binary not found" "wayland_monitor_build"
-            MANUAL_STEPS+=("Verify Wayland monitor binary in $build_dir")
+            MANUAL_STEPS+=("Verify Wayland agent binary in $build_dir")
         fi
     else
-        print_error "Failed to build Wayland monitor daemon" "wayland_monitor_build"
+        print_error "Failed to build Wayland clipboard agent" "wayland_monitor_build"
         print_info "Build output (last 10 lines):"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
-        MANUAL_STEPS+=("Build Wayland monitor: cd $build_dir && make")
+        MANUAL_STEPS+=("Build Wayland agent: cd $build_dir && make")
     fi
 }
 
 build_xwayland_monitor() {
-    print_step "Building XWayland monitor daemon (optional)..."
+    print_step "Building XWayland agent (optional)..."
 
     # Check for required build tools and X11 headers (same as X11 monitor)
     local missing_tools=()
@@ -2953,17 +2889,17 @@ build_xwayland_monitor() {
         return
     fi
 
-    local build_dir="$PLUGIN_INSTALL_DIR/impl-wayland/backends/x11"
+    local build_dir="$PLUGIN_INSTALL_DIR/impl-wayland/backends/xwayland"
 
     if [[ ! -d "$build_dir" ]]; then
         print_info "XWayland backend source directory not found (optional component)"
-        print_info "Expected location per README: impl-wayland/backends/x11"
+        print_info "Expected location per README: impl-wayland/backends/xwayland"
         return
     fi
 
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "xwayland_monitor_build"
-        MANUAL_STEPS+=("Build XWayland monitor daemon manually")
+        MANUAL_STEPS+=("Build XWayland agent manually")
         return
     fi
 
@@ -2972,17 +2908,17 @@ build_xwayland_monitor() {
         cd "$build_dir" && { make clean 2>/dev/null || true; } && make 2>&1
     ); then
         # Verify the binary was actually created
-        if [[ -f "$build_dir/zes-xwayland-monitor" ]]; then
-            print_success "XWayland monitor daemon built successfully" "xwayland_monitor_build"
+        if [[ -f "$build_dir/zes-xwayland-agent" ]]; then
+            print_success "XWayland clipboard agent built successfully" "xwayland_monitor_build"
         else
             print_warning "Build reported success but binary not found" "xwayland_monitor_build"
-            MANUAL_STEPS+=("Verify XWayland monitor binary in $build_dir")
+            MANUAL_STEPS+=("Verify XWayland agent binary in $build_dir")
         fi
     else
-        print_error "Failed to build XWayland monitor daemon" "xwayland_monitor_build"
+        print_error "Failed to build XWayland clipboard agent" "xwayland_monitor_build"
         print_info "Build output (last 10 lines):"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
-        MANUAL_STEPS+=("Build XWayland monitor: cd $build_dir && make")
+        MANUAL_STEPS+=("Build XWayland agent: cd $build_dir && make")
     fi
 }
 
@@ -3091,10 +3027,7 @@ configure_kitty() {
         needs_config=1
     fi
 
-    local -a config_lines=(
-        ""
-        "# Zsh Edit-Select"
-    )
+    local -a config_lines=()
 
     if [[ "$USER_WANTS_REVERSED_COPY" == "y" ]]; then
         config_lines+=(
@@ -3127,25 +3060,57 @@ configure_kitty() {
         "map ctrl+shift+end   no_op"
     )
 
-    local config_was_modified=0
+    # Check if already fully configured (all non-empty, non-comment lines exist)
+    local all_exist=1
     for line in "${config_lines[@]}"; do
-        # Skip empty lines to avoid duplicates on repeated runs
+        # Skip empty/comment lines for the existence check
+        [[ -z "${line// /}" ]] && continue
+        [[ "$line" == "#"* ]] && continue
+        if ! config_line_exists "$config" "$line"; then
+            all_exist=0
+            break
+        fi
+    done
+
+    if [[ $all_exist -eq 1 ]] && grep -qF "# Zsh Edit-Select" "$config" 2>/dev/null; then
+        print_info "Kitty already fully configured for zsh-edit-select"
+        return 0
+    fi
+
+    # Write config as a block for clean formatting
+    # First add each non-duplicate line individually
+    local config_was_modified=0
+
+    # Ensure the marker comment exists
+    if ! config_line_exists "$config" "# Zsh Edit-Select"; then
+        echo "" >>"$config"
+        echo "# Zsh Edit-Select" >>"$config"
+        config_was_modified=1
+    fi
+
+    for line in "${config_lines[@]}"; do
+        # Write empty lines as-is for formatting (only when we're adding new config)
         if [[ -z "${line// /}" ]]; then
+            if [[ $config_was_modified -eq 1 ]]; then
+                echo "" >>"$config"
+            fi
+            continue
+        fi
+        # Skip comment-only lines if they already exist
+        if [[ "$line" == "#"* ]]; then
+            if ! config_line_exists "$config" "$line"; then
+                echo "$line" >>"$config"
+                config_was_modified=1
+            fi
             continue
         fi
         if ! config_line_exists "$config" "$line"; then
             echo "$line" >>"$config"
             config_was_modified=1
-            needs_config=1
         fi
     done
 
-    # Add a single empty line at the end for formatting ONLY if we actually added config
     if [[ $config_was_modified -eq 1 ]]; then
-        echo "" >>"$config"
-    fi
-
-    if [[ $needs_config -eq 1 ]]; then
         print_success "Kitty configured successfully" "kitty_config"
     else
         print_info "Kitty already fully configured for zsh-edit-select"
@@ -3290,6 +3255,9 @@ local zes_keys = {
   { key = 'c', mods = 'CTRL', action = wezterm.action.SendString '\x1b[67;6u' },
   { key = 'C', mods = 'CTRL|SHIFT', action = wezterm.action.SendString '\x03' },
   { key = 'Z', mods = 'CTRL|SHIFT', action = wezterm.action.SendString '\x1b[90;6u' },
+  -- Disable Ctrl+Shift+Arrow so Zsh can use them for word selection
+  { key = 'LeftArrow', mods = 'CTRL|SHIFT', action = wezterm.action.DisableDefaultAssignment },
+  { key = 'RightArrow', mods = 'CTRL|SHIFT', action = wezterm.action.DisableDefaultAssignment },
 }
 for _, k in ipairs(zes_keys) do table.insert(config.keys, k) end
 WEZTERM_REVERSED
@@ -3303,6 +3271,9 @@ config.keys = config.keys or {}
 local zes_keys = {
   { key = 'C', mods = 'CTRL|SHIFT', action = wezterm.action.SendString '\x1b[67;6u' },
   { key = 'Z', mods = 'CTRL|SHIFT', action = wezterm.action.SendString '\x1b[90;6u' },
+  -- Disable Ctrl+Shift+Arrow so Zsh can use them for word selection
+  { key = 'LeftArrow', mods = 'CTRL|SHIFT', action = wezterm.action.DisableDefaultAssignment },
+  { key = 'RightArrow', mods = 'CTRL|SHIFT', action = wezterm.action.DisableDefaultAssignment },
 }
 for _, k in ipairs(zes_keys) do table.insert(config.keys, k) end
 WEZTERM_DEFAULT_KEYS
@@ -3345,7 +3316,7 @@ WEZTERM_DEFAULT_KEYS
         fi
 
         local tmp_line_count
-        tmp_line_count=$(wc -l < "$tmpfile" 2>/dev/null || echo 0)
+        tmp_line_count=$(wc -l <"$tmpfile" 2>/dev/null || echo 0)
         if [[ $tmp_line_count -lt $line_count ]]; then
             print_error "Temp file has fewer lines than original, aborting"
             rm -f "$tmpfile"
@@ -3408,22 +3379,20 @@ configure_foot() {
     # Note: Foot does not support custom escape sequence bindings (e.g., redo)
     # Users needing Ctrl+Shift+Z for undo/redo should configure it at the shell level
 
+    # Inform user about Foot limitations
+    print_info "Note: Foot terminal has limited key remapping support."
+    print_info "Ctrl+Shift+Z (Redo) cannot be configured in Foot's config."
+    print_info "If redo doesn't work, see the 'Without Terminal Remapping' section in README.md"
+
     # Check if [key-bindings] section exists
     if grep -q "^\[key-bindings\]" "$config"; then
         # Insert after [key-bindings]
         local tmpfile
         tmpfile=$(mktemp 2>/dev/null) || {
             print_error "Failed to create temporary file for Foot config"
-            # Fallback: try to append at end
-            echo "" >>"$config"
-            echo "[key-bindings]" >>"$config"
-            echo "$bindings_block" >>"$config" && {
-                print_success "Foot configured (appended new section)" "foot_config"
-                return 0
-            } || {
-                print_error "Failed to update Foot config"
-                return 1
-            }
+            print_warning "Please add keybindings manually to [key-bindings] in $config"
+            MANUAL_STEPS+=("Add zsh-edit-select keybindings to foot.ini [key-bindings] section")
+            return 1
         }
 
         local inserted=0
@@ -3458,8 +3427,8 @@ configure_foot() {
     else
         # Append new section
         if echo "" >>"$config" &&
-           echo "[key-bindings]" >>"$config" &&
-           echo "$bindings_block" >>"$config"; then
+            echo "[key-bindings]" >>"$config" &&
+            echo "$bindings_block" >>"$config"; then
             print_success "Foot configured (new [key-bindings] section)" "foot_config"
         else
             print_error "Failed to append to Foot config"
@@ -3610,11 +3579,12 @@ EOF
         }
 
         if [[ -n "$bindings_tmpfile" ]]; then
-            echo "[$common_bindings, $copy_bindings]" > "$bindings_tmpfile"
+            echo "[$common_bindings, $copy_bindings]" >"$bindings_tmpfile"
 
             local result
             # Pass filepaths as arguments to Python instead of embedding in code
-            result=$(python3 - "$config" "$bindings_tmpfile" <<'PYTHON_SCRIPT'
+            result=$(
+                python3 - "$config" "$bindings_tmpfile" <<'PYTHON_SCRIPT'
 import json, sys
 
 config_file = sys.argv[1]
@@ -3642,7 +3612,8 @@ try:
 except Exception as e:
     print('ERROR: ' + str(e))
 PYTHON_SCRIPT
- 2>&1)
+                2>&1
+            )
             rm -f "$bindings_tmpfile"
 
             if [[ "$result" == *"OK"* ]]; then
@@ -3658,60 +3629,42 @@ PYTHON_SCRIPT
     # Shell fallback (if Python not available or Python method failed)
     print_info "Using shell fallback for JSON update"
 
-    # Read the entire file into a variable
-    local file_content
-    file_content=$(cat "$config" 2>/dev/null || echo "[]")
-
     # Shell fallback (sed/echo)
-    if grep -q "^\s*\[\s*\]\s*$" "$config" 2>/dev/null; then
+    if grep -q "^[[:space:]]*\[[[:space:]]*\][[:space:]]*$" "$config" 2>/dev/null; then
         # Empty array - replace with our bindings
         echo "[$common_bindings, $copy_bindings]" >"$config"
     else
         # Non-empty array - need to insert before the closing bracket
         local tmpfile
-        tmpfile=$(mktemp 2>/dev/null) || tmpfile="/tmp/vscode-keybindings-$$"
+        tmpfile=$(mktemp 2>/dev/null) || {
+            print_error "Cannot create temp file for VS Code config"
+            return 1
+        }
 
-        # Use sed to insert before last closing bracket
-        # This is more robust than the line-by-line approach
-        if sed '$s/\(.*\)\]/\1,'"$common_bindings"', '"$copy_bindings"']/' "$config" >"$tmpfile" 2>/dev/null; then
-            if [[ -s "$tmpfile" ]]; then
-                mv "$tmpfile" "$config" 2>/dev/null || {
-                    print_error "Failed to update VS Code config with shell fallback"
-                    rm -f "$tmpfile"
-                    return 1
-                }
+        local found_closing=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # Check if this line contains the closing bracket (possibly with whitespace)
+            if [[ "$line" =~ ^[[:space:]]*\][[:space:]]*$ ]] && [[ $found_closing -eq 0 ]]; then
+                # Insert comma + new bindings before the closing bracket
+                echo ",$common_bindings," >>"$tmpfile"
+                echo "$copy_bindings" >>"$tmpfile"
+                echo "$line" >>"$tmpfile"
+                found_closing=1
             else
-                # sed failed, fall back to the line-by-line method
-                rm -f "$tmpfile"
-                tmpfile=$(mktemp 2>/dev/null) || tmpfile="/tmp/vscode-keybindings-$$"
-
-                local found_closing=0
-                while IFS= read -r line || [[ -n "$line" ]]; do
-                    # Check if this line contains the closing bracket (possibly with whitespace)
-                    if [[ "$line" =~ ^\s*\]\s*$ ]] && [[ $found_closing -eq 0 ]]; then
-                        # Insert new bindings before the closing bracket
-                        echo "$common_bindings," >>"$tmpfile"
-                        echo "$copy_bindings" >>"$tmpfile"
-                        echo "$line" >>"$tmpfile"
-                        found_closing=1
-                    else
-                        echo "$line" >>"$tmpfile"
-                    fi
-                done <"$config"
-
-                if [[ -f "$tmpfile" ]] && [[ -s "$tmpfile" ]]; then
-                    mv "$tmpfile" "$config" 2>/dev/null || {
-                        print_error "Failed to update VS Code config with shell fallback"
-                        rm -f "$tmpfile"
-                        return 1
-                    }
-                else
-                    # Both methods failed, add to end and hope for the best
-                    rm -f "$tmpfile"
-                    print_warning "Could not properly insert into JSON, appending to end"
-                    echo ",$common_bindings, $copy_bindings]" >>"$config"
-                fi
+                echo "$line" >>"$tmpfile"
             fi
+        done <"$config"
+
+        if [[ -f "$tmpfile" ]] && [[ -s "$tmpfile" ]] && [[ $found_closing -eq 1 ]]; then
+            mv "$tmpfile" "$config" 2>/dev/null || {
+                print_error "Failed to update VS Code config with shell fallback"
+                rm -f "$tmpfile"
+                return 1
+            }
+        else
+            rm -f "$tmpfile"
+            print_warning "Could not properly insert into JSON, appending to end"
+            echo ",$common_bindings, $copy_bindings]" >>"$config"
         fi
     fi
     print_success "VS Code configured successfully (via Shell fallback)" "vscode_config"
@@ -3740,13 +3693,29 @@ check_conflicts() {
         sync 2>/dev/null || true
         sleep 0.1
 
-        print_warning "Found $TOTAL_CONFLICTS potential conflict(s)"
+        local conflict_msg="  ⚠ Found $TOTAL_CONFLICTS potential configuration conflict(s)"
+        local box_width=62
+        local padded_msg
+        padded_msg=$(printf "%-${box_width}s" "$conflict_msg")
+        echo -e "${BOLD}${YELLOW}╔$(printf '═%.0s' $(seq 1 $box_width))╗${NC}"
+        echo -e "${BOLD}${YELLOW}║${padded_msg}║${NC}"
+        echo -e "${BOLD}${YELLOW}╚$(printf '═%.0s' $(seq 1 $box_width))╝${NC}"
         echo ""
-        echo -e "${BOLD}${YELLOW}Conflict Resolution Guidance:${NC}"
-        echo "  1. Review the conflicts listed above"
-        echo "  2. Edit the affected configuration files"
-        echo "  3. Either remove old conflicting bindings or remap them to different keys"
-        echo "  4. Keep the zsh-edit-select bindings for the best experience"
+        echo -e "${BOLD}Conflict Resolution Guide:${NC}"
+        echo ""
+        echo -e "  ${CYAN}1.${NC} Review each conflict listed above"
+        echo -e "  ${CYAN}2.${NC} Open the affected configuration file(s):"
+        for file in "${!CONFLICTS[@]}"; do
+            echo -e "     ${BOLD}→${NC} $file"
+        done
+        echo -e "  ${CYAN}3.${NC} For each conflict, either:"
+        echo -e "     • ${GREEN}Remove${NC} the old binding (recommended)"
+        echo -e "     • ${GREEN}Comment out${NC} the old binding (add # at the start)"
+        echo -e "     • ${GREEN}Remap${NC} the old binding to a different key"
+        echo -e "  ${CYAN}4.${NC} Keep the zsh-edit-select bindings for the best experience"
+        echo ""
+        echo -e "  ${DIM}The zsh-edit-select bindings were already added to your config."
+        echo -e "  Conflicting bindings may override them if not resolved.${NC}"
         echo ""
 
         # Force output flush
@@ -3766,14 +3735,14 @@ check_zsh_conflicts() {
 
     # Keybinding patterns that may conflict with zsh-edit-select
     local -a conflict_patterns=(
-        'bindkey.*"\^C"'
-        'bindkey.*"\^X"'
-        'bindkey.*"\^V"'
-        'bindkey.*"\^Z"'
-        'bindkey.*"\^\[\[3~".*delete-char'
-        'bindkey.*"\^\[\[1;2"'
-        'bindkey.*"\^\[\[1;5"'
-        'bindkey.*"\^\[\[1;6"'
+        'bindkey.*["'"'"']\^C["'"'"']'
+        'bindkey.*["'"'"']\^X["'"'"']'
+        'bindkey.*["'"'"']\^V["'"'"']'
+        'bindkey.*["'"'"']\^Z["'"'"']'
+        'bindkey.*["'"'"']\^\[\[3~["'"'"'].*delete-char'
+        'bindkey.*["'"'"']\^\[\[1;2["'"'"']'
+        'bindkey.*["'"'"']\^\[\[1;5["'"'"']'
+        'bindkey.*["'"'"']\^\[\[1;6["'"'"']'
     )
 
     local found_conflicts=0
@@ -3857,7 +3826,7 @@ check_kitty_conflicts() {
                     is_ours=1
                     break
                 fi
-            done < "$config"
+            done <"$config"
             if [[ $is_ours -eq 0 ]]; then
                 print_conflict "kitty.conf:$line_num" "$stripped" "May conflict with zsh-edit-select bindings"
             fi
@@ -3879,8 +3848,12 @@ check_alacritty_conflicts() {
                 our_section=1
                 continue
             fi
-            if [[ $our_section -eq 1 ]] && [[ -z "$(strip_line "$line")" ]]; then
-                our_section=0
+            if [[ $our_section -eq 1 ]]; then
+                # Our section ends at the next TOML array header or a non-empty, non-comment line
+                # that doesn't look like a key-binding config. Empty lines within our block are fine.
+                if [[ "$line" =~ ^\[\[ ]] && [[ ! "$line" =~ "Zsh Edit-Select" ]]; then
+                    our_section=0
+                fi
             fi
             if [[ $our_section -eq 0 ]] && [[ "$line" =~ key.*=.*\"[CZ]\" ]]; then
                 print_conflict "alacritty config:$line_num" "$(strip_line "$line")" "May conflict with zsh-edit-select bindings"
@@ -3942,7 +3915,7 @@ verify_installation() {
     verify_dependencies
     verify_monitor_daemons
     verify_terminal_config
-    verify_plugin_loads # Test that plugin actually loads
+    verify_plugin_loads          # Test that plugin actually loads
     verify_terminal_capabilities # Test terminal supports required escape sequences
 
     echo ""
@@ -4036,13 +4009,13 @@ verify_dependencies() {
         if command_exists xclip; then
             test_pass "xclip available (fallback clipboard tool)"
         else
-            test_warning "xclip not found" "Custom monitor daemon will be required"
+            test_warning "xclip not found" "Custom agent will be required"
         fi
     elif [[ "$DETECTED_DISPLAY_SERVER" == "wayland" ]]; then
         if command_exists wl-copy && command_exists wl-paste; then
             test_pass "wl-clipboard available (fallback clipboard tool)"
         else
-            test_warning "wl-clipboard not found" "Custom monitor daemon will be required"
+            test_warning "wl-clipboard not found" "Custom agent will be required"
         fi
     fi
 
@@ -4071,30 +4044,30 @@ verify_dependencies() {
 }
 
 verify_monitor_daemons() {
-    print_step "Verifying monitor daemons..."
+    print_step "Verifying agents..."
 
     if [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
-        local monitor_binary="$PLUGIN_INSTALL_DIR/impl-x11/backends/x11/zes-x11-selection-monitor"
+        local monitor_binary="$PLUGIN_INSTALL_DIR/impl-x11/backends/x11/zes-x11-selection-agent"
 
         if [[ -x "$monitor_binary" ]]; then
-            test_pass "X11 monitor daemon built and executable"
+            test_pass "X11 agent built and executable"
         else
-            test_fail "X11 monitor daemon not found or not executable" "Check build process"
+            test_fail "X11 agent not found or not executable" "Check build process"
         fi
     elif [[ "$DETECTED_DISPLAY_SERVER" == "wayland" ]]; then
-        local monitor_binary="$PLUGIN_INSTALL_DIR/impl-wayland/backends/wayland/zes-wl-selection-monitor"
+        local monitor_binary="$PLUGIN_INSTALL_DIR/impl-wayland/backends/wayland/zes-wl-selection-agent"
 
         if [[ -x "$monitor_binary" ]]; then
-            test_pass "Wayland monitor daemon built and executable"
+            test_pass "Wayland agent built and executable"
         else
-            test_fail "Wayland monitor daemon not found or not executable" "Check build process"
+            test_fail "Wayland agent not found or not executable" "Check build process"
         fi
 
-        local xwayland_binary="$PLUGIN_INSTALL_DIR/impl-wayland/backends/x11/zes-xwayland-monitor"
+        local xwayland_binary="$PLUGIN_INSTALL_DIR/impl-wayland/backends/xwayland/zes-xwayland-agent"
         if [[ -x "$xwayland_binary" ]]; then
-            test_pass "XWayland monitor daemon built (optional)"
+            test_pass "XWayland clipboard agent built (optional)"
         else
-            test_warning "XWayland monitor not built" "Optional component"
+            test_warning "XWayland agent not built" "Optional component"
         fi
     fi
 }
@@ -4256,11 +4229,15 @@ generate_summary() {
     print_header "Installation Summary"
 
     echo -e "${BOLD}${CYAN}System Information:${NC}"
-    echo "  • Distribution:    $DETECTED_DISTRO_NAME ${DETECTED_DISTRO_VERSION:-} (ID: $DETECTED_DISTRO_ID)"
-    echo "  • Package Manager: $DETECTED_PACKAGE_MANAGER"
-    echo "  • Display Server:  $DETECTED_DISPLAY_SERVER"
-    echo "  • Plugin Manager:  $DETECTED_PLUGIN_MANAGER"
-    echo "  • Plugin Location: $PLUGIN_INSTALL_DIR"
+    if [[ -n "$DETECTED_DISTRO_NAME" ]]; then
+        local distro_info="$DETECTED_DISTRO_NAME ${DETECTED_DISTRO_VERSION:-} (ID: ${DETECTED_DISTRO_ID:-N/A})"
+        [[ -n "$DETECTED_DISTRO_CODENAME" ]] && distro_info+=", $DETECTED_DISTRO_CODENAME"
+        echo "  • Distribution:    $distro_info"
+    fi
+    [[ -n "$DETECTED_PACKAGE_MANAGER" ]] && echo "  • Package Manager: $DETECTED_PACKAGE_MANAGER"
+    [[ -n "$DETECTED_DISPLAY_SERVER" ]] && echo "  • Display Server:  $DETECTED_DISPLAY_SERVER"
+    [[ -n "$DETECTED_PLUGIN_MANAGER" ]] && echo "  • Plugin Manager:  $DETECTED_PLUGIN_MANAGER"
+    [[ -n "$PLUGIN_INSTALL_DIR" ]] && echo "  • Plugin Location: $PLUGIN_INSTALL_DIR"
     echo "  • Terminals Found: ${#DETECTED_TERMINALS[@]}"
     for term in "${DETECTED_TERMINALS[@]}"; do
         echo "    - $term"
@@ -4303,20 +4280,20 @@ generate_summary() {
     fi
 
     echo -e "${BOLD}${CYAN}Next Steps:${NC}"
-    echo "  ${BOLD}1. Restart your terminal${NC}"
-    echo "     Run: ${CYAN}exec zsh${NC} or close and reopen your terminal"
+    echo -e "  ${BOLD}1. Restart your terminal${NC}"
+    echo -e "     Run: ${CYAN}exec zsh${NC} or close and reopen your terminal"
     echo ""
-    echo "  ${BOLD}2. Test text selection${NC}"
-    echo "     • Press ${CYAN}Shift + Arrow keys${NC} to select text"
-    echo "     • Type to replace selected text"
-    echo "     • Press ${CYAN}Ctrl+C${NC} (or ${CYAN}Ctrl+Shift+C${NC}) to copy"
+    echo -e "  ${BOLD}2. Test text selection${NC}"
+    echo -e "     • Press ${CYAN}Shift + Arrow keys${NC} to select text"
+    echo -e "     • Type to replace selected text"
+    echo -e "     • Press ${CYAN}Ctrl+C${NC} (or ${CYAN}Ctrl+Shift+C${NC}) to copy"
     echo ""
-    echo "  ${BOLD}3. Customize settings (optional)${NC}"
-    echo "     Run: ${CYAN}edit-select config${NC}"
+    echo -e "  ${BOLD}3. Customize settings (optional)${NC}"
+    echo -e "     Run: ${CYAN}edit-select config${NC}"
     echo ""
-    echo "  ${BOLD}4. View full documentation${NC}"
-    echo "     See: $PLUGIN_INSTALL_DIR/README.md"
-    echo "     Or visit: https://github.com/Michael-Matta1/zsh-edit-select"
+    echo -e "  ${BOLD}4. View full documentation${NC}"
+    echo -e "     See: $PLUGIN_INSTALL_DIR/README.md"
+    echo -e "     Or visit: https://github.com/Michael-Matta1/zsh-edit-select"
     echo ""
 
     echo -e "${BOLD}${CYAN}Installation Statistics:${NC}"
@@ -4459,7 +4436,7 @@ This script will:
   • Install required dependencies
   • Install and configure the plugin
   • Configure your terminal emulator(s)
-  • Build monitor daemons
+  • Build agents
   • Check for configuration conflicts
   • Verify the installation
   • Provide a detailed summary
@@ -4498,6 +4475,9 @@ run_full_install() {
     print_header "Phase 2: Dependency Installation"
     install_dependencies
 
+    # Phase 2.1: Offer Kitty installation (after deps, before terminal config)
+    offer_kitty_installation
+
     # Phase 2.5: User Preferences
     ask_user_preferences
     ask_backup_preference
@@ -4506,7 +4486,7 @@ run_full_install() {
     print_header "Phase 3: Plugin Installation"
     install_plugin
 
-    # Phase 4: Monitor Daemons
+    # Phase 4: Agents
     build_monitor_daemons
 
     # Phase 5: Terminal Configuration
@@ -4537,6 +4517,7 @@ run_terminal_config_only() {
     # Detection
     print_header "Phase 1: System Detection"
     detect_display_server
+    detect_linux_distro
     detect_terminals
 
     # If no terminals detected, inform user
@@ -4573,7 +4554,7 @@ run_conflict_check_only() {
     # Detection
     print_header "Phase 1: System Detection"
     detect_display_server
-    detect_plugin_manager  # Helps identify plugin files to exclude from conflict checks
+    detect_plugin_manager # Helps identify plugin files to exclude from conflict checks
     detect_terminals
 
     # Conflict checking
@@ -4633,24 +4614,29 @@ run_plugin_update() {
     # git diff --quiet returns 0 (success) if there are NO changes
     # Returns non-zero if there ARE changes
     if git -C "$PLUGIN_INSTALL_DIR" diff --quiet 2>/dev/null &&
-       git -C "$PLUGIN_INSTALL_DIR" diff --cached --quiet 2>/dev/null; then
+        git -C "$PLUGIN_INSTALL_DIR" diff --cached --quiet 2>/dev/null; then
         : # No changes - both diff commands succeeded (returned 0)
     else
         had_changes=1
         print_warning "Local changes detected, stashing them before update..."
-        git -C "$PLUGIN_INSTALL_DIR" stash save "Auto-stash before installer update" 2>&1 | tee -a "$LOG_FILE"
+        git -C "$PLUGIN_INSTALL_DIR" stash push -m "Auto-stash before installer update" 2>&1 | tee -a "$LOG_FILE"
     fi
 
-    # Perform the update
-    if git -C "$PLUGIN_INSTALL_DIR" pull --rebase 2>&1 | tee -a "$LOG_FILE"; then
+    # Perform the update (capture output to avoid tee masking git exit status)
+    local pull_output
+    if pull_output=$(git -C "$PLUGIN_INSTALL_DIR" pull --rebase 2>&1); then
+        echo "$pull_output" | tee -a "$LOG_FILE"
         print_success "Plugin updated successfully" "plugin_update"
 
         # Restore stashed changes if any
         if [[ $had_changes -eq 1 ]]; then
             print_info "Restoring local changes..."
-            if git -C "$PLUGIN_INSTALL_DIR" stash pop 2>&1 | tee -a "$LOG_FILE"; then
+            local stash_output
+            if stash_output=$(git -C "$PLUGIN_INSTALL_DIR" stash pop 2>&1); then
+                echo "$stash_output" | tee -a "$LOG_FILE"
                 print_success "Local changes restored"
             else
+                echo "$stash_output" | tee -a "$LOG_FILE"
                 print_warning "Could not restore local changes automatically"
                 print_info "Your changes are saved in stash: git -C $PLUGIN_INSTALL_DIR stash list"
             fi
@@ -4660,22 +4646,28 @@ run_plugin_update() {
         detect_display_server
 
         # Re-build monitors in case C code changed
-        print_header "Rebuilding Monitor Daemons"
+        print_header "Rebuilding Agents"
         build_monitor_daemons
     else
+        echo "$pull_output" | tee -a "$LOG_FILE"
         print_error "Failed to update plugin" "plugin_update"
         print_info "Check the log file for details: $LOG_FILE"
 
         # Try to recover from failed pull
         print_info "Attempting to reset to remote state..."
-        if git -C "$PLUGIN_INSTALL_DIR" fetch origin 2>&1 | tee -a "$LOG_FILE" &&
-           git -C "$PLUGIN_INSTALL_DIR" reset --hard origin/main 2>&1 | tee -a "$LOG_FILE"; then
+        local fetch_output reset_output
+        if fetch_output=$(git -C "$PLUGIN_INSTALL_DIR" fetch origin 2>&1) &&
+            reset_output=$(git -C "$PLUGIN_INSTALL_DIR" reset --hard origin/main 2>&1); then
+            echo "$fetch_output" | tee -a "$LOG_FILE"
+            echo "$reset_output" | tee -a "$LOG_FILE"
             print_success "Reset to remote state successful"
 
             # Re-build monitors
             detect_display_server
             build_monitor_daemons
         else
+            [[ -n "${fetch_output:-}" ]] && echo "$fetch_output" | tee -a "$LOG_FILE"
+            [[ -n "${reset_output:-}" ]] && echo "$reset_output" | tee -a "$LOG_FILE"
             print_error "Could not recover from failed update"
             print_info "Manual intervention required. Consider reinstalling the plugin."
         fi
@@ -4684,39 +4676,333 @@ run_plugin_update() {
     generate_summary
 }
 
+run_build_agents_only() {
+    print_header "Build Agents Mode"
+
+    # Init
+    check_essential_commands
+
+    # Detection
+    print_header "Phase 1: System Detection"
+    detect_display_server
+    detect_linux_distro
+    detect_plugin_manager
+
+    if [[ -z "$PLUGIN_INSTALL_DIR" ]] || [[ ! -d "$PLUGIN_INSTALL_DIR" ]]; then
+        print_error "Plugin directory not found: ${PLUGIN_INSTALL_DIR:-<not set>}"
+        print_info "Please run Full Install first to install the plugin."
+        generate_summary
+        return
+    fi
+
+    # Check for build tools
+    print_header "Phase 2: Checking Build Tools"
+    local missing=()
+    if ! command_exists gcc && ! command_exists clang; then missing+=("gcc/clang"); fi
+    if ! command_exists make; then missing+=("make"); fi
+    if ! command_exists pkg-config; then missing+=("pkg-config"); fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        print_error "Missing build tools: ${missing[*]}"
+        print_info "Install them using your package manager before building agents."
+        FAILED_STEPS["build_tools"]="Missing: ${missing[*]}"
+        generate_summary
+        return
+    fi
+
+    # Build agents
+    print_header "Phase 3: Building Agents"
+    build_monitor_daemons
+
+    generate_summary
+}
+
+run_uninstall() {
+    print_header "Uninstall Mode"
+    echo ""
+    print_warning "This will remove zsh-edit-select from your system."
+    echo ""
+
+    if [[ $NON_INTERACTIVE -eq 0 ]]; then
+        if ! ask_yes_no "Are you sure you want to uninstall zsh-edit-select?" "n"; then
+            print_info "Uninstall cancelled."
+            return
+        fi
+    fi
+
+    # Detect where the plugin is installed
+    print_step "Detecting plugin installation..."
+    detect_plugin_manager
+
+    local uninstall_success=0
+
+    # Step 1: Kill running agents
+    print_step "Stopping running agents..."
+    local agents=("zes-x11-selection-agent" "zes-wl-selection-agent" "zes-xwayland-agent")
+    for agent in "${agents[@]}"; do
+        if pgrep -f "$agent" &>/dev/null; then
+            pkill -f "$agent" 2>/dev/null && print_success "Stopped $agent" || print_warning "Could not stop $agent"
+        fi
+    done
+
+    # Step 2: Remove plugin directory
+    if [[ -n "$PLUGIN_INSTALL_DIR" ]] && [[ -d "$PLUGIN_INSTALL_DIR" ]]; then
+        print_step "Removing plugin directory: $PLUGIN_INSTALL_DIR"
+
+        # Safety checks
+        if [[ "$PLUGIN_INSTALL_DIR" == "/" ]] || [[ "$PLUGIN_INSTALL_DIR" == "$HOME" ]] ||
+            [[ "$PLUGIN_INSTALL_DIR" == "$HOME/" ]] || [[ ! "$PLUGIN_INSTALL_DIR" == *"zsh-edit-select"* ]]; then
+            print_error "Refusing to remove unsafe path: $PLUGIN_INSTALL_DIR"
+        else
+            if ask_yes_no "Remove plugin directory $PLUGIN_INSTALL_DIR?" "y"; then
+                if rm -rf "$PLUGIN_INSTALL_DIR" 2>/dev/null; then
+                    print_success "Plugin directory removed" "uninstall_plugin_dir"
+                    ((uninstall_success++))
+                else
+                    print_error "Failed to remove plugin directory"
+                    FAILED_STEPS["uninstall_plugin_dir"]="Could not remove $PLUGIN_INSTALL_DIR"
+                fi
+            else
+                print_info "Skipped removing plugin directory"
+            fi
+        fi
+    else
+        print_warning "Plugin directory not found or not set"
+    fi
+
+    # Step 3: Remove zshrc entries
+    local zshrc="${ZDOTDIR:-$HOME}/.zshrc"
+    if [[ -f "$zshrc" ]]; then
+        print_step "Cleaning .zshrc..."
+
+        if grep -qF "zsh-edit-select" "$zshrc" 2>/dev/null; then
+            backup_file "$zshrc"
+
+            # First: clean the Oh My Zsh plugins array (remove just the plugin name, keep the line)
+            if grep -q "plugins=.*zsh-edit-select" "$zshrc" 2>/dev/null; then
+                sed_inplace '/^[[:space:]]*plugins=/s/\bzsh-edit-select\b//g' "$zshrc"
+                # Clean up extra spaces in plugins array (only on plugins= lines)
+                sed_inplace '/^[[:space:]]*plugins=/s/  */ /g' "$zshrc"
+                # Clean up "( " or " )" left by removed plugin name (only on plugins= lines)
+                sed_inplace '/^[[:space:]]*plugins=/s/( /(/g; /^[[:space:]]*plugins=/s/ )/)/g' "$zshrc"
+                print_success "Removed from Oh My Zsh plugins array"
+            fi
+
+            # Second: remove standalone lines referencing zsh-edit-select
+            # (source lines, zinit/antigen lines, comments, etc.)
+            # But NOT the plugins=(...) line which we already cleaned above
+            local tmp_zshrc
+            tmp_zshrc=$(mktemp) || {
+                print_error "Failed to create temp file for .zshrc cleanup"
+                FAILED_STEPS["uninstall_zshrc"]="Temp file creation failed"
+            }
+
+            if [[ -n "$tmp_zshrc" ]]; then
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                    # Keep lines that are part of the plugins=(…) array
+                    if [[ "$line" =~ ^[[:space:]]*plugins= ]]; then
+                        echo "$line" >>"$tmp_zshrc"
+                        continue
+                    fi
+                    # Skip lines that reference zsh-edit-select (source, zinit, etc.)
+                    if [[ "$line" == *"zsh-edit-select"* ]]; then
+                        continue
+                    fi
+                    # Skip orphan "# Zsh Edit-Select" comments (with or without suffix)
+                    if [[ "$line" == "# Zsh Edit-Select"* ]]; then
+                        continue
+                    fi
+                    echo "$line" >>"$tmp_zshrc"
+                done <"$zshrc"
+
+                if mv "$tmp_zshrc" "$zshrc" 2>/dev/null; then
+                    print_success "Removed plugin entries from .zshrc" "uninstall_zshrc"
+                    ((uninstall_success++))
+                else
+                    print_error "Failed to update .zshrc"
+                    rm -f "$tmp_zshrc"
+                    FAILED_STEPS["uninstall_zshrc"]="Could not write to $zshrc"
+                fi
+            fi
+        else
+            print_info "No zsh-edit-select entries found in .zshrc"
+        fi
+    fi
+
+    # Step 4: Remove terminal config entries
+    print_step "Cleaning terminal configurations..."
+    local -a terminal_configs=(
+        "${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf"
+        "${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml"
+        "${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.yml"
+        "${XDG_CONFIG_HOME:-$HOME/.config}/wezterm/wezterm.lua"
+        "${XDG_CONFIG_HOME:-$HOME/.config}/foot/foot.ini"
+    )
+
+    for config_file in "${terminal_configs[@]}"; do
+        if [[ -f "$config_file" ]] && grep -qF "Zsh Edit-Select" "$config_file" 2>/dev/null; then
+            local basename_file
+            basename_file=$(basename "$config_file")
+            if ask_yes_no "Remove zsh-edit-select config from $basename_file?" "y"; then
+                backup_file "$config_file"
+
+                # Remove the block between "# Zsh Edit-Select" / "-- Zsh Edit-Select" marker
+                # and the next empty line or section marker
+                local tmp_config
+                tmp_config=$(mktemp) || {
+                    print_error "Failed to create temp file for $basename_file"
+                    continue
+                }
+
+                local in_our_section=0
+                local empty_line_buffer=""
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                    if [[ "$line" == *"Zsh Edit-Select"* ]]; then
+                        in_our_section=1
+                        empty_line_buffer=""
+                        continue
+                    fi
+                    if [[ $in_our_section -eq 1 ]]; then
+                        local stripped
+                        stripped="$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')"
+
+                        # Buffer empty lines instead of skipping them outright
+                        if [[ -z "$stripped" ]]; then
+                            empty_line_buffer+=$'\n'
+                            continue
+                        fi
+
+                        # Check if it looks like a line we added
+                        if [[ "$stripped" == "map "* ]] || [[ "$stripped" == "# Copy"* ]] ||
+                            [[ "$stripped" == "# Ctrl+"* ]] || [[ "$stripped" == "# Redo"* ]] ||
+                            [[ "$stripped" == "# Disable"* ]] || [[ "$stripped" == "map ctrl+"* ]] ||
+                            [[ "$stripped" == "map shift+"* ]] || [[ "$stripped" == "[[keyboard"* ]] ||
+                            [[ "$stripped" == "key ="* ]] || [[ "$stripped" == "mods ="* ]] ||
+                            [[ "$stripped" == "chars ="* ]] || [[ "$stripped" == "key_bindings:"* ]] ||
+                            [[ "$stripped" == "- {"* ]] || [[ "$stripped" == "config.keys"* ]] ||
+                            [[ "$stripped" == "local zes_keys"* ]] || [[ "$stripped" == "for _, k"* ]] ||
+                            [[ "$stripped" == "{"* && "$stripped" == *"SendString"* ]] ||
+                            [[ "$stripped" == "{"* && "$stripped" == *"DisableDefault"* ]] ||
+                            [[ "$stripped" == "}" ]] || [[ "$stripped" == "end" ]] ||
+                            [[ "$stripped" == "clipboard-copy="* ]] ||
+                            [[ "$stripped" == "send-interrupt="* ]]; then
+                            # Still our config — discard buffered empty lines and skip
+                            empty_line_buffer=""
+                            continue
+                        fi
+
+                        # Not our line — output buffered empty lines and exit section
+                        in_our_section=0
+                        if [[ -n "$empty_line_buffer" ]]; then
+                            printf '%s' "$empty_line_buffer" >>"$tmp_config"
+                        fi
+                        empty_line_buffer=""
+                        echo "$line" >>"$tmp_config"
+                    else
+                        echo "$line" >>"$tmp_config"
+                    fi
+                done <"$config_file"
+
+                if mv "$tmp_config" "$config_file" 2>/dev/null; then
+                    print_success "Cleaned $basename_file" "uninstall_$basename_file"
+                    ((uninstall_success++))
+                else
+                    print_error "Failed to update $basename_file"
+                    rm -f "$tmp_config"
+                fi
+            fi
+        fi
+    done
+
+    # Step 5: VS Code keybindings (special handling for JSON)
+    local vscode_config="${XDG_CONFIG_HOME:-$HOME/.config}/Code/User/keybindings.json"
+    if [[ ! -f "$vscode_config" ]]; then
+        vscode_config="${XDG_CONFIG_HOME:-$HOME/.config}/Code - Insiders/User/keybindings.json"
+    fi
+    if [[ -f "$vscode_config" ]] && grep -q "Zsh Edit-Select\|90;6u\|67;6u" "$vscode_config" 2>/dev/null; then
+        print_info "VS Code keybindings contain zsh-edit-select entries."
+        print_info "Please remove them manually from: $vscode_config"
+        print_info "Look for entries containing '67;6u' or '90;6u' escape sequences."
+        MANUAL_STEPS+=("Remove zsh-edit-select keybindings from VS Code: $vscode_config")
+    fi
+
+    # Step 6: Remove config directory
+    local plugin_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select"
+    if [[ -d "$plugin_config_dir" ]]; then
+        if ask_yes_no "Remove plugin configuration directory ($plugin_config_dir)?" "y"; then
+            rm -rf "$plugin_config_dir" 2>/dev/null && {
+                print_success "Plugin config directory removed" "uninstall_config_dir"
+                ((uninstall_success++))
+            } || {
+                print_error "Failed to remove plugin config directory"
+            }
+        fi
+    fi
+
+    # Step 7: Remove Sheldon config entry if applicable
+    local sheldon_config="${XDG_CONFIG_HOME:-$HOME/.config}/sheldon/plugins.toml"
+    if [[ -f "$sheldon_config" ]] && grep -qF "zsh-edit-select" "$sheldon_config" 2>/dev/null; then
+        backup_file "$sheldon_config"
+        # Remove the plugin section
+        local tmp_sheldon
+        tmp_sheldon=$(mktemp) || true
+        if [[ -n "$tmp_sheldon" ]]; then
+            local in_section=0
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ "$line" == "[plugins.zsh-edit-select]" ]]; then
+                    in_section=1
+                    continue
+                fi
+                if [[ $in_section -eq 1 ]]; then
+                    if [[ "$line" == "["* ]] && [[ "$line" != "[plugins.zsh-edit-select]" ]]; then
+                        in_section=0
+                        echo "$line" >>"$tmp_sheldon"
+                    fi
+                    continue
+                fi
+                echo "$line" >>"$tmp_sheldon"
+            done <"$sheldon_config"
+            mv "$tmp_sheldon" "$sheldon_config" 2>/dev/null && print_success "Cleaned Sheldon config"
+        fi
+    fi
+
+    # Summary
+    echo ""
+    if [[ $uninstall_success -gt 0 ]]; then
+        echo -e "${GREEN}${BOLD}Uninstall completed.${NC}"
+    else
+        echo -e "${YELLOW}${BOLD}Uninstall completed with warnings.${NC}"
+    fi
+    echo ""
+    print_info "Please restart your terminal for changes to take effect."
+
+    generate_summary
+}
+
 show_main_menu() {
     print_banner
     echo -e "${CYAN}Welcome to Zsh Edit-Select Installer${NC}"
     echo ""
-    echo -e "${BOLD}What would you like to do?${NC}"
-    echo ""
-    echo -e "  ${GREEN}1)${NC} Full Installation ${DIM}(Recommended - Complete setup with all features)${NC}"
-    echo -e "  ${GREEN}2)${NC} Terminal Configuration Only ${DIM}(Configure terminal keybindings for existing plugin)${NC}"
-    echo -e "  ${GREEN}3)${NC} Check for Conflicts Only ${DIM}(Scan your setup for configuration conflicts)${NC}"
-    echo -e "  ${GREEN}4)${NC} Update Plugin ${DIM}(Pull latest changes from repository)${NC}"
-    echo -e "  ${GREEN}5)${NC} Exit"
-    echo ""
 
-    ask_choice "Select an option:" \
-        "Full Installation (Recommended)" \
-        "Configure Terminals Only" \
-        "Check for Conflicts Only" \
-        "Update Plugin" \
-        "Exit"
+    ask_choice "What would you like to do?" \
+        "Full Installation (Recommended - Complete setup with all features)" \
+        "Configure Terminals Only (Configure terminal keybindings for existing plugin)" \
+        "Check for Conflicts Only (Scan your setup for configuration conflicts)" \
+        "Update Plugin (Pull latest changes from repository)" \
+        "Build Agents Only (Rebuild clipboard agents for your display server)" \
+        "Uninstall (Remove plugin, config entries, and agents)"
 
     case "$CHOICE_RESULT" in
-        1) run_full_install ;;
-        2) run_terminal_config_only ;;
-        3) run_conflict_check_only ;;
-        4) run_plugin_update ;;
-        5)
-            print_info "Installation cancelled by user"
-            exit 0
-            ;;
-        *)
-            print_warning "Invalid choice, exiting"
-            exit 1
-            ;;
+    1) run_full_install ;;
+    2) run_terminal_config_only ;;
+    3) run_conflict_check_only ;;
+    4) run_plugin_update ;;
+    5) run_build_agents_only ;;
+    6) run_uninstall ;;
+    *)
+        print_info "Installation cancelled by user"
+        exit 0
+        ;;
     esac
 }
 
@@ -4732,7 +5018,7 @@ main() {
         echo "install files to root's home directory instead of yours."
         echo ""
         echo "Please run as a normal user:"
-        echo "  ${BOLD}bash auto-install.sh${NC}"
+        echo -e "  ${BOLD}bash auto-install.sh${NC}"
         echo ""
         echo "The script will ask for sudo password when needed for system tasks."
         exit 1
@@ -4740,9 +5026,9 @@ main() {
 
     # If non-interactive, default to full install
     if [[ $NON_INTERACTIVE -eq 1 ]]; then
-         run_full_install
+        run_full_install
     else
-         show_main_menu
+        show_main_menu
     fi
 }
 
