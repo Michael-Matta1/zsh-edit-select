@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.5.7
+# Version: 0.5.8
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 # Absolute path to the compiled X11 selection agent binary.

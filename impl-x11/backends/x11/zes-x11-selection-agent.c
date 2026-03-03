@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.5.7
+// Version: 0.5.8
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // X11 XFixes-based clipboard integration agent for zsh-edit-select

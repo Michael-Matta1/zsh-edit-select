@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.5.7
+# Version: 0.5.8
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 
@@ -342,7 +342,7 @@ function _zesw_capture_key() {
 # Return a human-readable label for the active display server type based on $_ZES_MONITOR_TYPE.
 function _zesw_get_monitor_type() {
 	case "$_ZES_MONITOR_TYPE" in
-		x11) printf "X11 (XWayland - invisible)" ;;
+		x11) printf "XWayland" ;;
 		wayland) printf "Wayland (native)" ;;
 		*) printf "Unknown" ;;
 	esac
