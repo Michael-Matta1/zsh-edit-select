@@ -5,7 +5,7 @@ mouse, type or paste to replace selections, use standard editing shortcuts (copy
 select all), and customize keybindings through an interactive wizard — with full X11 and Wayland clipboard
 support.
 
-[demo video](https://github.com/user-attachments/assets/fa2a84f4-bce5-44c8-9783-76332d9b6243)
+[demo video](https://github.com/user-attachments/assets/a024e609-1de1-4608-a7c3-e17264162904)
 
 <details>
 <summary><b>If the demo video is unavailable, click here to view the GIF.</b></summary>
@@ -28,10 +28,10 @@ support.
   - [Step 2: Configure Undo and Redo Shortcut](#step-2-configure-undo-and-redo-shortcut)
   - [Step 3: Enable Shift Selection Keys](#step-3-enable-shift-selection-keys)
 - [Wayland Support](#wayland-support)
-- [Platform Compatibility](#platform-compatibility)
-- [Performance & Optimization](#performance--optimization)
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
+- [Platform Compatibility](#platform-compatibility)
+- [Performance-Optimized Architecture](#performance-optimized-architecture)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgments](#acknowledgments)
@@ -155,11 +155,11 @@ The plugin includes purpose-built clipboard agents that replace external tools e
 **Clipboard Integration Agents:** Small compiled programs built specifically for this plugin handle all
 clipboard and selection operations:
 
-| Display Server | Agent                     | Protocol                                               | Performance vs. External Tool |
-| -------------- | ------------------------- | ------------------------------------------------------ | ----------------------------- |
-| **X11**        | `zes-x11-selection-agent` | XFixes extension + CLIPBOARD atom                      | **44.6% faster than xclip**   |
-| **Wayland**    | `zes-wl-selection-agent`  | `zwp_primary_selection_unstable_v1` + `wl_data_device` | **96.4% faster than wl-copy** |
-| **XWayland**   | `zes-xwayland-agent`      | X11 XFixes through XWayland                            | XWayland compatibility layer  |
+| Display Server | Agent                     | Protocol                                                                                                | Performance vs. External Tool |
+| -------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| **X11**        | `zes-x11-selection-agent` | XFixes extension + CLIPBOARD atom                                                                       | **44.6% faster than xclip**   |
+| **Wayland**    | `zes-wl-selection-agent`  | `zwp_primary_selection_unstable_v1` + `ext_data_control_v1` / `zwlr_data_control_v1` / `wl_data_device` | **96.4% faster than wl-copy** |
+| **XWayland**   | `zes-xwayland-agent`      | X11 XFixes through XWayland                                                                             | XWayland compatibility layer  |
 
 **External Tools (Fallback Only):**
 
@@ -172,7 +172,7 @@ clipboard and selection operations:
 > needed. They run as background processes and communicate with the plugin through a fast in-memory cache,
 > giving you instant clipboard response with zero subprocess overhead.
 
-> See [Performance & Optimization](#performance--optimization) for benchmarks and implementation details.
+> See [Performance-Optimized Architecture](#performance-optimized-architecture) for benchmarks and implementation details.
 
 ---
 
@@ -204,6 +204,12 @@ To use the auto-installer, simply run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install.sh -o install.sh && chmod +x install.sh && bash install.sh
+```
+
+Or
+
+```bash
+wget -O /tmp/install.sh https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install.sh && chmod +x /tmp/install.sh && bash /tmp/install.sh
 ```
 
 ### Key Features
@@ -354,7 +360,6 @@ sudo dnf install gcc make libX11-devel libXfixes-devel pkgconfig xclip
 </details>
 
 ### For Wayland Users
-
 
 <details>
 <summary><b>Debian/Ubuntu</b></summary>
@@ -576,7 +581,6 @@ edit-select config  # → Option 2: Key Bindings
 ```
 
 **Default bindings:**
-
 
 - **Ctrl + A** — Select all
 - **Ctrl + V** — Paste
@@ -1232,9 +1236,9 @@ Shift selection.
 
 </details>
 
-> **Configurations in practice:** The [dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) repository
-> includes working setups for **Kitty** (`kitty.conf`) and **VS Code** (`keybindings.json`) that demonstrate
-> that this plugin can be seamlessly integrated alongside other tools and configurations.
+> **Configurations in practice:** The [dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles)
+> repository includes working setups for **Kitty** (`kitty.conf`) and **VS Code** (`keybindings.json`) that
+> demonstrate that this plugin can be seamlessly integrated alongside other tools and configurations.
 
 ---
 
@@ -1380,476 +1384,6 @@ XWayland is enabled by default in Hyprland.
 show a small surface in the dock/taskbar on GNOME/Mutter.
 
 </details>
-
----
-
-## Platform Compatibility
-
-<details>
-<summary><b>Mouse Selection Replacement Feature</b></summary>
-
-The **Mouse Selection Replacement** feature (automatically detecting and replacing mouse-selected text) has
-comprehensive support across platforms via our custom agent implementations:
-
-### ✅ Fully Supported
-
-**X11 & XWayland:**
-
-- **X11** - Complete PRIMARY selection support via XFixes extension
-- **XWayland bridge** - Full compatibility layer for mixed environments
-
-**Native Wayland (Direct Protocol Implementation):**
-
-- **wlroots-based compositors** — Sway, Hyprland, River, Wayfire with `zwp_primary_selection_unstable_v1`
-- **KDE Plasma Wayland** - Full PRIMARY selection support via native protocols
-- **GNOME Wayland (Mutter)** - Native Wayland implementation provides PRIMARY selection support where
-  available
-- **Other Wayland compositors** - Full support for any compositor implementing PRIMARY selection protocols
-
-### Performance Advantage on Wayland
-
-The native Wayland agent (`zes-wl-selection-agent`) provides:
-
-- ✅ Direct protocol access (no `wl-copy`/`wl-paste` subprocess overhead)
-- ✅ Zero typing lag with instant selection detection
-- ✅ Event-driven architecture (no polling)
-- ✅ Superior responsiveness compared to standard clipboard tools
-
-### If Selection Replacement Doesn't Work
-
-1. Verify native Wayland or XWayland support is available
-2. Check that your compositor supports PRIMARY selection protocols
-3. Disable mouse replacement if needed: `edit-select config` → Option 1
-4. Report issues with your compositor on [GitHub](https://github.com/Michael-Matta1/zsh-edit-select/issues)
-
-</details>
-
-<details>
-<summary><b>Testing Coverage</b></summary>
-
-This plugin has been thoroughly and heavily tested on **Kitty Terminal** and briefly on other popular
-terminals.
-
-If you encounter issues on other terminals or platforms, please
-[open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with your terminal name, OS, and
-display server.
-
-</details>
-
-<details>
-<summary><b>Core Features (Universal)</b></summary>
-
-These features work universally on X11, Wayland, and XWayland:
-
-- ✅ Shift+Arrow keys for text selection
-- ✅ Ctrl+A to select all
-- ✅ Ctrl+Shift+C to copy (or Ctrl+C in reversed mode)
-- ✅ Ctrl+X to cut keyboard selection
-- ✅ Ctrl+V to paste
-- ✅ Ctrl+Z to undo
-- ✅ Ctrl+Shift+Z to redo
-- ✅ Delete/Backspace to remove keyboard selection
-- ✅ Type or paste to replace keyboard selection
-- ✅ Mouse selection replacement (where PRIMARY selection available)
-
-**Wayland Advantage:** Native implementation provides these features with zero subprocess overhead, delivering
-instant responsiveness and zero typing lag.
-
-</details>
-
----
-
-## Performance & Optimization
-
-The plugin architecture is built around a compiled native C agent that runs as a persistent background
-process. The agent tracks selection changes via display server events, writes updates to a RAM-backed cache
-file, and the shell reads that cache using a single `zstat` call per keypress. Backend detection, agent
-startup, and configuration loading occur once at plugin load; all subsequent operations use the results
-directly.
-
-Core architectural properties:
-
-- **Single-pass initialization** — Backend detection, agent startup, and configuration loading occur at plugin
-  load time. The results are cached in shell variables and reused for the entire session.
-- **Event-driven selection tracking** — X11 XFixes events and Wayland compositor events drive cache updates;
-  both agents sleep in `poll()` between events.
-- **Compiled C agents** — Direct system calls with compiler optimization flags
-  (`-O3 -march=native -flto -fipa-pta`); no interpreter overhead.
-- **RAM-backed cache** — Agents write to `XDG_RUNTIME_DIR` (tmpfs) with `/dev/shm` as fallback; all I/O
-  remains in memory.
-
-### Optimization Techniques
-
-<details>
-<summary><b>Startup & Initialization</b></summary>
-
-**Backend Detection**
-
-- Platform detection runs once at plugin load time by inspecting `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, and
-  `DISPLAY`
-- The detected backend is stored in shell variables and reused for the shell session
-
-**Lazy Backend Loading**
-
-- Only the implementation matching the detected display server (X11 or Wayland) is sourced
-- The other implementation is never loaded into memory, reducing both startup time and memory footprint
-
-**Zsh Bytecode Compilation**
-
-- Plugin files are compiled to `.zwc` (Zsh bytecode) on first load
-- The bytecode is reused on subsequent sessions, bypassing source parsing
-- Compilation runs in the background and does not delay shell startup
-
-**Configuration Loading**
-
-- The configuration file is read once at startup and its values are stored in shell variables
-- No file I/O occurs during individual plugin operations
-
-**Agent Startup**
-
-- The selection-tracking agent is started once when the plugin loads and remains active for the shell session
-
-</details>
-
-<details>
-<summary><b>Runtime Execution</b></summary>
-
-**mtime-Based Selection Detection**
-
-- The background agent writes selection data to a cache file
-- The shell detects changes by reading the file's modification time via `zstat`
-- A single `stat()` syscall is sufficient per keypress; the file content is not read unless the mtime has
-  changed
-
-**In-Memory State Caching**
-
-- The last-known selection state is held in shell variables
-- `_zes_sync_selection_state()` returns immediately if the cache file mtime is unchanged
-- Keyboard selections bypass the mouse-detection path entirely
-- State is invalidated only when the agent writes a new cache entry
-
-**Agent Health Monitoring**
-
-- Agent liveness is checked via `kill(pid, 0)` at 30-second intervals
-- If the agent process has exited, it is restarted transparently
-- Health checks are not issued on individual keypress operations
-
-**Event-Driven Detection**
-
-- **X11**: The agent subscribes to XFixes `SelectionNotify` events; the agent wakes only on selection owner
-  changes
-- **Wayland**: The compositor delivers primary selection events on owner change; a 50 ms `poll()` fallback
-  handles content changes within the same selection owner (e.g., extending a selection without releasing the
-  mouse)
-- Both agents sleep in `poll()` between events, consuming no CPU during idle periods
-
-</details>
-
-<details>
-<summary><b>C Agent Architecture</b></summary>
-
-**Compilation**
-
-- Agents are compiled with `-O3`, `-march=native`, `-flto`, and `-fipa-pta`
-- System libraries are the only runtime dependencies
-
-**Event-Driven Design**
-
-- Wayland agent connects directly to the Wayland display server:
-  - Subscribes to `zwp_primary_selection_unstable_v1` for PRIMARY selection events
-  - Subscribes to `wl_data_device` for clipboard events
-  - Sleeps in `poll()` between server events; CPU usage is zero during idle periods
-- X11 agent uses the XFixes extension for selection change notifications:
-  - `poll()`-based main loop with a 1-second timeout used solely for clean `SIGTERM` shutdown
-
-**Conditional Cache Writes**
-
-- `write_primary()` compares incoming content against the current cache before writing
-- Unchanged content is not written, avoiding approximately 80 superfluous write syscalls per second under
-  rapid selection activity
-- Writes are ordered: primary content first, then the sequence number file
-- The shell keys off the sequence file's mtime, not the primary content file
-
-**System-Call-Level Design**
-
-Applied across all three agents:
-
-- **Persistent file descriptors** — Cache file FDs are opened once at agent startup and held open for the
-  session; no per-write `open()`/`close()` cycle
-- **`pwrite()` for cache writes** — Performs an atomic positional write in a single syscall, without a
-  preceding `lseek()`
-- **`ftruncate()` after every write** — Truncates the cache file to the exact written length after each
-  `pwrite()`, preventing stale bytes from longer previous entries
-- **`O_CLOEXEC` on all file descriptors** — Applied to all `open()`, `pipe2()`, and `memfd_create()` calls to
-  prevent fd inheritance across `exec()`
-- **Conditional write skip** — `write_primary()` compares new and existing content; the write is skipped
-  entirely when content is unchanged
-- **`XInternAtom` result caching** _(X11 agent)_ — X11 atom handles are resolved once at startup and stored;
-  they are not re-queried per event
-- **`poll()` for all timed waits** — Provides accurate waits with immediate wake-up on fd activity
-- **`/dev/shm` cache fallback** — Used when `XDG_RUNTIME_DIR` is unavailable, keeping cache files in RAM
-- **Direct `F_SETFL O_NONBLOCK` on clipboard pipes** _(Wayland agent)_ — Clipboard read pipes are created with
-  `pipe2(O_CLOEXEC)` and configured with `F_SETFL O_NONBLOCK` directly, without a preceding `F_GETFL` read
-
-**Operation Modes**
-
-The agent binary supports three operation modes within a single binary, eliminating the need for separate
-per-mode processes:
-
-- **Daemon mode** — Continuous selection tracking with event-driven cache updates
-- **Oneshot mode** — Single selection read for non-persistent contexts
-- **Clipboard mode** — Direct clipboard read or write
-
-**Event Loop Design**
-
-- **X11 daemon** — XFixes `SelectionNotify` events + `poll()` with a 1-second timeout for `SIGTERM` handling;
-  no periodic work is performed on timeout
-- **Wayland daemon** — Wayland event loop + `poll()` with a 50 ms timeout; on timeout,
-  `check_and_update_primary()` checks for content changes within the current selection owner
-- **Clipboard copy (X11)** — `poll()` 100 ms loop serving `SelectionRequest` events; `timeout_count` resets on
-  each served paste and the process exits after 500 idle cycles (~50 seconds)
-- **Clipboard copy (Wayland)** — Event loop exits immediately after the first successful paste
-  (`copy_done = true`)
-
-</details>
-
-<details>
-<summary><b>Protocol & System Call Design</b></summary>
-
-**Wayland Protocol Integration**
-
-- The agent connects directly to the Wayland server socket using the native protocol
-- PRIMARY selection is managed via `zwp_primary_selection_unstable_v1`
-- Clipboard is managed via `wl_data_device`
-
-**X11 XFixes Integration**
-
-- The X11 agent uses the XFixes extension to receive `SelectionNotify` events
-- Events are delivered by the X server on selection owner changes; no polling is required
-
-**mtime-Based Cache Reads**
-
-- The shell uses `zstat` to read the sequence file's mtime
-- The mtime value is compared in-memory to the last-known value; a full file read occurs only when the mtime
-  differs
-- This keeps the common-case path (no selection change) to a single `stat()` syscall
-
-**Cache File Structure**
-
-- Cache files serve as synchronization signals, not data transfer channels
-- The sequence file's mtime carries the change signal; content reads are conditional on a mtime change
-
-</details>
-
-<details>
-<summary><b>Platform-Specific Design</b></summary>
-
-**X11**
-
-- `zes-x11-selection-agent` manages all copy/paste operations natively
-- XFixes extension delivers hardware-level event notification for selection owner changes
-- `poll()`-based main loop; X11 atom handles cached at startup
-
-**Wayland**
-
-- Native Wayland event loop for selection and clipboard monitoring
-- Dual protocol support:
-  - PRIMARY selection via `zwp_primary_selection_unstable_v1`
-  - Clipboard via `wl_data_device`
-- A permanent 1×1 transparent `xdg_toplevel` surface with an empty input region is created at startup; this is
-  required for Mutter/GNOME to deliver PRIMARY selection events and is harmless on wlroots-based compositors
-  and KDE
-
-**XWayland Bridge**
-
-- `zes-xwayland-agent` handles clipboard integration for applications running under XWayland
-- Operates via the X11 XFixes protocol through the XWayland compatibility layer
-
-</details>
-
-<details>
-<summary><b>Resource Overhead Properties</b></summary>
-
-The following describes the resource behavior of the current implementation:
-
-- Clipboard operations are performed within the agent process; no fork/exec is issued per clipboard action
-- Backend detection and configuration are loaded at startup; subsequent operations read from in-memory cached
-  values only
-- Selection state changes are detected via a single `stat()` call on the cache file's mtime; the file content
-  is not read unless the mtime has changed
-- Agent liveness verification uses `kill(pid, 0)` at 30-second intervals; it is not issued on individual
-  keystroke operations
-- `_zes_sync_selection_state()` returns without further processing when the cache mtime is unchanged,
-  preventing redundant detection work
-- C agents operate exclusively with direct system calls; no interpreter or scripting runtime is involved
-- Zsh plugin scripts are compiled to `.zwc` bytecode on first load; source parsing does not occur on
-  subsequent sessions
-- Each terminal pane maintains independent selection state, preventing cross-pane interference
-
-</details>
-
-<details>
-<summary><b>Advanced Features</b></summary>
-
-**Multi-Pane Selection Independence**
-
-- Each terminal pane maintains its own selection state in independent shell variables
-- PRIMARY selection is cleared after each operation to prevent a subsequent pane's detection from reading a
-  stale value
-- Early return checks in `_zes_sync_selection_state()` skip re-detection when the cached state is still valid
-
-**Duplicate Occurrence Handling**
-
-- When the mouse-selected text appears more than once in the command buffer, the plugin displays a warning
-  prompt: "Duplicate text: place cursor inside the occurrence you want to modify"
-- This prevents silent replacement of the wrong occurrence
-- The check applies only to mouse selections; keyboard selections are unambiguous by construction
-
-**Display State Integrity**
-
-- Status messages are explicitly cleared after each operation
-- A display refresh is issued after state changes to maintain consistent screen output
-
-**Configuration Persistence**
-
-- Settings are written to `~/.config/zsh-edit-select/config`
-- The file is read once at startup and the values are cached for the session
-- A reset command restores all values to their compiled-in defaults
-
-**Backend Override**
-
-- The `ZES_FORCE_IMPL` environment variable accepts `x11` or `wayland` to bypass automatic detection
-- Intended for debugging and compatibility testing
-
-</details>
-
-<details>
-<summary><b>Memory Management & State Efficiency</b></summary>
-
-**Memory Footprint**
-
-- State variables use integer flags and string values
-- Only the implementation for the active display server is loaded
-- Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions); no spinning-disk I/O
-
-**State Variable Design**
-
-- Integer flags (`DAEMON_ACTIVE`, `NEW_SELECTION_EVENT`) enable fast boolean checks
-- `EPOCHREALTIME` provides sub-second timestamps for selection timing
-- State variables are reused across operations
-
-**Cache Invalidation**
-
-- The cached mtime value is updated only when the sequence file mtime changes
-- The cached selection content is updated only when the primary cache file content differs from the stored
-  value
-- The cache holds only the current selection state; stale entries are not accumulated
-
-</details>
-
-<details>
-<summary><b>Clipboard Operation Latency</b></summary>
-
-The following tables document clipboard operation latency for the custom agent, measured with
-`clock_gettime(CLOCK_MONOTONIC)` across multiple payload sizes and iteration counts. All measurements include
-full end-to-end time: from operation initiation through data availability.
-
-**X11 Clipboard Latency:**
-
-| Test Scenario                          | xclip Avg    | Custom Avg   | Improvement      |
-| -------------------------------------- | ------------ | ------------ | ---------------- |
-| Small text (50 chars, 100 iterations)  | 4.025 ms     | 2.258 ms     | **43.9% faster** |
-| Medium text (500 chars, 50 iterations) | 4.307 ms     | 2.211 ms     | **48.7% faster** |
-| Large text (5KB, 25 iterations)        | 3.949 ms     | 2.310 ms     | **41.5% faster** |
-| Very large (50KB, 10 iterations)       | 4.451 ms     | 2.499 ms     | **43.9% faster** |
-| Rapid consecutive (200 iterations)     | 4.206 ms     | 2.321 ms     | **44.8% faster** |
-| **Overall Average**                    | **4.187 ms** | **2.320 ms** | **44.6% faster** |
-
-**Wayland Clipboard Latency:**
-
-| Test Scenario                          | wl-copy Avg   | Custom Avg   | Improvement      |
-| -------------------------------------- | ------------- | ------------ | ---------------- |
-| Small text (50 chars, 100 iterations)  | 57.073 ms     | 1.966 ms     | **96.6% faster** |
-| Medium text (500 chars, 50 iterations) | 60.382 ms     | 2.441 ms     | **96.0% faster** |
-| Large text (5KB, 25 iterations)        | 63.020 ms     | 1.809 ms     | **97.1% faster** |
-| Very large (50KB, 10 iterations)       | 58.343 ms     | 2.907 ms     | **95.0% faster** |
-| Rapid consecutive (200 iterations)     | 58.860 ms     | 1.546 ms     | **97.4% faster** |
-| **Overall Average**                    | **59.535 ms** | **2.134 ms** | **96.4% faster** |
-
-**Observed Latency:**
-
-- **X11:** 2.320ms average; 2.211ms minimum across all payload sizes
-- **Wayland:** 2.134ms average; 1.546ms minimum under rapid consecutive operations
-- Latency is consistent across payload sizes from 50 bytes to 50KB
-- Paste operations retrieve data directly from the in-memory agent cache
-
-**Wayland Latency Characteristics:**
-
-The Wayland agent's sub-2.2ms average latency reflects the persistent-agent architecture. The agent holds an
-active connection to the Wayland server and completes clipboard operations within its own process.
-Per-operation latency is dominated by Wayland IPC round-trip time.
-
-**Agent Implementation Notes:**
-
-- The agent maintains clipboard ownership and responds to `SelectionRequest` events internally
-- Clipboard ownership is released automatically after approximately 50 seconds without a paste request
-- If the custom agents are unavailable, the plugin falls back to `xclip` (X11) or `wl-copy`/`wl-paste`
-  (Wayland)
-
-> **Benchmark Methodology:** Tests conducted using high-precision C benchmarking tools with
-> `clock_gettime(CLOCK_MONOTONIC)` for nanosecond accuracy. All measurements include end-to-end overhead (IPC,
-> wait time). The benchmark suite is available in [`assets/benchmarks/`](assets/benchmarks/).
-
-</details>
-
-<details>
-<summary><b>Selection Detection Architecture</b></summary>
-
-**Selection State Detection**
-
-The shell-side detection path (`_zes_sync_selection_state()`) operates as follows:
-
-1. `zstat` reads the sequence cache file's mtime
-2. If the mtime matches the cached value, the function returns immediately with no further work
-3. If the mtime has changed, the primary cache file content is read and stored in a shell variable
-4. The new mtime is recorded for use in the next check
-
-Under normal typing conditions with no selection changes, the path costs one `stat()` syscall and an integer
-comparison per keypress.
-
-**Cache File Protocol**
-
-- The agent writes primary content to a dedicated cache file, then increments the sequence number file
-- The shell reads only the sequence number's mtime as the change signal
-- Full content is read only when a change is confirmed
-
-**Cut Operation**
-
-The cut operation (`edit-select::cut-region()`) copies the selected text to the clipboard before removing it
-from the buffer. This ordering ensures the data is available in the clipboard at the point the user perceives
-the operation as complete.
-
-**Early Return Conditions**
-
-- Unchanged mtime → immediate return before any selection comparison
-- Active keyboard selection → mouse detection path skipped entirely
-- Stale selection state → invalidated on mtime change, not on a timer
-
-</details>
-
-### Performance Summary
-
-- **X11 average clipboard latency:** 2.320ms (2.211ms minimum)
-- **Wayland average clipboard latency:** 2.134ms (1.546ms minimum under rapid consecutive operations)
-- **Selection detection cost:** one `stat()` syscall per keypress when no selection change is present; full
-  content read only when the cache file mtime has changed
-- **Agent health check interval:** 30 seconds; not issued per operation
-- **Initialization cost:** single-pass at plugin load; per-operation overhead is limited to cached variable
-  reads and a single `stat()` call
-- **Cache storage:** `XDG_RUNTIME_DIR` (tmpfs) with `/dev/shm` fallback
-
-> **Benchmark Methodology:** Measurements use `clock_gettime(CLOCK_MONOTONIC)` for nanosecond-resolution
-> timing. The full benchmark suite is available in [`assets/benchmarks/`](assets/benchmarks/).
 
 ---
 
@@ -2081,13 +1615,20 @@ The default Makefiles compile with aggressive optimization flags for maximum run
 | `-Wl,--as-needed`                     | Skip linking unused shared libraries                 |
 | `-Wl,-z,now`                          | Resolve all symbols at load time (security + perf)   |
 | `-Wl,-z,relro`                        | Read-only relocations after startup                  |
+| `-Wl,-z,noexecstack`                  | Mark stack non-executable (security hardening)       |
+| `-Wl,-O1`                             | Linker-level optimization pass                       |
+| `-Wl,--hash-style=gnu`                | Faster symbol lookup with GNU hash tables            |
+| `-Wl,--build-id=none`                 | Omit build-id section for smaller binaries           |
 | `-fomit-frame-pointer`                | Free up a register for better performance            |
 | `-fno-plt`                            | Eliminate PLT indirection for faster library calls   |
 | `-fno-semantic-interposition`         | Enable inlining across translation units             |
-| `-fno-strict-aliasing`                | Avoid aliasing-related missed optimizations          |
-| `-fno-asynchronous-unwind-tables`     | Omit unwind info not needed for signal handlers      |
+| `-fno-strict-aliasing`                | Permit type-punning casts in X11 agents (X11 only)   |
+| `-fno-asynchronous-unwind-tables`     | Omit async unwind info not needed by signal handlers |
+| `-fno-unwind-tables`                  | Omit synchronous unwind tables (no C++ exceptions)   |
 | `-fmerge-all-constants`               | Deduplicate identical constants across units         |
 | `-fipa-pta`                           | Interprocedural pointer analysis for better inlining |
+| `-fno-ident`                          | Omit compiler identification string from binary      |
+| `-fno-stack-protector`                | Remove stack-canary overhead (local-only agents)     |
 | `-DNDEBUG`                            | Disable assertions in release builds                 |
 | `-funroll-loops`                      | Unroll small loops for throughput                    |
 | `-s`                                  | Strip symbols for smaller production binaries        |
@@ -2097,6 +1638,594 @@ The default Makefiles compile with aggressive optimization flags for maximum run
 > `-march=native -mtune=native` with a portable baseline like `-march=x86-64-v2`.
 
 </details>
+
+
+---
+
+## Platform Compatibility
+
+<details>
+<summary><b>Mouse Selection Replacement Feature</b></summary>
+
+The **Mouse Selection Replacement** feature (automatically detecting and replacing mouse-selected text) has
+comprehensive support across platforms via our custom agent implementations:
+
+### ✅ Fully Supported
+
+**X11 & XWayland:**
+
+- **X11** - Complete PRIMARY selection support via XFixes extension
+- **XWayland bridge** - Full compatibility layer for mixed environments
+
+**Native Wayland (Direct Protocol Implementation):**
+
+- **wlroots-based compositors** — Sway, Hyprland, River, Wayfire with `zwp_primary_selection_unstable_v1`
+- **KDE Plasma Wayland** - Full PRIMARY selection support via native protocols
+- **GNOME Wayland (Mutter)** - Native Wayland implementation provides PRIMARY selection support where
+  available
+- **Other Wayland compositors** - Full support for any compositor implementing PRIMARY selection protocols
+
+### Performance on Wayland
+
+The native Wayland agent (`zes-wl-selection-agent`) provides:
+
+- ✅ Direct protocol access (no `wl-copy`/`wl-paste` subprocess overhead)
+- ✅ Zero typing lag with instant selection detection
+- ✅ Event-driven architecture
+- ✅ Superior responsiveness compared to standard clipboard tools
+
+### If Selection Replacement Doesn't Work
+
+1. Verify native Wayland or XWayland support is available
+2. Check that your compositor supports PRIMARY selection protocols
+3. Disable mouse replacement if needed: `edit-select config` → Option 1
+4. Report issues with your compositor on [GitHub](https://github.com/Michael-Matta1/zsh-edit-select/issues)
+
+</details>
+
+<details>
+<summary><b>Testing Coverage</b></summary>
+
+This plugin has been thoroughly and heavily tested on **Kitty Terminal** and briefly on other popular
+terminals.
+
+If you encounter issues on other terminals or platforms, please
+[open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with your terminal name, OS, and
+display server.
+
+</details>
+
+<details>
+<summary><b>Core Features (Universal)</b></summary>
+
+These features work universally on X11, Wayland, and XWayland:
+
+- ✅ Shift+Arrow keys for text selection
+- ✅ Ctrl+A to select all
+- ✅ Ctrl+Shift+C to copy (or Ctrl+C in reversed mode)
+- ✅ Ctrl+X to cut keyboard selection
+- ✅ Ctrl+V to paste
+- ✅ Ctrl+Z to undo
+- ✅ Ctrl+Shift+Z to redo
+- ✅ Delete/Backspace to remove keyboard selection
+- ✅ Type or paste to replace keyboard selection
+- ✅ Mouse selection replacement (where PRIMARY selection available)
+
+
+</details>
+
+---
+
+## Performance-Optimized Architecture
+
+The plugin architecture is built around compiled native C agents that run as persistent background processes.
+Each agent tracks selection changes via display server events, writes updates to a RAM-backed cache, and the
+shell reads that cache using a single `zstat` call per keypress — zero process forks during normal typing.
+Backend detection, agent startup, and configuration loading occur once at plugin load; all subsequent
+operations use the cached results directly.
+
+Core architectural properties:
+
+- **Single-pass initialization** — Backend detection, agent startup, and configuration loading occur at plugin
+  load time. The results are cached in shell variables and reused for the entire session.
+- **Event-driven selection tracking** — X11 XFixes events and Wayland compositor events drive cache updates;
+  all agents sleep in `poll()` between events, consuming no CPU while idle.
+- **Compiled C agents** — Direct system calls compiled with aggressive optimization flags
+  (`-O3 -march=native -flto -fipa-pta` and link-time dead code elimination); no interpreter overhead.
+- **RAM-backed cache** — Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions),
+  with `TMPDIR` or `/tmp` as fallback. On standard systemd-based systems, all cache I/O remains in memory.
+- **Graceful fallback** — If the compiled agents are unavailable, the plugin falls back to standard clipboard
+  tools (`xclip`, `wl-paste`/`wl-copy`) transparently. No functionality is lost.
+
+### Optimization Techniques
+
+<details>
+<summary><b>Startup & Initialization</b></summary>
+
+**Backend Detection**
+
+- Platform detection runs once at plugin load time by inspecting `ZES_FORCE_IMPL`, `XDG_SESSION_TYPE`,
+  `WAYLAND_DISPLAY`, and `DISPLAY` in priority order
+- The detected backend (`x11` or `wayland`) is stored in read-only shell variables (`ZES_ACTIVE_IMPL`,
+  `ZES_DETECTION_REASON`, `ZES_IMPL_PATH`) and reused for the entire session
+- A double-load guard (`_ZES_LOADER_LOADED`) prevents re-execution when `.zshrc` is re-sourced mid-session
+
+**Lazy Backend Loading**
+
+- Only the implementation matching the detected display server (X11 or Wayland) is sourced
+- The other implementation is never loaded into memory, reducing both startup time and memory footprint
+- The configuration wizard is also lazy-loaded — its file is only sourced when the user explicitly runs
+  `edit-select config`
+
+**Zsh Bytecode Compilation**
+
+- Plugin files and all backend `.zsh` files are compiled to `.zwc` (Zsh wordcode bytecode) on first load via
+  `zcompile`
+- The bytecode is reused on subsequent sessions, bypassing source parsing entirely
+- A file-existence guard (`[[ ! -f "${file}.zwc" ]]`) prevents redundant recompilation
+
+**Agent Auto-Compilation**
+
+- If the compiled agent binary is missing but its `Makefile` is present, the loader runs `make` automatically
+  in a subshell
+- Build errors produce stderr diagnostics naming the required `-dev` packages for the user's distribution
+
+**Configuration Loading**
+
+- The configuration file (`~/.config/zsh-edit-select/config`) is read once at startup and its values are
+  stored in shell variables
+- No configuration file I/O occurs during individual plugin operations
+
+**Configuration Wizard**
+
+The wizard file is lazy-loaded — sourced only when the user explicitly invokes `edit-select config`,
+adding zero overhead to normal shell sessions. All wizard operations are implemented entirely as Zsh
+built-in operations with no subprocess spawning:
+
+- Config reads use `while IFS= read -r` loops; config writes use `print -r --` with Zsh array filtering
+  (`${(@)array:#KEY=*}`) — no `sed` or `grep` forks at any point in the config I/O path
+- Screen redraws use inline ANSI escape sequences (`printf '\033[2J\033[3J\033[H'`) instead of the
+  `clear` command; this also clears the scrollback buffer in a single `write()` call rather than a fork
+- The color gradient used in the wizard UI is computed once and cached in `$_ZESW_GRADIENT_CACHE` on
+  first invocation; subsequent calls within the same shell session reuse the cached values directly
+- Keybinding changes applied through the wizard take effect immediately in the current shell session via
+  direct `bindkey` calls — no shell restart or `.zshrc` re-source is required
+
+**Agent Startup & Readiness**
+
+- Before launching a new agent instance, the backend removes any leftover `seq` and `primary` cache files
+  from a previous session (`rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE"`). This prevents the
+  shell from treating stale data written by the previous daemon as a new selection event immediately after
+  startup.
+- The agent is launched inside a subshell using the pattern `( agent_binary "$cache_dir" &>/dev/null & ; disown )`.
+  The wrapping subshell isolates job control: the agent process does not appear in the shell's `jobs` list,
+  does not receive `SIGHUP` when the terminal closes, and does not trigger Zsh background-job notifications.
+- The plugin polls for the agent's readiness signal (the `seq` cache file appearing) with a maximum wait of
+  1 second (40 × 25 ms intervals), rather than using a fixed sleep — the poll exits as soon as the file
+  appears, so startup overhead matches actual agent initialization time.
+- If a running agent is already present (PID file exists and `kill -0` succeeds), it is reused without
+  restart.
+- After the readiness poll completes, the plugin reads the initial `seq` file mtime and sets
+  `_EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1`. This marks the startup mtime as already-seen, preventing the first
+  observed value from being treated as a new selection event on the first ZLE callback.
+
+</details>
+
+<details>
+<summary><b>Runtime Execution</b></summary>
+
+**mtime-Based Selection Detection**
+
+The typing hot path is designed around a single `stat()` syscall per keypress:
+
+1. The background agent writes selection content to a `primary` cache file, then updates a `seq` file
+2. The shell detects changes by reading the `seq` file's modification time via `zstat` (the Zsh builtin,
+   which performs a direct `stat()` syscall — no process fork)
+3. If the mtime matches the cached value, the function returns immediately with no further work
+4. If the mtime has changed, the `primary` file content is read via `$(<file)` (Zsh builtin read — also
+   zero forks) and stored in a shell variable
+
+Under normal typing conditions with no selection changes, the entire detection path costs one `stat()` syscall
+and an integer comparison per keypress.
+
+**Write-Ordering Guarantee**
+
+The agent always writes the `primary` content file before updating the `seq` file. Since the shell uses the
+`seq` file's mtime as its change signal, this ordering guarantees the shell never reads a half-written
+`primary` file.
+
+**In-Memory State Caching**
+
+- The last-known selection state is held in shell variables (`_EDIT_SELECT_LAST_PRIMARY`,
+  `_EDIT_SELECT_LAST_MTIME`)
+- `_zes_sync_selection_state()` returns immediately if the cache file mtime is unchanged
+- An event-fired gate (`_EDIT_SELECT_EVENT_FIRED_FOR_MTIME`) prevents the same mtime from triggering
+  redundant processing across multiple ZLE callbacks within the same redraw cycle
+- Keyboard selections bypass the mouse-detection path entirely
+- State is invalidated only when the agent writes a new cache entry
+- Widget handlers call `zle -c` (flush pending typeahead) rather than `zle -Rc` (flush + force full
+  redraw); this avoids an unnecessary redraw cycle on every keypress that does not modify the display
+- After each paste or cut operation, `_zes_sync_after_paste()` re-reads the current `seq` file mtime and
+  `primary` file content directly from the daemon cache and updates `_EDIT_SELECT_LAST_MTIME` and
+  `_EDIT_SELECT_LAST_PRIMARY`. This resets the detection baseline to the post-operation state, preventing the
+  mtime written during the operation from being re-detected as a new selection event on the next ZLE callback.
+
+**Direct Buffer Manipulation**
+
+Paste and replace-selection operations compute the selection bounds and splice `BUFFER` directly using Zsh
+string indexing (`${BUFFER:0:$start}${replacement}${BUFFER:$((start+len))}`), bypassing `zle kill-region`.
+This prevents these operations from writing to ZLE's kill buffer, which would interfere with subsequent yank
+(`Ctrl+Y`) operations. Mouse-selection deletion widgets use the same direct-splice approach. Cut operations
+(`Ctrl+X`) intentionally retain `kill-region` so the deleted text remains available for yank.
+
+**Cut Operation Ordering**
+
+Cut copies the selected text to the clipboard before deleting it from the buffer. By performing the copy
+first, the clipboard server begins serving the content to other applications immediately while the subsequent
+buffer deletion completes — a single in-memory string splice with no external I/O.
+
+**Agent Health Monitoring**
+
+- Agent liveness is checked via `kill(pid, 0)` at 30-second intervals (amortized via `EPOCHSECONDS`
+  comparison)
+- If the agent process has exited, it is restarted transparently
+- Health checks are not issued on individual keypress operations
+
+**Event-Driven Detection**
+
+- **X11 / XWayland**: The agent subscribes to XFixes `XFixesSetSelectionOwnerNotifyMask` events; it wakes only
+  on selection owner changes. The main loop uses `poll()` with a 1-second timeout used solely for clean
+  `SIGTERM` shutdown — no periodic work is performed on timeout
+- **Wayland**: The compositor delivers primary selection events on owner change via
+  `zwp_primary_selection_unstable_v1`. A 50 ms `poll()` timeout provides a secondary detection path for
+  content changes within the same selection owner (e.g., the user extending a terminal text selection without
+  releasing the mouse button — which changes content without changing the selection owner)
+- All agents sleep in `poll()` between events, consuming no CPU during idle periods
+
+</details>
+
+<details>
+<summary><b>C Agent Internals</b></summary>
+
+**Compilation & Binary Optimization**
+
+Agents are compiled with aggressive optimization flags to minimize binary size and maximize runtime
+performance:
+
+- `-O3 -march=native -mtune=native` — Full optimization with CPU-specific instruction scheduling
+- `-flto` (Link-Time Optimization) — Whole-program optimization across all translation units
+- `-fipa-pta` — Interprocedural pointer analysis for better alias resolution
+- `-fomit-frame-pointer` — Frees a general-purpose register by omitting the frame pointer
+- `-funroll-loops` — Unrolls loops to reduce branch overhead in tight event-handling paths
+- `-fmerge-all-constants` — Merges identical constants across translation units, reducing `.rodata` size
+- `-ffunction-sections -fdata-sections` + `-Wl,--gc-sections` — Dead code elimination: each function and data
+  object is placed in its own section; the linker discards unreferenced sections
+- `-fno-plt -fno-semantic-interposition` — Direct function calls without PLT indirection; allows the compiler
+  to inline across translation units without interposition checks
+- `-fno-asynchronous-unwind-tables -fno-unwind-tables` — Removes `.eh_frame` exception unwind sections
+  (unnecessary for C agents that do not use C++ exceptions), reducing binary size
+- `-DNDEBUG` — Disables all `assert()` checks in release builds, removing debug overhead
+- `-Wl,--as-needed` — Only links libraries that are actually referenced
+- `-Wl,-O1` — Linker optimization pass for symbol resolution and relocation processing
+- `-Wl,-z,now -Wl,-z,relro` — Full RELRO: the Global Offset Table is resolved and marked read-only at load
+  time
+- `-Wl,-z,noexecstack` — Non-executable stack
+- `-Wl,--hash-style=gnu` — GNU hash table for faster dynamic symbol lookup
+- `-s -Wl,--build-id=none -fno-ident` — Strips all symbols, build-id, and compiler version strings from the
+  binary
+- `-fno-strict-aliasing` _(X11 and XWayland agents only)_ — Permits the type-punning pointer casts required
+  by Xlib's event structures without aliasing-rule violations; not applied to the Wayland agent, which does
+  not cast between unrelated pointer types
+- `-fno-stack-protector` — Removes stack-canary instrumentation overhead; the agents run locally as
+  unprivileged user daemons with no network-facing attack surface
+- System libraries (`libwayland-client`, `libX11`, `libXfixes`) are the only runtime dependencies
+
+**Operation Modes**
+
+Each agent binary supports five operation modes within a single executable, eliminating the need for separate
+per-mode binaries:
+
+| Mode | CLI Flag | Behavior |
+| --- | --- | --- |
+| **Daemon** | _(default)_ | Persistent PRIMARY selection monitoring with event-driven cache updates |
+| **Oneshot** | `--oneshot` | Print current PRIMARY selection to stdout and exit |
+| **Get clipboard** | `--get-clipboard` | Print current CLIPBOARD contents to stdout and exit |
+| **Copy clipboard** | `--copy-clipboard` | Read stdin, take clipboard ownership, fork a background server |
+| **Clear primary** | `--clear-primary` | Clear the PRIMARY selection and exit |
+
+**Persistent File Descriptor Architecture**
+
+All three agents open the cache file descriptors (`fd_primary`, `fd_seq`) once at daemon startup and hold them
+open for the entire agent lifetime. Cache writes use `pwrite()` (atomic positional write — no preceding
+`lseek()`) followed by `ftruncate()` to trim the file to the exact written length, preventing stale trailing
+bytes from longer previous entries. This reduces each cache update to 2 syscalls per file, compared to the
+`open()`/`write()`/`fsync()`/`close()` pattern (4 syscalls per file) used by conventional approaches.
+
+**Content Deduplication** _(Wayland agent)_
+
+The Wayland agent's `check_and_update_primary()` and `ps_device_handle_selection()` compare incoming selection
+content against a cached copy (`last_known_content`) using `memcmp()` before writing. When the content is
+unchanged — common during static selections or repeated compositor events — the cache write is skipped
+entirely, avoiding unnecessary disk I/O. When new content does arrive, buffer ownership is transferred by
+nulling the source pointer (`sel = NULL`) after assigning it to `last_known_content`, rather than
+duplicating the buffer — eliminating one `malloc` + `memcpy` per selection event.
+
+The X11 and XWayland agents intentionally skip deduplication: they always increment the sequence counter and
+write, because a re-selection of identical text (e.g., deselect then re-select the same word) must still
+fire a new event in the shell for correct mouse-selection tracking.
+
+**Descriptor Safety**
+
+`O_CLOEXEC` is applied to every file descriptor: all `open()`, `pipe2()`, and `memfd_create()` calls include
+the close-on-exec flag. This prevents file descriptor leaks if the agent forks a clipboard server child
+process.
+
+**Sequence Counter Design**
+
+The sequence counter is seeded from `time(NULL)` at daemon startup. This provides monotonic ordering across
+agent restarts — a newly started agent will always produce sequence values higher than those from the previous
+instance, preventing the shell from misinterpreting a restart as "no change." The daemon writes the initial
+sequence value to the `seq` file before the shell begins polling, closing the startup race window.
+
+**X11 Atom Handling**
+
+- The native X11 agent (`zes-x11-selection-agent`) uses private atom names (`ZES_SEL`, `ZES_CLIP`) as
+  selection conversion properties. This avoids collisions with properties written by other applications on a
+  shared X server.
+- The XWayland agent (`zes-xwayland-agent`) reuses the standard `PRIMARY` and `CLIPBOARD` atoms directly as
+  property names, which is safe because XWayland provides an isolated per-session X server where no other
+  clients compete for property names.
+- Both agents intern all atom handles once at startup and reuse them for the agent's lifetime — no per-event
+  `XInternAtom()` round-trips to the X server.
+
+**Clipboard Server Lifecycle**
+
+When the shell copies text to the clipboard (`--copy-clipboard`), the agent forks a background child process
+that becomes the clipboard owner and serves paste requests to other applications:
+
+- The parent process exits immediately, returning control to the shell
+- The child calls `setsid()` to create a new session and ignores `SIGHUP` to survive terminal closure.
+  The Wayland agent additionally ignores `SIGPIPE` because paste requestors may close their pipe
+  mid-transfer
+- **X11 / XWayland**: The server advertises `TARGETS`, `UTF8_STRING`, and `XA_STRING`, and serves
+  `SelectionRequest` events in a `poll()` loop with 100 ms timeout. It exits when another application takes
+  clipboard ownership (`SelectionClear`) or after approximately 50 seconds of idle time
+- **Wayland**: The server creates a `wl_data_source` offering multiple MIME types
+  (`text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING`) and responds to `send` callbacks. It
+  exits when the compositor signals ownership loss via the `cancelled` callback
+
+**Adaptive Poll Timeouts** _(selection retrieval)_
+
+When reading selection content after a conversion request, the agents use adaptive timeouts to balance
+responsiveness against syscall frequency:
+
+- **X11 / XWayland**: 5 ms polls for the first 20 ms (catching common fast responses), then 20 ms polls
+  thereafter to reduce syscall rate during slow responses
+- **Wayland**: 500 ms initial timeout covers the IPC round-trip; subsequent read chunks use a 100 ms timeout
+  to detect EOF quickly
+
+**Non-Blocking Clipboard Reads** _(Wayland agent)_
+
+Clipboard read pipes are created with `pipe2(O_CLOEXEC)` and configured with `fcntl(fd, F_SETFL, O_NONBLOCK)`
+directly — without a preceding `F_GETFL` read — then read via `poll()` + `read()` in a loop with exponential
+buffer growth (capped at 1 MB for PRIMARY, 4 MB for CLIPBOARD).
+
+</details>
+
+<details>
+<summary><b>Protocol & Compositor Compatibility</b></summary>
+
+**Wayland Protocol Integration**
+
+The Wayland agent connects directly to the compositor via `wl_display_connect()` and negotiates protocol
+support through the registry. It handles three distinct compositor architectures:
+
+PRIMARY selection is managed via `zwp_primary_selection_unstable_v1`, which is the standard unstable protocol
+supported by all major compositors.
+
+Clipboard operations use a three-mechanism priority chain, selected based on compositor capabilities:
+
+1. **`ext_data_control_v1`** (preferred) — The standardized successor to the wlroots data-control protocol.
+   Supports clipboard read and write without requiring keyboard focus. The agent prefers this over `zwlr` when
+   both are advertised.
+2. **`zwlr_data_control_unstable_v1`** — The wlroots-originated data-control protocol, serving as fallback
+   when `ext_data_control_v1` is not available. Same capabilities.
+3. **`wl_data_device`** — Core Wayland protocol fallback for compositors without any data-control extension
+   (primarily GNOME/Mutter versions before 47). Requires a valid keyboard focus serial, which the agent
+   obtains by creating a visible surface.
+
+An additional **OSC 52** path is available for clipboard writes — a fire-and-forget terminal escape sequence
+written in a single `write()` call to `/dev/tty`, requiring no Wayland protocol involvement.
+
+**Mutter/GNOME Compatibility**
+
+Mutter only delivers PRIMARY selection events to Wayland clients that have a mapped surface. The daemon creates
+a permanent 1×1 pixel transparent `xdg_toplevel` surface with an **empty input region** (so it cannot receive
+input focus or interfere with user interaction). The surface pixel is a fully transparent ARGB value, rendered
+via a SHM buffer created with `memfd_create()` (or `shm_open()` on systems without `memfd_create`).
+
+For `--copy-clipboard` on compositors requiring a keyboard focus serial (`wl_data_device` path), a separate
+surface without an empty input region is created to receive `wl_keyboard.enter` events that carry the serial
+needed by `wl_data_device.set_selection()`.
+
+The `xdg_wm_base` ping/pong handler responds to compositor ping requests — failure to respond causes the
+compositor to mark the client as unresponsive and stop delivering events.
+
+**X11 XFixes Integration**
+
+- The X11 agents use `XFixesSelectSelectionInput()` to subscribe to `SetSelectionOwnerNotifyMask` on the root
+  window
+- Events are delivered by the X server on selection owner changes — no polling is required
+- The main loop uses `poll()` on the X connection file descriptor instead of blocking `XNextEvent()`, because
+  with glibc's `signal()` (which sets `SA_RESTART`), a blocking `XNextEvent` cannot be interrupted by
+  `SIGTERM`. After `poll()` returns, `XPending()` is called to drain Xlib's internal buffer — data may have
+  arrived during a previous `read()` that filled the internal buffer with multiple events.
+
+**XWayland Agent Selection**
+
+On Wayland sessions where `DISPLAY` is also set (XWayland available), the plugin selects `zes-xwayland-agent`
+over `zes-wl-selection-agent`. The XWayland agent reads selection state through X11 atoms via the XWayland
+bridge, bypassing the Wayland protocol stack entirely. This provides lower latency, avoids the Mutter surface
+requirement, and offers broader compositor compatibility.
+
+</details>
+
+<details>
+<summary><b>Selection Detection Architecture</b></summary>
+
+**Shell-Side Detection Path**
+
+The `_zes_sync_selection_state()` function is called by every widget before acting. Its execution path:
+
+1. `zstat -A stat_info +mtime "$SEQ_FILE"` — reads the sequence cache file's mtime via a single `stat()`
+   syscall (Zsh builtin, zero forks)
+2. If the mtime matches `_EDIT_SELECT_LAST_MTIME`, the function returns immediately
+3. If the mtime has changed, the `primary` file is read via `$(<file)` (Zsh builtin) and
+   `_EDIT_SELECT_NEW_SELECTION_EVENT` is set to 1
+4. The new mtime and an event-fired gate (`_EDIT_SELECT_EVENT_FIRED_FOR_MTIME`) are updated to prevent the
+   same mtime from re-triggering across multiple ZLE callbacks
+
+**ZLE Pre-Redraw Hook**
+
+The `edit-select::zle-line-pre-redraw` hook is registered via `add-zle-hook-widget` and runs before every
+prompt redraw. It performs:
+
+1. **Amortized liveness probe**: Checks `kill -0 $pid` only if `EPOCHSECONDS > _ZES_LAST_PID_CHECK + 30`.
+   If the agent has died, restarts it transparently.
+2. **Mtime check**: Same `zstat` path as `_zes_sync_selection_state()` — one `stat()` syscall per redraw. On
+   mtime change, reads the `primary` file and sets the event flag.
+
+**Cache File Protocol**
+
+- The agent writes primary content first, then increments and writes the sequence number — this ordering
+  guarantee prevents the shell from reading a partially updated `primary` file
+- The shell reads only the sequence file's mtime as the change signal
+- Full content is read only when a change is confirmed
+- The sequence counter starts from `time(NULL)`, providing monotonic ordering even across agent restarts
+
+**Early Return Conditions**
+
+- Unchanged mtime → immediate return before any selection comparison
+- Mouse replacement disabled → `_zes_detect_mouse_selection()` returns immediately
+- Active keyboard selection → mouse detection path is never entered
+- Stale selection state → invalidated on mtime change, not on a timer
+
+</details>
+
+<details>
+<summary><b>Terminal Focus & Multi-Pane Isolation</b></summary>
+
+**DECSET 1004 Focus Tracking**
+
+Terminal focus tracking is enabled at startup via `printf '\e[?1004h' >/dev/tty`. The escape sequence is
+written to `/dev/tty` rather than stdout to avoid triggering Powerlevel10k instant-prompt console-output
+warnings. Terminals that do not support DECSET 1004 silently ignore the request; the plugin's behavior is
+unchanged.
+
+**Focus-In Handler**
+
+When the terminal pane receives focus (`CSI I` escape sequence), the `_zes_terminal_focus_in` handler:
+
+1. Records the current `seq` file mtime as already-seen (`_EDIT_SELECT_LAST_MTIME`)
+2. Sets `_EDIT_SELECT_EVENT_FIRED_FOR_MTIME = 1`
+3. Clears `_EDIT_SELECT_NEW_SELECTION_EVENT`, `_EDIT_SELECT_ACTIVE_SELECTION`, and
+   `_EDIT_SELECT_PENDING_SELECTION`
+
+This ensures that selection events written by another pane to the shared cache while this pane was unfocused
+are not mistakenly treated as new mouse selections. Focus events are bound in all keymaps (`emacs`,
+`edit-select`, and `main`).
+
+**Independent Selection State**
+
+Each terminal pane maintains its own selection state in independent shell variables. PRIMARY selection is
+cleared after each cut/paste operation to prevent a subsequent pane's detection from reading a stale value.
+
+</details>
+
+<details>
+<summary><b>Resource Behavior</b></summary>
+
+- All detection and configuration reads use in-memory cached values — no file I/O during normal typing
+- Selection state changes are detected via one `stat()` syscall per keypress; file content is read only when
+  the mtime has changed
+- Agent liveness verification runs at 30-second intervals; it is not issued on individual keystroke operations
+- C agents operate with direct system calls only; no interpreter or scripting runtime is involved at runtime
+- Zsh plugin scripts are compiled to `.zwc` bytecode on first load; source parsing is skipped on all
+  subsequent sessions
+- Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions), `TMPDIR`, or `/tmp`; on
+  standard systemd-based systems, no disk I/O occurs
+- Integer state flags (`_EDIT_SELECT_DAEMON_ACTIVE`, `_EDIT_SELECT_NEW_SELECTION_EVENT`, etc.) enable fast
+  arithmetic checks without string comparison
+- `EPOCHSECONDS` and `EPOCHREALTIME` (from `zsh/datetime`) provide second-resolution and
+  microsecond-resolution timestamps for liveness probes and selection timing respectively — no `date` forks
+- The cache holds only the current selection state; stale entries are not accumulated
+
+</details>
+
+<details>
+<summary><b>Clipboard Operation Responsiveness</b></summary>
+
+The following tables document clipboard operation latency for the custom agent, measured with
+`clock_gettime(CLOCK_MONOTONIC)` across multiple payload sizes and iteration counts. All measurements include
+full end-to-end time: from operation initiation through data availability.
+
+**X11 Clipboard Latency:**
+
+| Test Scenario                          | xclip Avg    | Custom Avg   | Improvement      |
+| -------------------------------------- | ------------ | ------------ | ---------------- |
+| Small text (50 chars, 100 iterations)  | 4.025 ms     | 2.258 ms     | **43.9% faster** |
+| Medium text (500 chars, 50 iterations) | 4.307 ms     | 2.211 ms     | **48.7% faster** |
+| Large text (5KB, 25 iterations)        | 3.949 ms     | 2.310 ms     | **41.5% faster** |
+| Very large (50KB, 10 iterations)       | 4.451 ms     | 2.499 ms     | **43.9% faster** |
+| Rapid consecutive (200 iterations)     | 4.206 ms     | 2.321 ms     | **44.8% faster** |
+| **Overall Average**                    | **4.187 ms** | **2.320 ms** | **44.6% faster** |
+
+**Wayland Clipboard Latency:**
+
+| Test Scenario                          | wl-copy Avg   | Custom Avg   | Improvement      |
+| -------------------------------------- | ------------- | ------------ | ---------------- |
+| Small text (50 chars, 100 iterations)  | 57.073 ms     | 1.966 ms     | **96.6% faster** |
+| Medium text (500 chars, 50 iterations) | 60.382 ms     | 2.441 ms     | **96.0% faster** |
+| Large text (5KB, 25 iterations)        | 63.020 ms     | 1.809 ms     | **97.1% faster** |
+| Very large (50KB, 10 iterations)       | 58.343 ms     | 2.907 ms     | **95.0% faster** |
+| Rapid consecutive (200 iterations)     | 58.860 ms     | 1.546 ms     | **97.4% faster** |
+| **Overall Average**                    | **59.535 ms** | **2.134 ms** | **96.4% faster** |
+
+**Observed Latency:**
+
+- **X11:** 2.320 ms average; 2.211 ms minimum across all payload sizes
+- **Wayland:** 2.134 ms average; 1.546 ms minimum under rapid consecutive operations
+- Latency is consistent across payload sizes from 50 bytes to 50 KB
+- Paste operations retrieve data directly from the in-memory agent cache
+
+**Why the Wayland improvement is larger than X11:**
+
+`wl-copy` forks a new process for every clipboard operation, adding approximately 60 ms of `fork()+exec()`
+and IPC overhead regardless of payload size. `xclip` also forks per operation, but its overhead is
+approximately 4.2 ms — one order of magnitude lower. The persistent agent eliminates the process spawn cost
+on both platforms; the remaining latency is the native protocol IPC round-trip time.
+
+**Clipboard Server Behavior:**
+
+- The agent maintains clipboard ownership and responds to paste requests internally, without involving the
+  shell process
+- On X11/XWayland, the clipboard server exits when another application takes clipboard ownership
+  (`SelectionClear` event) or after approximately 50 seconds of inactivity (whichever comes first)
+- On Wayland, the clipboard server exits when the compositor signals ownership loss via the `cancelled`
+  callback
+- If the compiled agents are unavailable, the plugin falls back to `xclip` (X11) or `wl-copy`/`wl-paste`
+  (Wayland) — all functionality is preserved
+
+> **Benchmark Methodology:** Tests conducted using purpose-built C benchmarking tools with
+> `clock_gettime(CLOCK_MONOTONIC)` for nanosecond accuracy. Each iteration measures the full end-to-end path
+> including process spawn, IPC, and data transfer. The benchmark suite is available in
+> [`assets/benchmarks/`](assets/benchmarks/).
+
+</details>
+
+> Operations complete faster than the
+> [human perception threshold](https://www.tobii.com/resource-center/learn-articles/speed-of-human-visual-perception).
+
 
 ---
 
@@ -2133,16 +2262,23 @@ This project is licensed under the [MIT License](LICENSE).
 
 - #### This project began as a fork ([Michael-Matta1/zsh-shift-select](https://github.com/Michael-Matta1/zsh-shift-select)) of [jirutka/zsh-shift-select](https://github.com/jirutka/zsh-shift-select)
   - The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin
-    only supported deleting selected text and did not offer copying by default. Since then, the project has evolved with its own new features, enhancements, bug fixes, design improvements, and a fully changed codebase, and it now provides a full editor-like experience.
+    only supported deleting selected text and did not offer copying by default. Since then, the project has
+    evolved with its own new features, enhancements, bug fixes, design improvements, and a fully changed
+    codebase, and it now provides a full editor-like experience.
 
-- #### Wayland Primary Selection Protocol
-  The [`primary-selection-unstable-v1.xml`](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml)
-  Wayland protocol specification is Copyright © 2015, 2016 Red Hat, distributed under the MIT License. The
-  bundled C binding files (`primary-selection-unstable-v1-protocol.c` and
-  `primary-selection-unstable-v1-client-protocol.h`) are generated directly from this XML definition via
-  `wayland-scanner` and are covered by the same copyright and license terms. The `xdg-shell` binding files
-  follow the same pattern, generated from the `xdg-shell.xml` specification in the wayland-protocols
-  repository.
+- #### Wayland Protocol Specifications
+
+  The bundled Wayland protocol XML files and their `wayland-scanner`-generated C bindings are covered by their
+  respective copyright and license terms:
+  - [`primary-selection-unstable-v1.xml`](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml) —
+    Copyright © 2015, 2016 Red Hat (MIT License)
+  - [`wlr-data-control-unstable-v1.xml`](impl-wayland/backends/wayland/wlr-data-control-unstable-v1.xml) —
+    Copyright © 2018 Simon Ser, © 2019 Ivan Molodetskikh (MIT-like License)
+  - [`ext-data-control-v1.xml`](impl-wayland/backends/wayland/ext-data-control-v1.xml) — Copyright © 2018
+    Simon Ser, © 2019 Ivan Molodetskikh, © 2024 Neal Gompa (MIT-like License)
+
+  The `xdg-shell` binding files follow the same pattern, generated from the `xdg-shell.xml` specification in
+  the wayland-protocols repository.
 
 ---
 

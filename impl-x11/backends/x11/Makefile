@@ -14,11 +14,15 @@ CFLAGS ?= -O3 -march=native -mtune=native -flto \
           -fomit-frame-pointer -funroll-loops \
           -fno-plt -pipe -fno-semantic-interposition \
           -fno-strict-aliasing \
-          -fno-asynchronous-unwind-tables \
-          -fmerge-all-constants -fipa-pta -DNDEBUG \
+          -fno-asynchronous-unwind-tables -fno-unwind-tables \
+          -fmerge-all-constants -fipa-pta -fno-ident \
+          -fno-stack-protector \
+          -DNDEBUG \
           -Wall -Wextra -Wno-unused-parameter
 LDFLAGS = -lX11 -lXfixes -Wl,--gc-sections -Wl,--as-needed \
-          -Wl,-z,now -Wl,-z,relro -flto -s
+          -Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack \
+          -Wl,-O1 -Wl,--hash-style=gnu -Wl,--build-id=none \
+          -flto -s
 
 TARGET = zes-x11-selection-agent
 SRC = zes-x11-selection-agent.c
