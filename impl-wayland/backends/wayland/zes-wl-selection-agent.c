@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.5.7
+// Version: 0.5.8
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // Wayland clipboard integration agent for zsh-edit-select.
@@ -33,6 +33,8 @@
 #include <wayland-client.h>
 
 #include "primary-selection-unstable-v1-client-protocol.h"
+#include "wlr-data-control-unstable-v1-client-protocol.h"
+#include "ext-data-control-v1-client-protocol.h"
 
 /* xdg-shell stable protocol — inline minimal definitions so we don't
    need an extra generated header just for the daemon surface. */
@@ -84,8 +86,38 @@ static struct xdg_wm_base *xdg_wmbase = NULL;
 static struct wl_surface *daemon_surface = NULL;
 static struct xdg_surface *daemon_xdg_surface = NULL;
 static struct xdg_toplevel *daemon_xdg_toplevel = NULL;
-static bool surface_configured = false;
 static struct wl_buffer *daemon_buffer = NULL;
+
+/* Data-control protocol globals — used for Mechanism B (wlroots/KDE clipboard).
+   Both protocols are structurally identical; prefer ext when both are available.
+   dc_use_ext: true = using ext-data-control-v1, false = using zwlr variant. */
+static struct zwlr_data_control_manager_v1 *wlr_dcm = NULL;
+static struct ext_data_control_manager_v1 *ext_dcm = NULL;
+
+/* Keyboard listener globals — used for Mechanism C (GNOME focus surface).
+   keyboard_enter_serial: serial from the most recent wl_keyboard.enter event.
+   keyboard_entered: set to true when the focus surface receives keyboard focus. */
+static uint32_t keyboard_enter_serial = 0;
+static bool keyboard_entered = false;
+
+/* Data-control offer for clipboard — set by data-control device selection event.
+   dc_clipboard_offer: opaque pointer to either zwlr_data_control_offer_v1 or
+   ext_data_control_offer_v1 (cast as needed based on dc_use_ext flag).
+   dc_clip_has_text: true when the current offer being built advertises text.
+   dc_clip_has_text_sel: snapshot of dc_clip_has_text taken when the
+   selection event fires — immune to later primary_selection data_offer
+   events that would reset dc_clip_has_text for a different offer.
+   dc_got_selection: true when the data-control device selection event fires. */
+static void *dc_clipboard_offer = NULL;
+static bool dc_clip_has_text = false;
+static bool dc_clip_has_text_sel = false;
+static bool dc_got_selection = false;
+static bool dc_use_ext = false;
+
+/* Set true whenever dd_handle_selection fires — even if the offer is NULL
+   (empty clipboard).  Used as the exit condition for the focus-surface
+   event loop in run_get_clipboard() so an empty clipboard does not hang. */
+static bool got_clip_selection = false;
 
 /* Mode flags — controls handler behavior */
 static bool is_daemon_mode = false;
@@ -168,7 +200,7 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
             ssize_t r = pwrite(fd_primary, data, len, 0);
             (void)r;
         }
-        (void)ftruncate(fd_primary, (off_t)len);
+        (void)!ftruncate(fd_primary, (off_t)len);
 
         /* primary must be fully committed before seq is touched —
            seq's mtime is the shell's only per-keypress detection signal. */
@@ -176,7 +208,7 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
         int n = snprintf(buf, sizeof(buf), "%lu\n", seq);
         ssize_t r = pwrite(fd_seq, buf, (size_t)n, 0);
         (void)r;
-        (void)ftruncate(fd_seq, (off_t)n);
+        (void)!ftruncate(fd_seq, (off_t)n);
         return;
     }
 
@@ -277,7 +309,8 @@ static char *read_fd_with_timeout(int fd, size_t *out_len, size_t max_size,
 
     while (1) {
         int ret = poll(&pfd, 1, timeout_ms);
-        if (ret <= 0) break;
+        if (ret < 0) { if (errno == EINTR) continue; break; }
+        if (ret == 0) break;
         if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) &&
             !(pfd.revents & POLLIN))
             break;
@@ -338,6 +371,307 @@ static char *read_clip_offer(struct wl_data_offer *offer, size_t *out_len) {
     close(fds[0]);
     return data;
 }
+
+/* ===== BASE64 LOOKUP TABLE ======================================== */
+
+static const char b64_enc_table[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/* ===== OSC 52 WRITE (Mechanism A) ================================= */
+/* OSC 52 read is intentionally omitted: it requires putting the terminal
+   in raw mode and triggers a security confirmation popup on Kitty
+   ("A program wants to read from the system clipboard").  The three
+   Wayland-native mechanisms (wl_data_device, data-control, focus surface)
+   cover all major compositors without touching the terminal. */
+
+/* Write clipboard data to the terminal via OSC 52 escape sequence.
+ * Single write() syscall to /dev/tty — no Wayland involvement.
+ * Returns true if the write succeeded (terminal accepted the sequence). */
+static bool osc52_write(const char *data, size_t len) {
+    int tty_fd = open("/dev/tty", O_WRONLY | O_CLOEXEC);
+    if (tty_fd < 0) return false;
+
+    /* Encode base64 directly into the framing buffer to avoid a
+       separate malloc/free/strlen for the intermediate b64 string.
+       Layout: "\e]52;c;" (7) + base64 (b64_len) + BEL (1) */
+    size_t b64_len = 4 * ((len + 2) / 3);
+    size_t total = 7 + b64_len + 1;
+    char *buf = malloc(total);
+    if (!buf) { close(tty_fd); return false; }
+
+    memcpy(buf, "\033]52;c;", 7);
+
+    /* Inline base64 encode into buf+7 */
+    {
+        const unsigned char *src = (const unsigned char *)data;
+        size_t i = 0, j = 7;
+        while (i < len) {
+            uint32_t a = (i < len) ? src[i++] : 0;
+            uint32_t b = (i < len) ? src[i++] : 0;
+            uint32_t c = (i < len) ? src[i++] : 0;
+            uint32_t triple = (a << 16) | (b << 8) | c;
+            buf[j++] = b64_enc_table[(triple >> 18) & 0x3F];
+            buf[j++] = b64_enc_table[(triple >> 12) & 0x3F];
+            buf[j++] = b64_enc_table[(triple >> 6) & 0x3F];
+            buf[j++] = b64_enc_table[triple & 0x3F];
+        }
+        /* RFC 4648 padding */
+        if (len % 3 >= 1) buf[j - 1] = '=';
+        if (len % 3 == 1) buf[j - 2] = '=';
+    }
+    buf[7 + b64_len] = '\a';
+
+    size_t written = 0;
+    while (written < total) {
+        ssize_t r = write(tty_fd, buf + written, total - written);
+        if (r > 0) { written += r; continue; }
+        if (r < 0 && errno == EINTR) continue;
+        break;
+    }
+    free(buf);
+    close(tty_fd);
+    return written == total;
+}
+
+/* ===== DATA-CONTROL PROTOCOL LISTENERS (Mechanism B) ============== */
+
+/* Offer listener — tracks whether the data-control offer has text MIME. */
+static void dc_offer_handle_offer_wlr(void *data,
+        struct zwlr_data_control_offer_v1 *offer, const char *mime_type) {
+    (void)data; (void)offer;
+    if (strcmp(mime_type, "text/plain;charset=utf-8") == 0 ||
+        strcmp(mime_type, "text/plain") == 0)
+        dc_clip_has_text = true;
+}
+
+static const struct zwlr_data_control_offer_v1_listener dc_offer_listener_wlr = {
+    .offer = dc_offer_handle_offer_wlr,
+};
+
+static void dc_offer_handle_offer_ext(void *data,
+        struct ext_data_control_offer_v1 *offer, const char *mime_type) {
+    (void)data; (void)offer;
+    if (strcmp(mime_type, "text/plain;charset=utf-8") == 0 ||
+        strcmp(mime_type, "text/plain") == 0)
+        dc_clip_has_text = true;
+}
+
+static const struct ext_data_control_offer_v1_listener dc_offer_listener_ext = {
+    .offer = dc_offer_handle_offer_ext,
+};
+
+/* Device listeners — handle data_offer, selection, finished, primary_selection */
+
+/* wlr variant */
+static void dc_device_data_offer_wlr(void *data,
+        struct zwlr_data_control_device_v1 *dev,
+        struct zwlr_data_control_offer_v1 *offer) {
+    (void)data; (void)dev;
+    dc_clip_has_text = false;
+    zwlr_data_control_offer_v1_add_listener(offer, &dc_offer_listener_wlr, NULL);
+}
+
+static void dc_device_selection_wlr(void *data,
+        struct zwlr_data_control_device_v1 *dev,
+        struct zwlr_data_control_offer_v1 *offer) {
+    (void)data; (void)dev;
+    if (dc_clipboard_offer && dc_clipboard_offer != offer)
+        zwlr_data_control_offer_v1_destroy(dc_clipboard_offer);
+    dc_clipboard_offer = offer;
+    dc_clip_has_text_sel = dc_clip_has_text;
+    dc_got_selection = true;
+}
+
+static void dc_device_finished_wlr(void *data,
+        struct zwlr_data_control_device_v1 *dev) {
+    (void)data; (void)dev;
+}
+
+static void dc_device_primary_selection_wlr(void *data,
+        struct zwlr_data_control_device_v1 *dev,
+        struct zwlr_data_control_offer_v1 *offer) {
+    (void)data; (void)dev;
+    /* PRIMARY is handled by zwp_primary_selection — destroy the offer
+       to avoid leaking the proxy object. */
+    if (offer) zwlr_data_control_offer_v1_destroy(offer);
+}
+
+static const struct zwlr_data_control_device_v1_listener dc_device_listener_wlr = {
+    .data_offer        = dc_device_data_offer_wlr,
+    .selection         = dc_device_selection_wlr,
+    .finished          = dc_device_finished_wlr,
+    .primary_selection = dc_device_primary_selection_wlr,
+};
+
+/* ext variant */
+static void dc_device_data_offer_ext(void *data,
+        struct ext_data_control_device_v1 *dev,
+        struct ext_data_control_offer_v1 *offer) {
+    (void)data; (void)dev;
+    dc_clip_has_text = false;
+    ext_data_control_offer_v1_add_listener(offer, &dc_offer_listener_ext, NULL);
+}
+
+static void dc_device_selection_ext(void *data,
+        struct ext_data_control_device_v1 *dev,
+        struct ext_data_control_offer_v1 *offer) {
+    (void)data; (void)dev;
+    if (dc_clipboard_offer && dc_clipboard_offer != offer)
+        ext_data_control_offer_v1_destroy(dc_clipboard_offer);
+    dc_clipboard_offer = offer;
+    dc_clip_has_text_sel = dc_clip_has_text;
+    dc_got_selection = true;
+}
+
+static void dc_device_finished_ext(void *data,
+        struct ext_data_control_device_v1 *dev) {
+    (void)data; (void)dev;
+}
+
+static void dc_device_primary_selection_ext(void *data,
+        struct ext_data_control_device_v1 *dev,
+        struct ext_data_control_offer_v1 *offer) {
+    (void)data; (void)dev;
+    /* PRIMARY is handled by zwp_primary_selection — destroy the offer
+       to avoid leaking the proxy object. */
+    if (offer) ext_data_control_offer_v1_destroy(offer);
+}
+
+static const struct ext_data_control_device_v1_listener dc_device_listener_ext = {
+    .data_offer        = dc_device_data_offer_ext,
+    .selection         = dc_device_selection_ext,
+    .finished          = dc_device_finished_ext,
+    .primary_selection = dc_device_primary_selection_ext,
+};
+
+/* Read text from a data-control clipboard offer (either wlr or ext).
+ * Same pipe protocol as read_clip_offer(). */
+static char *read_dc_clip_offer(size_t *out_len) {
+    if (!dc_clipboard_offer || !dc_clip_has_text_sel) {
+        *out_len = 0;
+        return NULL;
+    }
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) == -1) return NULL;
+    if (dc_use_ext)
+        ext_data_control_offer_v1_receive(dc_clipboard_offer,
+            "text/plain;charset=utf-8", fds[1]);
+    else
+        zwlr_data_control_offer_v1_receive(dc_clipboard_offer,
+            "text/plain;charset=utf-8", fds[1]);
+    wl_display_flush(wl_dpy);
+    close(fds[1]);
+    char *data = read_fd_with_timeout(fds[0], out_len, MAX_CLIPBOARD_SIZE, 500);
+    close(fds[0]);
+    return data;
+}
+
+/* Data-control source listeners for --copy-clipboard (Mechanism B). */
+
+static void dc_source_send_wlr(void *data,
+        struct zwlr_data_control_source_v1 *src,
+        const char *mime_type, int32_t fd) {
+    (void)data; (void)src; (void)mime_type;
+    if (copy_data && copy_data_len > 0) {
+        size_t written = 0;
+        while (written < copy_data_len) {
+            ssize_t n = write(fd, copy_data + written, copy_data_len - written);
+            if (n > 0) { written += n; continue; }
+            if (n < 0 && errno == EINTR) continue;
+            break;
+        }
+    }
+    close(fd);
+}
+
+static void dc_source_cancelled_wlr(void *data,
+        struct zwlr_data_control_source_v1 *src) {
+    (void)data;
+    zwlr_data_control_source_v1_destroy(src);
+    copy_done = true;
+}
+
+static const struct zwlr_data_control_source_v1_listener dc_source_listener_wlr = {
+    .send      = dc_source_send_wlr,
+    .cancelled = dc_source_cancelled_wlr,
+};
+
+static void dc_source_send_ext(void *data,
+        struct ext_data_control_source_v1 *src,
+        const char *mime_type, int32_t fd) {
+    (void)data; (void)src; (void)mime_type;
+    if (copy_data && copy_data_len > 0) {
+        size_t written = 0;
+        while (written < copy_data_len) {
+            ssize_t n = write(fd, copy_data + written, copy_data_len - written);
+            if (n > 0) { written += n; continue; }
+            if (n < 0 && errno == EINTR) continue;
+            break;
+        }
+    }
+    close(fd);
+}
+
+static void dc_source_cancelled_ext(void *data,
+        struct ext_data_control_source_v1 *src) {
+    (void)data;
+    ext_data_control_source_v1_destroy(src);
+    copy_done = true;
+}
+
+static const struct ext_data_control_source_v1_listener dc_source_listener_ext = {
+    .send      = dc_source_send_ext,
+    .cancelled = dc_source_cancelled_ext,
+};
+
+/* ===== KEYBOARD LISTENER (Mechanism C) ============================ */
+
+static void keyboard_handle_keymap(void *data, struct wl_keyboard *kb,
+                                    uint32_t format, int32_t fd, uint32_t size) {
+    (void)data; (void)kb; (void)format; (void)size;
+    close(fd);
+}
+
+static void keyboard_handle_enter(void *data, struct wl_keyboard *kb,
+                                   uint32_t serial, struct wl_surface *surface,
+                                   struct wl_array *keys) {
+    (void)data; (void)kb; (void)surface; (void)keys;
+    keyboard_enter_serial = serial;
+    keyboard_entered = true;
+}
+
+static void keyboard_handle_leave(void *data, struct wl_keyboard *kb,
+                                   uint32_t serial, struct wl_surface *surface) {
+    (void)data; (void)kb; (void)serial; (void)surface;
+}
+
+static void keyboard_handle_key(void *data, struct wl_keyboard *kb,
+                                 uint32_t serial, uint32_t time,
+                                 uint32_t key, uint32_t state) {
+    (void)data; (void)kb; (void)serial; (void)time; (void)key; (void)state;
+}
+
+static void keyboard_handle_modifiers(void *data, struct wl_keyboard *kb,
+                                       uint32_t serial, uint32_t depressed,
+                                       uint32_t latched, uint32_t locked,
+                                       uint32_t group) {
+    (void)data; (void)kb; (void)serial; (void)depressed;
+    (void)latched; (void)locked; (void)group;
+}
+
+static void keyboard_handle_repeat_info(void *data, struct wl_keyboard *kb,
+                                         int32_t rate, int32_t delay) {
+    (void)data; (void)kb; (void)rate; (void)delay;
+}
+
+static const struct wl_keyboard_listener keyboard_listener = {
+    .keymap      = keyboard_handle_keymap,
+    .enter       = keyboard_handle_enter,
+    .leave       = keyboard_handle_leave,
+    .key         = keyboard_handle_key,
+    .modifiers   = keyboard_handle_modifiers,
+    .repeat_info = keyboard_handle_repeat_info,
+};
 
 /* ===== PRIMARY SELECTION LISTENERS ================================ */
 
@@ -498,6 +832,7 @@ static void dd_handle_selection(void *data, struct wl_data_device *dev,
     if (current_clipboard_offer && current_clipboard_offer != offer)
         wl_data_offer_destroy(current_clipboard_offer);
     current_clipboard_offer = offer;
+    got_clip_selection = true;
 }
 
 /* Listener for the wl_data_device (clipboard).  All drag-and-drop
@@ -530,8 +865,9 @@ static void ds_handle_send(void *data, struct wl_data_source *src,
         size_t written = 0;
         while (written < copy_data_len) {
             ssize_t n = write(fd, copy_data + written, copy_data_len - written);
-            if (n <= 0) break;
-            written += n;
+            if (n > 0) { written += n; continue; }
+            if (n < 0 && errno == EINTR) continue;
+            break;
         }
     }
     close(fd);
@@ -579,7 +915,6 @@ static void xdg_surface_handle_configure(void *data,
        without it the compositor considers the surface to be in an
        inconsistent state and will not map it. */
     xdg_surface_ack_configure(surface, serial);
-    surface_configured = true;
 }
 
 /* Listener for the xdg_surface of the daemon window.  configure must be
@@ -618,7 +953,9 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 /* Bind Wayland globals as they are advertised.
  * Version caps are applied to avoid using features not yet supported:
  * wl_compositor capped at 4 (damage_buffer, preferred_buffer_scale),
- * wl_data_device_manager capped at 3 (wl_surface.set_selection). */
+ * wl_data_device_manager capped at 3 (wl_surface.set_selection).
+ * Data-control protocols: prefer ext-data-control-v1 over wlr when both
+ * are advertised (ext is the standardized successor). */
 static void registry_handle_global(void *data, struct wl_registry *reg,
                                     uint32_t name, const char *interface,
                                     uint32_t version) {
@@ -641,6 +978,13 @@ static void registry_handle_global(void *data, struct wl_registry *reg,
         xdg_wm_base_add_listener(xdg_wmbase, &xdg_wm_base_listener, NULL);
     } else if (strcmp(interface, "wl_shm") == 0) {
         wl_shm_obj = wl_registry_bind(reg, name, &wl_shm_interface, 1);
+    } else if (strcmp(interface, "ext_data_control_manager_v1") == 0) {
+        ext_dcm = wl_registry_bind(reg, name,
+            &ext_data_control_manager_v1_interface, 1);
+    } else if (strcmp(interface, "zwlr_data_control_manager_v1") == 0) {
+        wlr_dcm = wl_registry_bind(reg, name,
+            &zwlr_data_control_manager_v1_interface,
+            version < 2 ? version : 2);
     }
 }
 
@@ -687,6 +1031,18 @@ static void wayland_disconnect(void) {
         wl_data_offer_destroy(current_clipboard_offer);
         current_clipboard_offer = NULL;
     }
+    if (copy_source) {
+        wl_data_source_destroy(copy_source);
+        copy_source = NULL;
+    }
+    /* Data-control offer cleanup */
+    if (dc_clipboard_offer) {
+        if (dc_use_ext)
+            ext_data_control_offer_v1_destroy(dc_clipboard_offer);
+        else
+            zwlr_data_control_offer_v1_destroy(dc_clipboard_offer);
+        dc_clipboard_offer = NULL;
+    }
     if (ps_device) {
         zwp_primary_selection_device_v1_destroy(ps_device);
         ps_device = NULL;
@@ -695,6 +1051,9 @@ static void wayland_disconnect(void) {
         zwp_primary_selection_device_manager_v1_destroy(ps_manager);
         ps_manager = NULL;
     }
+    /* Data-control manager cleanup */
+    if (ext_dcm) { ext_data_control_manager_v1_destroy(ext_dcm); ext_dcm = NULL; }
+    if (wlr_dcm) { zwlr_data_control_manager_v1_destroy(wlr_dcm); wlr_dcm = NULL; }
     if (daemon_buffer) { wl_buffer_destroy(daemon_buffer); daemon_buffer = NULL; }
     if (daemon_xdg_toplevel) { xdg_toplevel_destroy(daemon_xdg_toplevel); daemon_xdg_toplevel = NULL; }
     if (daemon_xdg_surface) { xdg_surface_destroy(daemon_xdg_surface); daemon_xdg_surface = NULL; }
@@ -709,8 +1068,89 @@ static void wayland_disconnect(void) {
     if (wl_dpy) { wl_display_disconnect(wl_dpy); wl_dpy = NULL; }
 }
 
-/* Forward declaration */
+/* Forward declarations */
 static int create_daemon_surface(void);
+static int create_focus_surface(struct wl_surface **out_surface,
+                                 struct xdg_surface **out_xdg_surface,
+                                 struct xdg_toplevel **out_xdg_toplevel,
+                                 struct wl_buffer **out_buffer);
+
+/* ===== FOCUS SURFACE (Mechanism C) ================================ */
+
+/* Create a 1×1 xdg_toplevel surface that CAN receive keyboard focus.
+ * Unlike create_daemon_surface() which sets an empty input region to prevent
+ * focus stealing, this surface allows input so that the compositor (especially
+ * Mutter/GNOME) delivers keyboard.enter events with a valid serial.
+ * The surface is intended to be short-lived and destroyed immediately after
+ * the needed event (keyboard focus or clipboard offer) is received.
+ *
+ * Returns 0 on success.  Outputs are set to the created objects so the caller
+ * can destroy them after use. */
+static int create_focus_surface(struct wl_surface **out_surface,
+                                 struct xdg_surface **out_xdg_surface,
+                                 struct xdg_toplevel **out_xdg_toplevel,
+                                 struct wl_buffer **out_buffer) {
+    if (!wl_comp || !xdg_wmbase || !wl_shm_obj) return -1;
+
+    /* Create 1x1 pixel SHM buffer (fully transparent ARGB) */
+    int stride = 4, size = stride;
+    int shm_fd = -1;
+#ifdef __linux__
+    shm_fd = memfd_create("zes-focus-buf", MFD_CLOEXEC);
+#endif
+    if (shm_fd < 0) {
+        char name[] = "/zes-focus-XXXXXX";
+        shm_fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (shm_fd >= 0) shm_unlink(name);
+    }
+    if (shm_fd < 0) return -1;
+    if (ftruncate(shm_fd, size) < 0) { close(shm_fd); return -1; }
+    struct wl_shm_pool *pool = wl_shm_create_pool(wl_shm_obj, shm_fd, size);
+    *out_buffer = wl_shm_pool_create_buffer(
+        pool, 0, 1, 1, stride, WL_SHM_FORMAT_ARGB8888);
+    wl_shm_pool_destroy(pool);
+    close(shm_fd);
+    if (!*out_buffer) return -1;
+
+    *out_surface = wl_compositor_create_surface(wl_comp);
+    if (!*out_surface) {
+        wl_buffer_destroy(*out_buffer);
+        *out_buffer = NULL;
+        return -1;
+    }
+
+    /* NO empty input region — this surface must accept keyboard focus
+       so Mutter delivers clipboard events and keyboard.enter serial. */
+
+    *out_xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wmbase, *out_surface);
+    xdg_surface_add_listener(*out_xdg_surface, &xdg_surface_listener, NULL);
+
+    *out_xdg_toplevel = xdg_surface_get_toplevel(*out_xdg_surface);
+    xdg_toplevel_add_listener(*out_xdg_toplevel, &xdg_toplevel_listener, NULL);
+
+    /* Initial commit to trigger the configure sequence */
+    wl_surface_commit(*out_surface);
+    wl_display_roundtrip(wl_dpy);
+
+    /* Attach 1x1 transparent pixel — maps the surface */
+    wl_surface_attach(*out_surface, *out_buffer, 0, 0);
+    wl_surface_damage(*out_surface, 0, 0, 1, 1);
+    wl_surface_commit(*out_surface);
+    wl_display_roundtrip(wl_dpy);
+
+    return 0;
+}
+
+/* Destroy focus surface and its associated objects. */
+static void destroy_focus_surface(struct wl_surface *surface,
+                                   struct xdg_surface *xdg_surf,
+                                   struct xdg_toplevel *toplevel,
+                                   struct wl_buffer *buffer) {
+    if (toplevel)  xdg_toplevel_destroy(toplevel);
+    if (xdg_surf)  xdg_surface_destroy(xdg_surf);
+    if (surface)   wl_surface_destroy(surface);
+    if (buffer)    wl_buffer_destroy(buffer);
+}
 
 /* ===== MODE: --oneshot ============================================ */
 /* On Mutter/GNOME, selection events are only delivered to clients with
@@ -794,26 +1234,159 @@ static int run_oneshot(const char *cache_dir_arg) {
 
 /* ===== MODE: --get-clipboard ====================================== */
 
-/* Print clipboard text to stdout and exit.  A single roundtrip after
- * binding wl_data_device is sufficient because the compositor delivers
- * the current clipboard offer immediately during roundtrip processing. */
+/* Print clipboard text to stdout and exit.
+ * Three mechanisms attempted — devices are bound in a single batch
+ * before one shared roundtrip to minimise Wayland IPC latency:
+ *   1. wl_data_device + data-control (batched roundtrip)
+ *   2. Focus surface (Mechanism C) — GNOME < 47 fallback */
 static int run_get_clipboard(void) {
     if (wayland_connect() != 0) return 1;
-    if (!wl_ddm || !wl_seat_obj) {
-        fprintf(stderr, "Compositor missing wl_data_device_manager or seat\n");
+    if (!wl_seat_obj) {
         wayland_disconnect();
         return 1;
     }
-    wl_dd = wl_data_device_manager_get_data_device(wl_ddm, wl_seat_obj);
-    wl_data_device_add_listener(wl_dd, &dd_listener, NULL);
+
+    char *data = NULL;
+    size_t len = 0;
+
+    /* --- Batch-bind both device types before a single roundtrip --- */
+    struct ext_data_control_device_v1 *ext_dc_dev = NULL;
+    struct zwlr_data_control_device_v1 *wlr_dc_dev = NULL;
+
+    if (wl_ddm) {
+        wl_dd = wl_data_device_manager_get_data_device(wl_ddm, wl_seat_obj);
+        wl_data_device_add_listener(wl_dd, &dd_listener, NULL);
+    }
+    if (ext_dcm) {
+        dc_use_ext = true;
+        dc_clipboard_offer = NULL;
+        dc_clip_has_text = false;
+        dc_clip_has_text_sel = false;
+        dc_got_selection = false;
+        ext_dc_dev = ext_data_control_manager_v1_get_data_device(
+            ext_dcm, wl_seat_obj);
+        ext_data_control_device_v1_add_listener(ext_dc_dev,
+            &dc_device_listener_ext, NULL);
+    } else if (wlr_dcm) {
+        dc_use_ext = false;
+        dc_clipboard_offer = NULL;
+        dc_clip_has_text = false;
+        dc_clip_has_text_sel = false;
+        dc_got_selection = false;
+        wlr_dc_dev = zwlr_data_control_manager_v1_get_data_device(
+            wlr_dcm, wl_seat_obj);
+        zwlr_data_control_device_v1_add_listener(wlr_dc_dev,
+            &dc_device_listener_wlr, NULL);
+    }
+
+    /* Single roundtrip processes events from all bound devices. */
     wl_display_roundtrip(wl_dpy);
 
+    /* Check wl_data_device result first (cheapest path). */
     if (current_clipboard_offer && clip_has_text) {
-        size_t len = 0;
-        char *data = read_clip_offer(current_clipboard_offer, &len);
-        if (data && len > 0) fwrite(data, 1, len, stdout);
+        data = read_clip_offer(current_clipboard_offer, &len);
+        if (data && len > 0) {
+            fwrite(data, 1, len, stdout);
+            free(data);
+            if (ext_dc_dev) ext_data_control_device_v1_destroy(ext_dc_dev);
+            if (wlr_dc_dev) zwlr_data_control_device_v1_destroy(wlr_dc_dev);
+            wayland_disconnect();
+            return 0;
+        }
         free(data);
+        data = NULL;
     }
+
+    /* Check data-control result (works on wlroots/KDE/GNOME 47+). */
+    if (dc_clipboard_offer && dc_clip_has_text_sel) {
+        data = read_dc_clip_offer(&len);
+        if (data && len > 0) {
+            fwrite(data, 1, len, stdout);
+            free(data);
+            if (ext_dc_dev) ext_data_control_device_v1_destroy(ext_dc_dev);
+            if (wlr_dc_dev) zwlr_data_control_device_v1_destroy(wlr_dc_dev);
+            wayland_disconnect();
+            return 0;
+        }
+        free(data);
+        data = NULL;
+    }
+
+    /* Clean up data-control devices before the focus-surface fallback. */
+    if (ext_dc_dev) { ext_data_control_device_v1_destroy(ext_dc_dev); ext_dc_dev = NULL; }
+    if (wlr_dc_dev) { zwlr_data_control_device_v1_destroy(wlr_dc_dev); wlr_dc_dev = NULL; }
+
+    /* Focus surface fallback (Mechanism C) — GNOME < 47
+     * Create a surface that CAN receive keyboard focus so the compositor
+     * delivers wl_data_device.selection events.  The loop exits on
+     * got_clip_selection (set by dd_handle_selection) rather than on
+     * current_clipboard_offer, so an empty clipboard exits immediately
+     * instead of hanging forever. */
+    if (wl_comp && xdg_wmbase && wl_shm_obj && wl_ddm) {
+        struct wl_surface *focus_surf = NULL;
+        struct xdg_surface *focus_xdg_surf = NULL;
+        struct xdg_toplevel *focus_toplevel = NULL;
+        struct wl_buffer *focus_buffer = NULL;
+
+        /* Ensure wl_data_device is bound */
+        if (!wl_dd) {
+            wl_dd = wl_data_device_manager_get_data_device(wl_ddm, wl_seat_obj);
+            wl_data_device_add_listener(wl_dd, &dd_listener, NULL);
+        }
+
+        /* Reset clipboard offer state */
+        if (current_clipboard_offer) {
+            wl_data_offer_destroy(current_clipboard_offer);
+            current_clipboard_offer = NULL;
+        }
+        clip_has_text = false;
+        got_clip_selection = false;
+
+        if (create_focus_surface(&focus_surf, &focus_xdg_surf,
+                                  &focus_toplevel, &focus_buffer) == 0) {
+            /* Event-driven loop: block until the selection event fires.
+             * dd_handle_selection sets got_clip_selection for both
+             * non-NULL and NULL offers, preventing infinite hang on
+             * empty clipboard.  Timeout: 50 × 100 ms = 5 seconds. */
+            int wl_fd = wl_display_get_fd(wl_dpy);
+            int timeout_count = 0;
+            while (!got_clip_selection && timeout_count < 50) {
+                while (wl_display_prepare_read(wl_dpy) != 0)
+                    wl_display_dispatch_pending(wl_dpy);
+                wl_display_flush(wl_dpy);
+                struct pollfd pfd = { .fd = wl_fd, .events = POLLIN };
+                int ret = poll(&pfd, 1, 100);
+                if (ret < 0) {
+                    wl_display_cancel_read(wl_dpy);
+                    if (errno == EINTR) continue;
+                    break;
+                }
+                if (ret == 0) {
+                    wl_display_cancel_read(wl_dpy);
+                    timeout_count++;
+                    continue;
+                }
+                if (pfd.revents & POLLIN) {
+                    if (wl_display_read_events(wl_dpy) == -1) break;
+                    wl_display_dispatch_pending(wl_dpy);
+                } else {
+                    wl_display_cancel_read(wl_dpy);
+                }
+                if (wl_display_get_error(wl_dpy) != 0) break;
+            }
+
+            if (current_clipboard_offer && clip_has_text) {
+                data = read_clip_offer(current_clipboard_offer, &len);
+                if (data && len > 0)
+                    fwrite(data, 1, len, stdout);
+                free(data);
+            }
+
+            destroy_focus_surface(focus_surf, focus_xdg_surf,
+                                   focus_toplevel, focus_buffer);
+        }
+    }
+
     wayland_disconnect();
     return 0;
 }
@@ -844,10 +1417,21 @@ static char *read_all_stdin(size_t *out_len) {
 }
 
 /* Take ownership of the Wayland clipboard and serve paste requests.
+ * Three mechanisms attempted in order:
+ *   1. OSC 52 write to /dev/tty — fire-and-forget; single write()
+ *   2. Data-control set_selection (Mechanism B) — wlroots/KDE; no serial
+ *   3. Focus surface + wl_keyboard serial / serial=0 (Mechanism C)
+ *
+ * Steps 1 and 2 are not mutually exclusive — both run. OSC 52 sets it for
+ * the terminal; data-control sets it at the compositor level for GUI apps.
+ * When data-control succeeds, the wl_data_device path is skipped entirely
+ * to avoid creating redundant protocol objects and a source-cancellation
+ * race between the two clipboard sources.
+ *
  * Forks immediately so the shell is not blocked: the parent exits at
  * once; the child runs a background event loop alive until some other
- * client calls wl_data_device.set_selection (signalled via
- * ds_handle_cancelled) or the process is sent SIGTERM. */
+ * client calls set_selection (signalled via cancelled callback) or the
+ * process is sent SIGTERM. */
 static int run_copy_clipboard(void) {
     copy_data = read_all_stdin(&copy_data_len);
     if (!copy_data || copy_data_len == 0) {
@@ -855,24 +1439,130 @@ static int run_copy_clipboard(void) {
         return 1;
     }
 
+    /* Step 1: OSC 52 write — fire-and-forget; single write(); no waiting */
+    osc52_write(copy_data, copy_data_len);
+
     if (wayland_connect() != 0) { free(copy_data); return 1; }
-    if (!wl_ddm || !wl_seat_obj) {
-        fprintf(stderr, "Compositor missing wl_data_device_manager or seat\n");
+    if (!wl_seat_obj) {
         free(copy_data); wayland_disconnect(); return 1;
     }
 
-    wl_dd = wl_data_device_manager_get_data_device(wl_ddm, wl_seat_obj);
-    wl_data_device_add_listener(wl_dd, &dd_listener, NULL);
+    /* Step 2: Data-control set_selection (Mechanism B) — no serial needed.
+     * Creates a data-control source that the child will serve. */
+    bool dc_copy_done = false;
+    if (ext_dcm || wlr_dcm) {
+        if (ext_dcm) {
+            dc_use_ext = true;
+            struct ext_data_control_device_v1 *dc_dev =
+                ext_data_control_manager_v1_get_data_device(ext_dcm, wl_seat_obj);
+            struct ext_data_control_source_v1 *dc_src =
+                ext_data_control_manager_v1_create_data_source(ext_dcm);
+            ext_data_control_source_v1_offer(dc_src, "text/plain;charset=utf-8");
+            ext_data_control_source_v1_offer(dc_src, "text/plain");
+            ext_data_control_source_v1_offer(dc_src, "UTF8_STRING");
+            ext_data_control_source_v1_offer(dc_src, "STRING");
+            ext_data_control_source_v1_add_listener(dc_src,
+                &dc_source_listener_ext, NULL);
+            ext_data_control_device_v1_set_selection(dc_dev, dc_src);
+            wl_display_flush(wl_dpy);
+            dc_copy_done = true;
+        } else {
+            dc_use_ext = false;
+            struct zwlr_data_control_device_v1 *dc_dev =
+                zwlr_data_control_manager_v1_get_data_device(wlr_dcm, wl_seat_obj);
+            struct zwlr_data_control_source_v1 *dc_src =
+                zwlr_data_control_manager_v1_create_data_source(wlr_dcm);
+            zwlr_data_control_source_v1_offer(dc_src, "text/plain;charset=utf-8");
+            zwlr_data_control_source_v1_offer(dc_src, "text/plain");
+            zwlr_data_control_source_v1_offer(dc_src, "UTF8_STRING");
+            zwlr_data_control_source_v1_offer(dc_src, "STRING");
+            zwlr_data_control_source_v1_add_listener(dc_src,
+                &dc_source_listener_wlr, NULL);
+            zwlr_data_control_device_v1_set_selection(dc_dev, dc_src);
+            wl_display_flush(wl_dpy);
+            dc_copy_done = true;
+        }
+    }
 
-    copy_source = wl_data_device_manager_create_data_source(wl_ddm);
-    wl_data_source_offer(copy_source, "text/plain;charset=utf-8");
-    wl_data_source_offer(copy_source, "text/plain");
-    wl_data_source_offer(copy_source, "UTF8_STRING");
-    wl_data_source_offer(copy_source, "STRING");
-    wl_data_source_add_listener(copy_source, &ds_listener, NULL);
+    /* Step 3: wl_data_device path — only when data-control is unavailable.
+     * On compositors without data-control (GNOME < 47) we must acquire
+     * keyboard focus to obtain a valid serial for wl_data_device.set_selection.
+     * When data-control succeeded, skip this entirely to avoid creating
+     * redundant protocol objects and a cancellation race between the two
+     * clipboard sources. */
+    if (!dc_copy_done && wl_ddm) {
+        wl_dd = wl_data_device_manager_get_data_device(wl_ddm, wl_seat_obj);
+        wl_data_device_add_listener(wl_dd, &dd_listener, NULL);
 
-    wl_data_device_set_selection(wl_dd, copy_source, 0);
-    wl_display_flush(wl_dpy);
+        copy_source = wl_data_device_manager_create_data_source(wl_ddm);
+        wl_data_source_offer(copy_source, "text/plain;charset=utf-8");
+        wl_data_source_offer(copy_source, "text/plain");
+        wl_data_source_offer(copy_source, "UTF8_STRING");
+        wl_data_source_offer(copy_source, "STRING");
+        wl_data_source_add_listener(copy_source, &ds_listener, NULL);
+
+        /* GNOME fallback — acquire keyboard focus for a valid serial. */
+        if (wl_comp && xdg_wmbase && wl_shm_obj) {
+            struct wl_surface *focus_surf = NULL;
+            struct xdg_surface *focus_xdg_surf = NULL;
+            struct xdg_toplevel *focus_toplevel = NULL;
+            struct wl_buffer *focus_buffer = NULL;
+
+            keyboard_entered = false;
+            keyboard_enter_serial = 0;
+
+            struct wl_keyboard *kb = wl_seat_get_keyboard(wl_seat_obj);
+            if (kb) wl_keyboard_add_listener(kb, &keyboard_listener, NULL);
+
+            if (create_focus_surface(&focus_surf, &focus_xdg_surf,
+                                      &focus_toplevel, &focus_buffer) == 0) {
+                /* Event-driven loop: block until keyboard.enter arrives.
+                   Timeout: 20 × 100 ms = 2 seconds. */
+                int wl_fd = wl_display_get_fd(wl_dpy);
+                int timeout_count = 0;
+                while (!keyboard_entered && timeout_count < 20) {
+                    while (wl_display_prepare_read(wl_dpy) != 0)
+                        wl_display_dispatch_pending(wl_dpy);
+                    wl_display_flush(wl_dpy);
+                    struct pollfd pfd = { .fd = wl_fd, .events = POLLIN };
+                    int ret = poll(&pfd, 1, 100);
+                    if (ret < 0) {
+                        wl_display_cancel_read(wl_dpy);
+                        if (errno == EINTR) continue;
+                        break;
+                    }
+                    if (ret == 0) {
+                        wl_display_cancel_read(wl_dpy);
+                        timeout_count++;
+                        continue;
+                    }
+                    if (pfd.revents & POLLIN) {
+                        if (wl_display_read_events(wl_dpy) == -1) break;
+                        wl_display_dispatch_pending(wl_dpy);
+                    } else {
+                        wl_display_cancel_read(wl_dpy);
+                    }
+                    if (wl_display_get_error(wl_dpy) != 0) break;
+                }
+
+                if (keyboard_entered) {
+                    wl_data_device_set_selection(wl_dd, copy_source,
+                                                 keyboard_enter_serial);
+                    wl_display_flush(wl_dpy);
+                }
+
+                destroy_focus_surface(focus_surf, focus_xdg_surf,
+                                       focus_toplevel, focus_buffer);
+            }
+            if (kb) wl_keyboard_destroy(kb);
+        }
+
+        /* Last-resort — serial=0 (may work on some compositors) */
+        if (!keyboard_entered) {
+            wl_data_device_set_selection(wl_dd, copy_source, 0);
+            wl_display_flush(wl_dpy);
+        }
+    }
 
     /* Fork a child that stays alive to serve paste requests until another
        app takes the clipboard.  Parent returns immediately so the shell
@@ -891,6 +1581,7 @@ static int run_copy_clipboard(void) {
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
     signal(SIGHUP, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN);  /* paste requestor may close pipe mid-transfer */
 
     close(STDIN_FILENO);
     close(STDOUT_FILENO);
@@ -899,12 +1590,6 @@ static int run_copy_clipboard(void) {
     int wl_fd = wl_display_get_fd(wl_dpy);
 
     while (running && !copy_done) {
-        /* wl_display_prepare_read / flush / poll / read_events is the
-           correct thread-safe read pattern documented in wayland-client.h:
-           prepare_read claims the right to call read_events; any pending
-           dispatched events must be cleared first with dispatch_pending.
-           EAGAIN on flush means the send buffer is full, not a fatal
-           error — the next flush after poll(POLLIN) will drain it. */
         while (wl_display_prepare_read(wl_dpy) != 0)
             wl_display_dispatch_pending(wl_dpy);
 
@@ -1092,6 +1777,7 @@ static int run_daemon(const char *cache_dir_arg) {
         last_known_content = NULL;
         if (fd_primary >= 0) { close(fd_primary); fd_primary = -1; }
         if (fd_seq     >= 0) { close(fd_seq);     fd_seq     = -1; }
+        unlink(pid_path);
         wayland_disconnect();
         return 1;
     }
