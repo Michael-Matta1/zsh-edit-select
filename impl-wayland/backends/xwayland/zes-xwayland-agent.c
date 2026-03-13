@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.5.8
+// Version: 0.6.1
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // XWayland clipboard integration agent for zsh-edit-select.

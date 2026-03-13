@@ -17,6 +17,7 @@ zmodload zsh/datetime 2>/dev/null
 typeset -g _EDIT_SELECT_LAST_PRIMARY=""
 typeset -g _EDIT_SELECT_ACTIVE_SELECTION=""
 typeset -g _EDIT_SELECT_PENDING_SELECTION=""
+typeset -g _EDIT_SELECT_FOCUS_OUT_SEQ=""
 # Public config: 1 enables mouse-selection-aware typing (type-to-replace); 0 disables.
 typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 # Path to the user's persistent configuration file (sourced at startup).
@@ -66,6 +67,7 @@ function _zes_sync_after_paste() {
     _EDIT_SELECT_ACTIVE_SELECTION=""
     _EDIT_SELECT_PENDING_SELECTION=""
     _EDIT_SELECT_LAST_PRIMARY=""
+    _EDIT_SELECT_FOCUS_OUT_SEQ=""
     _zes_clear_primary
 }
 
@@ -80,13 +82,9 @@ function _zes_sync_after_paste() {
 #                       the user intends to modify.
 function _zes_detect_mouse_selection() {
     ((!EDIT_SELECT_MOUSE_REPLACEMENT)) && return 1
-    [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && return 0
-
-    if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && ((!_EDIT_SELECT_NEW_SELECTION_EVENT)); then
-        if [[ -n "$_EDIT_SELECT_LAST_PRIMARY" ]] && [[ "$_EDIT_SELECT_LAST_PRIMARY" == "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
-            if [[ "$BUFFER" == *"$_EDIT_SELECT_ACTIVE_SELECTION"* ]]; then
-                return 0
-            fi
+    if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
+        if ((!_EDIT_SELECT_NEW_SELECTION_EVENT)) && [[ -n "$_EDIT_SELECT_LAST_PRIMARY" ]] && [[ "$_EDIT_SELECT_LAST_PRIMARY" == "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && [[ "$BUFFER" == *"$_EDIT_SELECT_ACTIVE_SELECTION"* ]]; then
+            return 0
         fi
         _EDIT_SELECT_ACTIVE_SELECTION=""
         return 1
@@ -111,6 +109,8 @@ function _zes_detect_mouse_selection() {
 
     if ((is_new_selection)); then
         _EDIT_SELECT_LAST_PRIMARY="$mouse_sel"
+        _EDIT_SELECT_FOCUS_OUT_SEQ=""
+
         if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             zle -M ""
             zle -R
@@ -152,6 +152,22 @@ function _zes_detect_mouse_selection() {
         zle -R
     fi
 
+    if ((_EDIT_SELECT_DAEMON_ACTIVE)) && [[ -n "$_EDIT_SELECT_FOCUS_OUT_SEQ" ]]; then
+        local curr_seq
+        curr_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+        if [[ -n "$curr_seq" ]] && [[ "$curr_seq" == "$_EDIT_SELECT_LAST_MTIME" ]] && [[ "$curr_seq" != "$_EDIT_SELECT_FOCUS_OUT_SEQ" ]]; then
+            mouse_sel=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+            if [[ -n "$mouse_sel" ]] && ((${#mouse_sel} <= ${#BUFFER})) && [[ "$BUFFER" == *"$mouse_sel"* ]]; then
+                _EDIT_SELECT_LAST_PRIMARY="$mouse_sel"
+                _EDIT_SELECT_ACTIVE_SELECTION="$mouse_sel"
+                _EDIT_SELECT_PENDING_SELECTION=""
+                _EDIT_SELECT_FOCUS_OUT_SEQ=""
+                _ZES_SELECTION_SET_TIME=$EPOCHREALTIME
+                return 0
+            fi
+        fi
+    fi
+
     return 1
 }
 
@@ -164,12 +180,12 @@ function _zes_detect_mouse_selection() {
 function _zes_sync_selection_state() {
     ((!_EDIT_SELECT_DAEMON_ACTIVE)) && return
 
-    local -a stat_info
-    zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null || return
+    local curr_seq=""
+    curr_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+    [[ -z "$curr_seq" ]] && return
 
-    if ((stat_info[1] != _EDIT_SELECT_LAST_MTIME)); then
-        # New mtime: agent wrote a new primary value.  Read and record it.
-        _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
+    if [[ "$curr_seq" != "$_EDIT_SELECT_LAST_MTIME" ]]; then
+        _EDIT_SELECT_LAST_MTIME="$curr_seq"
         _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0
         local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
         _EDIT_SELECT_LAST_PRIMARY="$new_primary"
@@ -178,7 +194,6 @@ function _zes_sync_selection_state() {
             _EDIT_SELECT_NEW_SELECTION_EVENT=1
             _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
         else
-            # Empty primary: selection was cleared (e.g. after paste).
             _EDIT_SELECT_ACTIVE_SELECTION=""
             _EDIT_SELECT_PENDING_SELECTION=""
             _ZES_SELECTION_SET_TIME=0
@@ -186,7 +201,6 @@ function _zes_sync_selection_state() {
         fi
     else
         if ((_EDIT_SELECT_EVENT_FIRED_FOR_MTIME)); then
-            # Same mtime: event already fired; suppress until next agent write.
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
             if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
                 _EDIT_SELECT_ACTIVE_SELECTION=""
@@ -245,10 +259,12 @@ function _zes_delete_mouse_selection() {
     if ((target_pos >= 0)); then
         BUFFER="${BUFFER:0:$target_pos}${BUFFER:$((target_pos + sel_len))}"
         CURSOR=$target_pos
-        _EDIT_SELECT_ACTIVE_SELECTION=""
-        _EDIT_SELECT_PENDING_SELECTION=""
-        _EDIT_SELECT_LAST_PRIMARY=""
-        _zes_clear_primary
+        REGION_ACTIVE=0
+        _zes_sync_after_paste
+        _EDIT_SELECT_NEW_SELECTION_EVENT=0
+        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        zle deactivate-region -w 2>/dev/null
+        zle -K main 2>/dev/null
         return 0
     fi
 
@@ -478,9 +494,10 @@ function _zes_activate_region_and_dispatch() {
 # these widgets simply never fire — no regression in that case.
 function _zes_terminal_focus_in() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
-        local -a stat_info
-        if zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null; then
-            _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
+        local curr_seq
+        curr_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+        if [[ -n "$curr_seq" ]]; then
+            _EDIT_SELECT_LAST_MTIME="$curr_seq"
             _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
         fi
     fi
@@ -493,8 +510,14 @@ zle -N _zes_terminal_focus_in
 # Terminal focus-out handler: no-op widget that consumes the CSI O
 # escape sequence so it is not interpreted as keystrokes.
 function _zes_terminal_focus_out() {
-    : }
-    zle -N _zes_terminal_focus_out
+    if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
+        _EDIT_SELECT_FOCUS_OUT_SEQ=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+    fi
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
+}
+zle -N _zes_terminal_focus_out
 
     # Establish the edit-select keymap and all related bindings inside an anonymous
     # function so that the local loop variables do not pollute the global scope.
@@ -664,7 +687,7 @@ function edit-select::apply-mouse-replacement-config() {
 # Public CLI entry-point.  Dispatches subcommands ("conf"/"config" → wizard).
 function edit-select() {
     if [[ $1 == conf || $1 == config ]]; then
-        local wizard_file="$_EDIT_SELECT_PLUGIN_DIR/edit-select-wizard-x11.zsh"
+        local wizard_file="$_EDIT_SELECT_PLUGIN_DIR/../../edit-select-wizard-wsl.zsh"
         if [[ -f "$wizard_file" ]]; then
             source "$wizard_file" 2>/dev/null || {
                 print -u2 "Error: Failed to load configuration wizard"
@@ -685,7 +708,7 @@ function edit-select() {
 
 # Load the X11-specific clipboard backend (agent start/stop,
 # get/set primary/clipboard).
-source "$_EDIT_SELECT_PLUGIN_DIR/backends/x11/x11.zsh"
+source "$_EDIT_SELECT_PLUGIN_DIR/../../../impl-x11/backends/x11/x11.zsh"
 
 # Read user config and populate undo/redo key bindings.
 edit-select::load-config

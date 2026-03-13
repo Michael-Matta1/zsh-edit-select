@@ -54,7 +54,7 @@ fi
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.5.8"
+readonly SCRIPT_VERSION="0.6.1"
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -963,6 +963,33 @@ config_line_exists() {
     return 1
 }
 
+find_windows_terminal_settings() {
+    # Only applicable on WSL
+    if [[ -z "${WSL_DISTRO_NAME:-}" ]] && [[ -z "${WSL_INTEROP:-}" ]]; then
+        return 1
+    fi
+
+    # Try to get Windows username
+    local win_user
+    if command_exists cmd.exe; then
+        win_user=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    fi
+
+    if [[ -z "$win_user" ]]; then
+        return 1
+    fi
+
+    local wt_path="/mnt/c/Users/${win_user}/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"
+    
+    if [[ -f "$wt_path" ]]; then
+        WT_SETTINGS_PATH="$wt_path"
+        echo "$wt_path"
+        return 0
+    fi
+
+    return 1
+}
+
 # Run command with sudo if available
 run_with_sudo() {
     if [[ $EUID -eq 0 ]]; then
@@ -1731,6 +1758,16 @@ detect_terminals() {
         if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " vscode " ]]; then
             DETECTED_TERMINALS+=("vscode")
             print_substep "Found: VS Code (integrated terminal)"
+        fi
+    fi
+
+    # Windows Terminal (specifically on WSL)
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ -n "${WSL_INTEROP:-}" ]]; then
+        if find_windows_terminal_settings >/dev/null; then
+            if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " windows-terminal " ]]; then
+                DETECTED_TERMINALS+=("windows-terminal")
+                print_substep "Found: Windows Terminal (via WSL interop)"
+            fi
         fi
     fi
 
@@ -3119,6 +3156,7 @@ configure_terminals() {
                 config="${XDG_CONFIG_HOME:-$HOME/.config}/Code - Insiders/User/keybindings.json"
             fi
             ;;
+        windows-terminal) config="${WT_SETTINGS_PATH:-}" ;;
         esac
 
         if [[ -n "$config" ]]; then
@@ -3155,6 +3193,7 @@ configure_terminals() {
         wezterm) configure_wezterm ;;
         foot) configure_foot ;;
         vscode) configure_vscode ;;
+        windows-terminal) configure_windows_terminal ;;
         konsole | gnome-terminal | xfce4-terminal | terminator | tilix)
             print_info "$terminal: Uses default keybindings, no configuration needed"
             ;;
@@ -3880,6 +3919,139 @@ PYTHON_SCRIPT
     print_success "VS Code configured successfully (via Shell fallback)" "vscode_config"
 }
 
+configure_windows_terminal() {
+    print_step "Configuring Windows Terminal..."
+
+    local config="${WT_SETTINGS_PATH:-}"
+    if [[ -z "$config" ]] || [[ ! -f "$config" ]]; then
+        if find_windows_terminal_settings >/dev/null; then
+            config="$WT_SETTINGS_PATH"
+        else
+            print_error "Cannot find Windows Terminal settings.json"
+            return 1
+        fi
+    fi
+
+    backup_config "$config"
+
+    # Use Python for robust JSON parsing on WSL
+    if ! command_exists python3; then
+        print_error "Python 3 is required to modify Windows Terminal settings.json"
+        MANUAL_STEPS+=("Add zsh-edit-select settings to Windows Terminal manually (see README)")
+        return 1
+    fi
+
+    local reversed_copy="False"
+    [[ "$USER_WANTS_REVERSED_COPY" == "y" ]] && reversed_copy="True"
+
+    # Python script to update settings.json atomically and format safely
+    local update_script
+    update_script=$(cat << 'EOF'
+import json
+import sys
+import os
+import shutil
+import tempfile
+
+def update_json(file_path, reversed_copy):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        # Check if already fully configured
+        if data.get('_zes_configured') == True:
+            # Need to double check if mode matches preference
+            is_reversed = any(a.get('id') == 'User.sendIntr' for a in data.get('actions', []))
+            if is_reversed == reversed_copy:
+                print("ALREADY_CONFIGURED")
+                return 0
+
+        # Mark as configured
+        data['_zes_configured'] = True
+
+        # 1. Update copyOnSelect
+        data['copyOnSelect'] = False
+
+        # 2. Add/update actions
+        if 'actions' not in data:
+            data['actions'] = []
+            
+        actions = data['actions']
+        # Remove any existing zsh-edit-select actions
+        actions = [a for a in actions if a.get('id') not in ('User.copy.644BA8F2', 'User.sendIntr')]
+        
+        # Add basic copy action
+        actions.append({"command": {"action": "copy", "singleLine": False}, "id": "User.copy.644BA8F2"})
+        
+        # Add reversed mode action if requested
+        if reversed_copy:
+            actions.append({"command": {"action": "sendInput", "input": "\u001d"}, "id": "User.sendIntr"})
+            
+        data['actions'] = actions
+
+        # 3. Add/update keybindings
+        if 'keybindings' not in data:
+            data['keybindings'] = []
+            
+        keybindings = data['keybindings']
+        # Remove existing zsh-edit-select config keybindings
+        keybindings = [k for k in keybindings if k.get('id') not in ('User.copy.644BA8F2', 'User.sendIntr')]
+        
+        # Add bindings based on mode
+        keybindings.append({"id": "User.copy.644BA8F2", "keys": "ctrl+c"})
+        if reversed_copy:
+            keybindings.append({"id": "User.sendIntr", "keys": "ctrl+shift+c"})
+            
+        data['keybindings'] = keybindings
+
+        # Write safely to temp file, then replace
+        fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(file_path))
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            # Indent handles multiline pretty-printing
+            json.dump(data, f, indent=4, ensure_ascii=False)
+            
+        shutil.move(temp_path, file_path)
+        print("SUCCESS")
+        return 0
+        
+    except Exception as e:
+        print(f"ERROR: {str(e)}", file=sys.stderr)
+        return 1
+
+if __name__ == '__main__':
+    sys.exit(update_json(sys.argv[1], sys.argv[2] == "True"))
+EOF
+)
+
+    local result
+    result=$(python3 -c "$update_script" "$config" "$reversed_copy" 2>&1)
+    local py_status=$?
+
+    if [[ $py_status -ne 0 ]]; then
+        print_error "Failed to modify Windows Terminal config."
+        log_message "WT_CONFIG_ERROR: $result"
+        MANUAL_STEPS+=("Add zsh-edit-select settings to Windows Terminal manually (see README)")
+        return 1
+    fi
+
+    if [[ "$result" == *"ALREADY_CONFIGURED"* ]]; then
+        print_info "Windows Terminal already configured for zsh-edit-select"
+    else
+        # If successfully configured and reversed copy enabled, ensure stty is in .zshrc
+        if [[ "$USER_WANTS_REVERSED_COPY" == "y" ]]; then
+            local zshrc="${ZDOTDIR:-$HOME}/.zshrc"
+            if [[ -f "$zshrc" ]] && ! grep -q "stty intr \^\]" "$zshrc" 2>/dev/null; then
+                backup_file "$zshrc"
+                echo "" >> "$zshrc"
+                echo "# Zsh Edit-Select: Required for WSL reversed copy mode (Ctrl+C to copy, Ctrl+Shift+C to interrupt)" >> "$zshrc"
+                echo "stty intr ^]" >> "$zshrc"
+                print_substep "Added 'stty intr ^]' to .zshrc for Windows Terminal reversed copy mode"
+            fi
+        fi
+        print_success "Windows Terminal configured successfully" "windows_terminal_config"
+    fi
+}
+
 # Conflict Detection Functions
 
 check_conflicts() {
@@ -4013,6 +4185,9 @@ check_terminal_conflicts() {
             config="${XDG_CONFIG_HOME:-$HOME/.config}/Code/User/keybindings.json"
             [[ ! -f "$config" ]] && config="${XDG_CONFIG_HOME:-$HOME/.config}/Code - Insiders/User/keybindings.json"
             [[ -f "$config" ]] && check_vscode_conflicts "$config"
+            ;;
+        windows-terminal)
+            check_windows_terminal_conflicts
             ;;
         esac
     done
@@ -4353,6 +4528,30 @@ check_vscode_conflicts() {
     done <"$config"
 }
 
+check_windows_terminal_conflicts() {
+    local config="$WT_SETTINGS_PATH"
+    if [[ -z "$config" ]] || [[ ! -f "$config" ]]; then
+        return
+    fi
+    
+    # Conflict: if they already have ctrl+c mapped to something else that we didn't add
+    if grep -qi "\"keys\":.*\"ctrl+c\"" "$config" 2>/dev/null; then
+        if ! grep -q "\"id\":.*\"User.copy.644BA8F2\"" "$config" 2>/dev/null; then
+            # This isn't perfect since JSON is multi-line, but grep works for basic sanity
+            print_conflict "Windows Terminal" "ctrl+c binding" "Custom ctrl+c binding found that may conflict with zsh-edit-select's copy action"
+        fi
+    fi
+    
+    # Check for other terminal copy shortcuts that might conflict with reversed mode
+    if [[ "$USER_WANTS_REVERSED_COPY" == "y" ]]; then
+        if grep -qi "\"keys\":.*\"ctrl+shift+c\"" "$config" 2>/dev/null; then
+            if ! grep -q "\"id\":.*\"User.sendIntr\"" "$config" 2>/dev/null; then
+                print_conflict "Windows Terminal" "ctrl+shift+c binding" "Existing ctrl+shift+c binding conflicts with reversed copy interrupt mode"
+            fi
+        fi
+    fi
+}
+
 # Verification Functions
 
 verify_installation() {
@@ -4598,6 +4797,18 @@ verify_terminal_config() {
             done
             if [[ $vscode_found -eq 0 ]]; then
                 test_warning "VS Code keybindings not updated" "May need manual setup"
+            fi
+            ;;
+        windows-terminal)
+            local config="${WT_SETTINGS_PATH:-}"
+            if [[ -n "$config" ]] && [[ -f "$config" ]]; then
+                if grep -q "\"_zes_configured\": true" "$config" 2>/dev/null; then
+                    test_pass "Windows Terminal configured"
+                else
+                    test_warning "Windows Terminal config not updated" "May need manual setup"
+                fi
+            else
+                test_warning "Windows Terminal config missing" "Setup required"
             fi
             ;;
         esac

@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Copyright (c) 2025 Michael Matta
-# Version: 0.5.8
+# Version: 0.6.1
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # zsh-edit-select — Unified platform loader
@@ -14,25 +14,28 @@ typeset -gri _ZES_LOADER_LOADED=1
 # Absolute directory of this loader script; base path for locating impl-*/ trees.
 typeset -g _zes_dir="${0:A:h}"
 
-# Will hold the detected implementation ("x11" or "wayland") and a
+# Will hold the detected implementation ("x11", "wayland", or "wsl") and a
 # human-readable reason string (e.g. "XDG_SESSION_TYPE=wayland").
 typeset -g _zes_impl="" _zes_reason=""
 
 # Detection priority order:
 #   1. ZES_FORCE_IMPL — explicit user override, bypasses all autodetection.
 #   2. macOS — always X11 (XQuartz); there is no native Wayland compositor.
-#   3. XDG_SESSION_TYPE=wayland — most reliable session-level indicator.
-#   4. WAYLAND_DISPLAY — set by the compositor; present even from within tmux.
-#   5. DISPLAY — X11 running.
-#   6. wl-paste in PATH — Wayland tools installed, WAYLAND_DISPLAY just unset.
-#   7. Fallback to x11 — safe default; xclip is widely available.
+#   3. WSL — route to dedicated impl-wsl to keep Linux impls untouched.
+#   4. XDG_SESSION_TYPE=wayland — most reliable session-level indicator.
+#   5. WAYLAND_DISPLAY — set by the compositor; present even from within tmux.
+#   6. DISPLAY — X11 running.
+#   7. wl-paste in PATH — Wayland tools installed, WAYLAND_DISPLAY just unset.
+#   8. Fallback to x11 — safe default; xclip is widely available.
 if [[ -n "${ZES_FORCE_IMPL:-}" ]]; then
   case "$ZES_FORCE_IMPL" in
-    x11|wayland) _zes_impl="$ZES_FORCE_IMPL"; _zes_reason="forced via ZES_FORCE_IMPL" ;;
-    *) print -u2 "zsh-edit-select: invalid ZES_FORCE_IMPL='$ZES_FORCE_IMPL' (use x11 or wayland)"; return 1 ;;
+    x11|wayland|wsl) _zes_impl="$ZES_FORCE_IMPL"; _zes_reason="forced via ZES_FORCE_IMPL" ;;
+    *) print -u2 "zsh-edit-select: invalid ZES_FORCE_IMPL='$ZES_FORCE_IMPL' (use x11, wayland, or wsl)"; return 1 ;;
   esac
 elif [[ "$OSTYPE" == darwin* ]]; then
   _zes_impl=x11; _zes_reason="macOS ($OSTYPE)"
+elif [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
+  _zes_impl=wsl; _zes_reason="WSL detected"
 elif [[ "${XDG_SESSION_TYPE:-}" == wayland ]]; then
   _zes_impl=wayland; _zes_reason="XDG_SESSION_TYPE=wayland"
 elif (( ${+WAYLAND_DISPLAY} )); then
