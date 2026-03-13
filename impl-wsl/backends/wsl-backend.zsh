@@ -2,16 +2,28 @@
 # Version: 0.6.1
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
-# Absolute path to the compiled X11 selection agent binary.
-typeset -g _EDIT_SELECT_MONITOR_BIN="$_EDIT_SELECT_PLUGIN_DIR/backends/x11/zes-x11-selection-agent"
+# Absolute path to the compiled WSL selection agent binary.
+typeset -g _EDIT_SELECT_MONITOR_BIN="$_EDIT_SELECT_PLUGIN_DIR/backends/wsl/zes-wsl-selection-agent"
 
-# Start the background X11 selection agent and wait until it is ready.
+# Self-write suppression: records the text most recently written to the
+# clipboard by the plugin itself (copy/cut).  When the daemon detects
+# the resulting clipboard change and writes it to cache, the shell
+# compares the new content against this value and suppresses the event
+# so it is not misidentified as a mouse selection.  Necessary because
+# Windows has only a single CLIPBOARD (no PRIMARY) — copy operations
+# and mouse selections share the same channel.
+typeset -g _ZES_SELF_WRITE_CONTENT=""
+
+# Start the background WSL selection agent and wait until it is ready.
 # The agent writes a seq file on startup; presence of that file is the
 # readiness signal — no fixed sleep, no polling the PID file.
 # Sets _EDIT_SELECT_DAEMON_ACTIVE=1 on success, 0 on failure.
 function _zes_start_monitor() {
-    if [[ ! -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
-        # Agent binary absent — fall back to xclip for all clipboard ops.
+    # Use -s (non-empty file) instead of -x for DrvFs mount compatibility
+    # on WSL2 where the POSIX execute bit may not be set.
+    [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]] && [[ ! -x "$_EDIT_SELECT_MONITOR_BIN" ]] && chmod +x "$_EDIT_SELECT_MONITOR_BIN" 2>/dev/null
+    if [[ ! -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
+        # Agent binary absent — fall back to powershell.exe for all clipboard ops.
         _EDIT_SELECT_DAEMON_ACTIVE=0
         return 1
     fi
@@ -73,10 +85,10 @@ function _zes_stop_monitor() {
     _EDIT_SELECT_DAEMON_ACTIVE=0
 }
 
-# Return the current PRIMARY selection text to stdout.
+# Return the current PRIMARY (clipboard) selection text to stdout.
 # When the daemon is active, the file read avoids forking a subprocess on
 # every keypress — zsh reads the file using a built-in redirection.
-# Falls back to xclip only when the daemon is not running.
+# Falls back to powershell.exe only when the daemon is not running.
 function _zes_get_primary() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         local primary_data
@@ -85,39 +97,44 @@ function _zes_get_primary() {
         return 1
     fi
 
-    xclip -selection primary -o 2>/dev/null
+    powershell.exe -NoProfile -Command 'Get-Clipboard' 2>/dev/null
 }
 
-# Return the current clipboard (CLIPBOARD selection) text to stdout.
-# Uses the agent's --get-clipboard mode to avoid spawning wl-paste or xclip
-# and to keep clipboard access on the same Wayland/X11 connection.
+# Return the current clipboard text to stdout.
+# On WSL, CLIPBOARD and PRIMARY are the same (Windows has only CLIPBOARD).
+# Uses the agent's --get-clipboard mode to avoid spawning powershell.exe.
 function _zes_get_clipboard() {
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         "$_EDIT_SELECT_MONITOR_BIN" --get-clipboard 2>/dev/null
     else
-        xclip -selection clipboard -o 2>/dev/null
+        powershell.exe -NoProfile -Command 'Get-Clipboard' 2>/dev/null
     fi
 }
 
-# Place $1 into the clipboard.  The agent forks a background child that
-# serves paste requests until another application takes ownership, so this
-# function returns immediately without blocking the shell.
+# Place $1 into the clipboard.  Records the written content in
+# _ZES_SELF_WRITE_CONTENT so the next agent event for this same text
+# is suppressed (self-write suppression).
 function _zes_copy_to_clipboard() {
     [[ -z "$1" ]] && return 1
+    _ZES_SELF_WRITE_CONTENT="$1"
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         printf '%s' "$1" | "$_EDIT_SELECT_MONITOR_BIN" --copy-clipboard 2>/dev/null
     else
-        printf '%s' "$1" | xclip -selection clipboard -in 2>/dev/null
+        printf '%s' "$1" | clip.exe 2>/dev/null
     fi
 }
 
-# Clear the PRIMARY selection.  Called after a mouse-selected region is
-# consumed (pasted into the command line) to prevent accidental reuse of
-# old highlighted text on the next keypress.
+# Clear the PRIMARY cache.  Windows has no PRIMARY selection; this only
+# clears the local cache files so the shell does not see stale text.
 function _zes_clear_primary() {
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         "$_EDIT_SELECT_MONITOR_BIN" --clear-primary 2>/dev/null
     else
-        printf '' | xclip -selection primary -in 2>/dev/null
+        # Without the agent, just truncate the cache files directly.
+        [[ -f "$_EDIT_SELECT_PRIMARY_FILE" ]] && : > "$_EDIT_SELECT_PRIMARY_FILE"
     fi
+
+    # Always clear local cache immediately to avoid stale selection reuse
+    # before async monitor updates are observed by the shell.
+    [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && : > "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
 }

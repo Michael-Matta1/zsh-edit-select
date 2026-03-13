@@ -2,8 +2,9 @@
 
 Zsh plugin that lets you edit your command line like a text editor. Select text with Shift + Arrow keys or the
 mouse, type or paste to replace selections, use standard editing shortcuts (copy, cut, paste, undo, redo,
-select all), and customize keybindings through an interactive wizard — with full X11 and Wayland clipboard
+select all), and customize keybindings through an interactive wizard — with full X11, Wayland, and WSL
 support.
+
 
 [demo video](https://github.com/user-attachments/assets/a024e609-1de1-4608-a7c3-e17264162904)
 
@@ -28,6 +29,7 @@ support.
   - [Step 2: Configure Undo and Redo Shortcut](#step-2-configure-undo-and-redo-shortcut)
   - [Step 3: Enable Shift Selection Keys](#step-3-enable-shift-selection-keys)
 - [Wayland Support](#wayland-support)
+- [WSL Support](#wsl-support)
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
 - [Platform Compatibility](#platform-compatibility)
@@ -47,7 +49,7 @@ support.
 - ✅ **Type-to-replace** — Type over selected text to replace it
 - ✅ **Paste-to-replace** — Paste clipboard content over selections
 - ✅ **Mouse integration** — Works with text selected by mouse
-- ✅ **Clipboard integration** — Works with X11 and Wayland
+- ✅ **Clipboard integration** — Works with X11, Wayland, and WSL
 - ✅ **Standard shortcuts** — Ctrl+A (select all), Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste), Ctrl+Z (undo),
   Ctrl+Shift+Z (redo)
 
@@ -99,25 +101,25 @@ Works with both keyboard and mouse selections (when mouse replacement is enabled
 <details>
 <summary><b>⚠️ Mouse Replacement Note (Safeguard Prompt)</b></summary>
 
-If you see the message **"Duplicate text: place cursor inside the occurrence you want to modify"**, the plugin
-has detected multiple identical occurrences of the selected text in your command buffer.
+If you see the message **"Duplicate text: place cursor inside the occurrence you want to modify"**, the plugin has detected multiple identical occurrences of the selected text within your command buffer.
 
-**When does this appear?** This message only appears when:
+**When does this appear?** This message only appears in a rare edge case when **all three** of the following conditions are met simultaneously:
 
-- The selection was made with the mouse, AND
-- The exact same text occurs more than once in the buffer, AND
-- You try to replace the selected text by either typing or pasting
+- The selection was made with the mouse, **AND**
+- The exact same text appears more than once in the buffer, **AND**
+- You attempt to replace the selected text by typing or pasting
 
-**Why does this happen?** This is a protective safeguard for the plugin's mouse-selection workaround. Since
-mouse replacement is not enabled by default, the implemented workaround cannot automatically distinguish
-between multiple occurrences of identical text. This prompt prevents accidental edits to the wrong occurrence
-when using mouse-based selection.
+This is a protective safeguard: when text is selected via mouse and the plugin cannot reliably distinguish between multiple identical occurrences, so it prompts you and prevents accidental edits.
 
-**What should you do?** When prompted, place the cursor inside the specific occurrence you want to edit, then
+When prompted, place the cursor inside the specific occurrence you want to edit, then
 retry the operation (select it and type or paste to replace).
 
-**Note:** This safeguard is only for mouse selections. Using `Shift+Arrow keys` doesn't require caret
-replacement and works directly without ambiguity or extra prompting.
+**Note:** This safeguard applies only to mouse selections. Using `Shift+Arrow keys` to select text avoids this ambiguity entirely and works without any extra prompting.
+
+
+**Under development:** A custom mouse-tracking path is planned that will resolve the exact selected range and eliminate the safeguard prompt altogether. This is already implemented in the WSL version of the plugin and will be integrated across all versions once it has matured sufficiently.
+
+---
 
 </details>
 
@@ -194,7 +196,7 @@ Each documented with exact commands and copy-paste configurations.
   setup and platform.
 
 The auto-installer is provided as a convenience for users who are less comfortable with terminal configuration
-or who prefer a fully guided, hands-off setup. It detects your environment (X11, Wayland, or XWayland),
+or who prefer a fully guided, hands-off setup. It detects your environment (X11, Wayland, XWayland, or WSL),
 installs dependencies, sets up the plugin, and configures your terminal in a single run. It has been tested
 across multiple distributions using Docker containers and virtual machines, and handles the most common
 configurations — but not every edge case can be guaranteed. If you encounter an issue, please
@@ -224,7 +226,7 @@ The installer is designed for reliability and system safety:
 - **System Safety**: Creates timestamped backups of every file before modification. Implements standard signal
   trapping (INT, TERM, EXIT) to ensure clean rollbacks even if interrupted.
 - **Universal Compatibility**: Supports 11 different package managers (including `apt`, `dnf`, `pacman`,
-  `zypper`, `apk`, and `nix`) across X11, Wayland, and XWayland environments.
+  `zypper`, `apk`, and `nix`) across X11, Wayland, XWayland, and WSL environments.
 - **Robust Pre-flight Checks**: Validates **network connectivity**, **disk space**, and **package manager
   health** before starting. Also proactively detects and reports broken repositories (e.g., problematic apt
   sources) to prevent installation failures.
@@ -309,6 +311,9 @@ organized in collapsed sections labeled by distribution and terminal — expand 
 > steps for you. If you run into any difficulty at any step, please
 > [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) and it will be addressed.
 
+
+
+
 ### 1. Prerequisites (Build Dependencies)
 
 <details>
@@ -359,7 +364,7 @@ sudo dnf install gcc make libX11-devel libXfixes-devel pkgconfig xclip
 
 </details>
 
-### For Wayland Users
+### For Wayland & WSL Users
 
 <details>
 <summary><b>Debian/Ubuntu</b></summary>
@@ -502,6 +507,8 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 
 Some terminals need configuration to support Shift selection. See [Terminal Setup](#terminal-setup) for
 details.
+
+> **WSL users:** For WSL, go directly to [WSL Support](#wsl-support).
 
 ### 4. Restart Your Shell
 
@@ -705,9 +712,13 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 ## Terminal Setup
 
 > The [Auto Installation](#auto-installation) script can configure supported terminals (Kitty, WezTerm,
-> Alacritty, Foot, VS Code) automatically. If you prefer to configure manually follow the steps below.
+> Alacritty, Foot, VS Code) automatically.
+> If you prefer to configure manually follow the steps below.
 > [Open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you need help with a terminal
 > that is not covered.
+
+>For WSL users on Windows Terminal, follow the dedicated manual at [WSL Support](#wsl-support)
+> then return here only if you need additional terminal mappings.
 
 <details>
 <summary><b>How to Find Escape Sequences</b></summary>
@@ -1387,6 +1398,186 @@ show a small surface in the dock/taskbar on GNOME/Mutter.
 
 ---
 
+## WSL Support
+
+WSL is fully supported, including mouse selection integration, custom tracking modes, and a tailored clipboard agent architecture designed for seamless interaction between Windows Terminal and WSL-native shells.
+
+
+<details>
+<summary><b>Installation and Terminal Configuration (WSL Quick Path)</b></summary>
+
+1. Install the plugin using [Auto Installation](#auto-installation) or [Manual Installation](#manual-installation).
+2. Configure terminal behavior using the Windows Terminal steps below.
+3. Reload your shell and run `edit-select config` for optional keybinding and mouse behavior customization.
+
+</details>
+
+<details>
+<summary><b>How to Open Windows Terminal settings.json</b></summary>
+
+Use one of the following methods:
+
+- With Windows Terminal open, press `Ctrl+Shift+,`
+- In the UI: click the dropdown arrow next to the `+` tab button, select **Settings**, then click
+  **Open JSON file** at the bottom-left
+- Open directly from File Explorer:
+
+```text
+%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
+```
+
+</details>
+
+<details>
+<summary><b>Recommended Windows Terminal Baseline</b></summary>
+
+In the Terminal settings.json: Ensure that you have `"copyOnSelect"` set to `fasle` (which is the default value). If it wasn't then Set Windows Terminal to:
+
+```json
+"copyOnSelect": false
+```
+
+This is the recommended baseline for WSL because it preserves normal terminal selection behavior while the
+plugin's tailored tracking mode handles mouse integration consistently in the command buffer. This avoids the
+disruption of automatic copying on every selection and allows the custom modes to work as expected.
+
+</details>
+
+<details>
+<summary><b>Reversed Copy Mode (Ctrl+C copy, Ctrl+Shift+C interrupt)</b></summary>
+
+To use `Ctrl+Shift+C` for interrupt (SIGINT) Add one entry to `"actions"` and one to `"keybindings"` in the Windows Terminal settings.json :
+
+```json
+"actions": [
+  ...existing actions...,
+  {
+    "command": {
+      "action": "sendInput",
+      "input": "\u001d"
+    },
+    "id": "User.sendIntr"
+  }
+],
+```
+
+```json
+"keybindings": [
+  ...existing keybindings...,
+  {
+    "id": "User.sendIntr",
+    "keys": "ctrl+shift+c"
+  }
+],
+```
+
+Then add in `~/.zshrc`:
+
+```zsh
+stty intr ^]
+```
+
+Save `settings.json`, restart the profile, and `Ctrl+Shift+C` will send `0x1D` (`Ctrl+]`), which `stty`
+treats as interrupt.
+
+</details>
+
+<details>
+<summary><b>Ensure Ctrl+C is Bound to Copy</b></summary>
+
+Windows Terminal usually defaults to `Ctrl+C` for copy. If your profile does not, add (or update) the
+following entries.
+
+Into `"actions"`:
+
+```json
+{
+  "command": {
+    "action": "copy",
+    "singleLine": false
+  },
+  "id": "User.copy.644BA8F2"
+},
+```
+
+Into `"keybindings"`:
+
+```json
+{
+  "id": "User.copy.644BA8F2",
+  "keys": "ctrl+c"
+},
+```
+
+If these entries already exist, update their current values to match the above.
+
+</details>
+
+<details>
+<summary><b>Custom Mouse Tracking and Mode Toggle</b></summary>
+
+
+The WSL implementation includes a custom mouse-tracking mechanism that enables full mouse integration.
+
+**New:** The tailored WSL mouse-tracking path resolves the exact selected range directly, eliminating the need for the Safeguard Prompt entirely.
+
+---
+
+**Mode Toggle via Free Selection**
+
+To deliver full mouse integration in WSL, the plugin operates in two modes:
+
+- **`mouse tracking` mode** — The plugin intercepts mouse input, allowing you to select and edit text within the command buffer.
+- **`free selection` mode** — Restores native Windows Terminal behavior, letting you freely select any visible text on screen and access the right-click context menu as usual.
+
+Switching between modes is automatic and seamless: click anywhere outside the current command buffer to temporarily enter `free selection` mode and interact with the terminal natively. Mouse tracking resumes automatically as soon as you return to the command buffer by typing, moving using ketboard arrows, or doing a keyboard selection.
+
+</details>
+
+<details>
+<summary><b>Detection, Tailored Variants, and WSL Architecture</b></summary>
+
+**Platform Detection:**
+
+The plugin detects WSL via the `WSL_DISTRO_NAME` or `WSL_INTEROP` environment variables, which are set by both
+WSL1 and WSL2. This unified detection ensures the plugin works seamlessly regardless of your WSL version.
+
+**WSL1 vs WSL2 Support:**
+
+Both WSL1 and WSL2 are supported through the same plugin path:
+
+- **WSL2 (current)** — Uses Wayland clipboard interop for native Windows clipboard access
+- **WSL1 (legacy)** — Falls back to the Windows side clipboard helper for clipboard operations
+
+On both versions, the tailored implementation at `impl-wsl/tailored-variants/impl-wayland-wsl/` provides
+consistent mouse tracking behavior and clipboard integration.
+
+**Build Artifacts and Fallback:**
+
+- **Preferred path** — `impl-wsl/tailored-variants/impl-wayland-wsl/` (optimized for WSL)
+- **Legacy fallback** — `impl-wsl/zsh-edit-select-wsl.plugin.zsh` (loaded if tailored files are unavailable)
+- **On-demand compilation** — Build artifacts are generated automatically if missing
+
+**Helper Binaries:**
+
+The plugin includes two compiled helpers to handle clipboard operations across the WSL boundary:
+
+- **`zes-wsl-clipboard-helper.exe`** — Windows-side helper that reads from and writes to the Windows clipboard
+  via the Windows API. It monitors clipboard changes, retrieves clipboard text (UTF-8), and sets clipboard
+  content from the Linux side.
+
+- **`zes-wsl-selection-agent`** — Linux-side agent that communicates with the Windows helper via pipes and
+  manages a fast cache of clipboard contents on the native Linux filesystem. The cache uses `/dev/shm`
+  (in-memory tmpfs) to minimize latency on keyboard events.
+
+Together, these helpers provide transparent clipboard access: operations in the plugin appear instant because
+the cache is memory-resident, while the agent syncs changes from Windows in the background.
+
+</details>
+
+
+---
+
 ## Default Key Bindings Reference
 
 ### Navigation Keys
@@ -1550,6 +1741,42 @@ preventing cross-pane mouse selection issues.
 </details>
 
 <details>
+<summary><b>WSL Helper Binaries Not Building</b></summary>
+
+**Symptoms:** Plugin loads but clipboard operations fail or `edit-select config` shows errors about missing helpers
+
+**Solution:** The WSL helper binaries (`zes-wsl-clipboard-helper.exe` and `zes-wsl-selection-agent`) are
+compiled automatically on first use. If they fail to build:
+
+1. **Check your build tools:**
+   ```bash
+   # Ensure you have the build toolchain (gcc, make, mingw32 for Windows helper)
+   apt update && apt install -y build-essential mingw-w64
+   ```
+
+2. **Rebuild the helpers manually:**
+   ```bash
+   # Replace with your actual plugin directory path
+   cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wsl/backends/wsl/
+   make clean
+   make
+   ```
+
+3. **Verify the binaries are executable:**
+   ```bash
+   ls -la ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wsl/backends/wsl/
+   # Should show: zes-wsl-clipboard-helper.exe and zes-wsl-selection-agent
+   ```
+
+4. **If build still fails:** Check the full build output for error messages naming missing dependencies, then
+   install those packages and retry.
+
+**Fallback:** If helpers cannot be built, the plugin falls back to `powershell.exe Get-Clipboard` for clipboard
+operations, which works but is slower. Keyboard selection features are unaffected.
+
+</details>
+
+<details>
 <summary><b>Manual Build (Optional)</b></summary>
 
 The plugin compiles agents automatically on first use. To manually build them, first locate your plugin
@@ -1684,6 +1911,39 @@ The native Wayland agent (`zes-wl-selection-agent`) provides:
 </details>
 
 <details>
+<summary><b>WSL (Windows Subsystem for Linux)</b></summary>
+
+### ✅ Fully Supported
+
+**Both WSL1 and WSL2** are fully supported with comprehensive mouse selection integration:
+
+- **Windows Terminal** — Full mouse selection replacement support with custom tracking modes
+- **Clipboard operations** — Seamless access to Windows clipboard from the Linux shell
+- **Custom tracking modes** — Out-of-the-box support for command-buffer aware mouse selection (`tracking` mode)
+  and native terminal selection (`terminal` mode)
+- **Auto mode** — Automatic mode selection derived from Windows Terminal `copyOnSelect` setting
+
+### Performance on WSL
+
+The WSL implementation includes:
+
+- ✅ Fast in-memory clipboard cache (uses `/dev/shm` tmpfs on WSL2)
+- ✅ Seamless clipboard bridge to Windows via compiled helper binaries
+- ✅ Zero-lag mouse selection detection
+- ✅ Unified behavior across both WSL versions
+
+### WSL Specifics
+
+- **WSL1 and WSL2** — Both are detected via `WSL_DISTRO_NAME` or `WSL_INTEROP` environment variables
+- **Windows Terminal** — Recommended; use the dedicated [WSL Support](#wsl-support) section for configuration
+- **Other terminals on WSL** — Keyboard selection features work universally; mouse selection replacement requires
+  PRIMARY selection support (available in most modern terminals)
+
+For detailed setup instructions, see [WSL Support](#wsl-support).
+
+</details>
+
+<details>
 <summary><b>Testing Coverage</b></summary>
 
 This plugin has been thoroughly and heavily tested on **Kitty Terminal** and briefly on other popular
@@ -1698,7 +1958,7 @@ display server.
 <details>
 <summary><b>Core Features (Universal)</b></summary>
 
-These features work universally on X11, Wayland, and XWayland:
+These features work universally on X11, Wayland, XWayland, and WSL:
 
 - ✅ Shift+Arrow keys for text selection
 - ✅ Ctrl+A to select all
@@ -1710,6 +1970,8 @@ These features work universally on X11, Wayland, and XWayland:
 - ✅ Delete/Backspace to remove keyboard selection
 - ✅ Type or paste to replace keyboard selection
 - ✅ Mouse selection replacement (where PRIMARY selection available)
+
+> **Note on WSL:** All keyboard selection features listed above work identically on WSL. Mouse selection replacement also works on WSL with Windows Terminal when using the tailored tracking modes. See [WSL Support](#wsl-support) for Windows Terminal configuration details.
 
 
 </details>
@@ -1744,16 +2006,18 @@ Core architectural properties:
 
 **Backend Detection**
 
-- Platform detection runs once at plugin load time by inspecting `ZES_FORCE_IMPL`, `XDG_SESSION_TYPE`,
-  `WAYLAND_DISPLAY`, and `DISPLAY` in priority order
-- The detected backend (`x11` or `wayland`) is stored in read-only shell variables (`ZES_ACTIVE_IMPL`,
+- Platform detection runs once at plugin load time by inspecting `ZES_FORCE_IMPL`, `WSL_DISTRO_NAME`/`WSL_INTEROP`,
+  `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, and `DISPLAY` in priority order
+- The detected backend (`x11`, `wayland`, or `wsl`) is stored in read-only shell variables (`ZES_ACTIVE_IMPL`,
   `ZES_DETECTION_REASON`, `ZES_IMPL_PATH`) and reused for the entire session
+- WSL detection (via `WSL_DISTRO_NAME` or `WSL_INTEROP` environment variables) takes priority over X11/Wayland
+  detection, ensuring the tailored WSL implementation is used when running in WSL
 - A double-load guard (`_ZES_LOADER_LOADED`) prevents re-execution when `.zshrc` is re-sourced mid-session
 
 **Lazy Backend Loading**
 
-- Only the implementation matching the detected display server (X11 or Wayland) is sourced
-- The other implementation is never loaded into memory, reducing both startup time and memory footprint
+- Only the implementation matching the detected platform (X11, Wayland, or WSL) is sourced
+- The other implementations are never loaded into memory, reducing both startup time and memory footprint
 - The configuration wizard is also lazy-loaded — its file is only sourced when the user explicitly runs
   `edit-select config`
 

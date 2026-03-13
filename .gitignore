@@ -7,6 +7,9 @@ impl-wayland/backends/xwayland/zes-xwayland-agent
 impl-wayland/backends/xwayland/*.o
 impl-x11/backends/x11/zes-x11-selection-agent
 impl-x11/backends/x11/*.o
+impl-wsl/backends/wsl/zes-wsl-selection-agent
+impl-wsl/backends/wsl/zes-wsl-clipboard-helper
+impl-wsl/tailored-variants/impl-wayland-wsl/backends-wsl/xwayland/zes-xwayland-agent
 
 # Compiled zsh wordcode
 *.zwc
