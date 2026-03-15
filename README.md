@@ -2,7 +2,7 @@
 
 Zsh plugin that lets you edit your command line like a text editor. Select text with Shift + Arrow keys or the
 mouse, type or paste to replace selections, use standard editing shortcuts (copy, cut, paste, undo, redo,
-select all), and customize keybindings through an interactive wizard — with full X11, Wayland, and WSL
+select all), and customize keybindings through an interactive wizard — with full Linux, macOS and WSL
 support.
 
 
@@ -24,12 +24,19 @@ support.
 - [Auto Installation](#auto-installation)
 - [Manual Installation](#manual-installation)
 - [Configuration Wizard](#configuration-wizard)
+>
+>---
+>
 - [Terminal Setup](#terminal-setup)
   - [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut)
   - [Step 2: Configure Undo and Redo Shortcut](#step-2-configure-undo-and-redo-shortcut)
   - [Step 3: Enable Shift Selection Keys](#step-3-enable-shift-selection-keys)
 - [Wayland Support](#wayland-support)
 - [WSL Support](#wsl-support)
+- [macOS Support](#macos-support)
+>
+>---
+>
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
 - [Platform Compatibility](#platform-compatibility)
@@ -49,7 +56,7 @@ support.
 - ✅ **Type-to-replace** — Type over selected text to replace it
 - ✅ **Paste-to-replace** — Paste clipboard content over selections
 - ✅ **Mouse integration** — Works with text selected by mouse
-- ✅ **Clipboard integration** — Works with X11, Wayland, and WSL
+- ✅ **Clipboard integration** — Works natively with X11, Wayland, WSL, and macOS
 - ✅ **Standard shortcuts** — Ctrl+A (select all), Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste), Ctrl+Z (undo),
   Ctrl+Shift+Z (redo)
 
@@ -132,8 +139,7 @@ Standard editing shortcuts:
 - **Ctrl + V**: Paste (replaces selection if any)
 
 > **Clipboard Managers Compatibility Note:** The plugin is fully compatible with clipboard history managers
-> like **CopyQ**, **GPaste**, and others. Since it uses standard X11 and Wayland clipboard protocols, all
-> copied text is automatically captured by your clipboard manager.
+> like **CopyQ**, **GPaste**, **Maccy**, and others. If you use a clipboard manager (like CopyQ, GPaste, Maccy, etc.), the plugin will integrate with it automatically since it uses standard clipboard protocols on X11, Wayland, and macOS.
 
 ### Undo and Redo
 
@@ -157,22 +163,8 @@ The plugin includes purpose-built clipboard agents that replace external tools e
 **Clipboard Integration Agents:** Small compiled programs built specifically for this plugin handle all
 clipboard and selection operations:
 
-| Display Server | Agent                     | Protocol                                                                                                | Performance vs. External Tool |
-| -------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| **X11**        | `zes-x11-selection-agent` | XFixes extension + CLIPBOARD atom                                                                       | **44.6% faster than xclip**   |
-| **Wayland**    | `zes-wl-selection-agent`  | `zwp_primary_selection_unstable_v1` + `ext_data_control_v1` / `zwlr_data_control_v1` / `wl_data_device` | **96.4% faster than wl-copy** |
-| **XWayland**   | `zes-xwayland-agent`      | X11 XFixes through XWayland                                                                             | XWayland compatibility layer  |
-
-**External Tools (Fallback Only):**
-
-| Display Server | Tool                   | When Used                 |
-| -------------- | ---------------------- | ------------------------- |
-| **X11**        | `xclip`                | Only if agent unavailable |
-| **Wayland**    | `wl-copy` / `wl-paste` | Only if agent unavailable |
-
-> The agents handle copy, paste, and clipboard operations directly through native protocols—no external tools
-> needed. They run as background processes and communicate with the plugin through a fast in-memory cache,
-> giving you instant clipboard response with zero subprocess overhead.
+> The agents handle copy, paste, and clipboard operations directly through native protocols— external tools provide fallback agents are unavailable on unknown systems. The agents communicate with the plugin through a fast in-memory cache,
+> giving you instant clipboard response.
 
 > See [Performance-Optimized Architecture](#performance-optimized-architecture) for benchmarks and implementation details.
 
@@ -182,6 +174,9 @@ clipboard and selection operations:
 
 > **Recommendation:** If you are comfortable editing dotfiles and prefer full control over your system
 > configuration, [Manual Installation](#manual-installation) is the recommended approach.
+
+**macOS users:** For macOS, go directly to [macOS Support](#macos-support)
+
 
 Installation consists of three straightforward steps:
 
@@ -299,6 +294,9 @@ required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
 Manual installation is the recommended approach if you are comfortable with dotfiles and want complete
 visibility and control over every change made to your system. The process consists of three steps:
+
+**macOS users:** For macOS, go directly to [macOS Support](#macos-support)
+
 
 1. **Install build dependencies** — A one-line command for your distribution.
 2. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
@@ -508,7 +506,10 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 Some terminals need configuration to support Shift selection. See [Terminal Setup](#terminal-setup) for
 details.
 
-> **WSL users:** For WSL, go directly to [WSL Support](#wsl-support).
+**WSL users:** For WSL, go directly to [WSL Support](#wsl-support)
+
+**macOS users:** For macOS, go directly to [macOS Support](#macos-support)
+
 
 ### 4. Restart Your Shell
 
@@ -1578,6 +1579,229 @@ the cache is memory-resident, while the agent syncs changes from Windows in the 
 
 ---
 
+## macOS Support
+
+macOS is fully supported with a native Objective-C clipboard agent that provides true PRIMARY selection via the Accessibility API.
+
+
+<details>
+<summary><b>Installation</b></summary>
+
+1. **Install the plugin:**
+   If you are using **Oh My Zsh**, clone the repository:
+   ```bash
+   git clone https://github.com/Michael-Matta1/zsh-edit-select.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select
+   ```
+   Then add `zsh-edit-select` to the plugins array in your `~/.zshrc`: `plugins=(... zsh-edit-select)`
+
+   > **Using another plugin manager?** If you use Zinit, Sheldon, Antigen, or a manual setup, see [2. Install the Plugin](#2-install-the-plugin) for your specific installation command.
+
+3. Install Apple Command Line Tools if not already present:
+   ```bash
+   xcode-select --install
+   ```
+   This provides `clang` and all required macOS SDK headers (`AppKit`, `ApplicationServices`, `CoreGraphics`).
+
+4. The agent compiles automatically on first shell load. To build manually:
+   ```bash
+   # Replace with your actual plugin directory
+   cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-macos/backends/macos
+   make
+   ```
+
+5. Reload your shell:
+   ```bash
+   source ~/.zshrc
+   ```
+
+6. (Recommended) Enable mouse selection — see below.
+
+</details>
+
+<details>
+<summary><b>Mouse Selection (PRIMARY Selection) — Accessibility Setup</b></summary>
+
+Mouse type-to-replace requires a one-time **Accessibility** permission grant.
+
+> **Permission note**: The agent uses the Accessibility API (`AXUIElement`) and a passive mouse event listener (`CGEventTap`). Granting **Accessibility** in System Settings covers both — you do NOT need to separately grant Input Monitoring.
+
+### Step 1: Run the setup command
+
+```bash
+edit-select setup-ax
+```
+
+### Step 2: Grant the permission
+
+A system dialog will appear. Click **Open System Settings**. In **Privacy & Security → Accessibility**, find your terminal application in the list and enable the toggle next to it.
+
+> **Which toggle?** Enable the toggle for the terminal application you are running (e.g., **iTerm2**, **Terminal**). The plugin agent runs as a child of your terminal and inherits its permission identity.
+
+### Step 3: Restart your shell
+
+```bash
+source ~/.zshrc
+```
+
+### Verify
+
+Run `edit-select config`. The status line should show:
+
+```
+Mouse Selection   Active (AX) ✓
+```
+
+If it shows `Clipboard only`, revisit Step 2 and ensure the toggle is enabled for the correct application.
+
+> **After rebuilding the agent binary**: macOS ties Accessibility permission to the binary's file path (for unsigned, non-bundled binaries). If you run `make clean && make`, toggle the permission off and back on in System Settings → Privacy & Security → Accessibility to re-associate the grant with the new binary.
+
+### Terminal compatibility for mouse selection
+
+| Terminal | Mouse Type-to-Replace | Notes |
+|---|---|---|
+| **iTerm2** | ✅ Full support | Recommended for macOS |
+| **Terminal.app** | ⚠️ Partial | AX support present; behavior is version-dependent |
+| **Kitty** | ❌ Not supported | Custom GPU renderer — no AX text model |
+| **Alacritty** | ❌ Not supported | Custom GPU renderer — no AX text model |
+| **WezTerm** | ❌ Not supported | Custom GPU renderer — no AX text model |
+| **Ghostty** | ❌ Not supported | Custom GPU renderer — no AX text model |
+
+For unsupported terminals (which use custom GPU renderers), mouse highlights produce no event. Keyboard selection with Shift+Arrow keys, all copy/cut/paste/undo/redo operations work on all terminals.
+
+**Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see  [Terminal Setup](#terminal-setup)
+
+> **iTerm2 recommended setting:** iTerm2 has a built-in setting **"Copy to pasteboard on selection"** (Settings → General → Selection) that is **enabled by default**. When enabled, every mouse drag in iTerm2 automatically copies the selected text to the clipboard. This does not affect the AX-only implementation's correctness — our daemon does not monitor the clipboard, so no spurious events occur. However, it does mean every mouse drag overwrites your clipboard, even if you only intend to highlight to replace with a keystroke. For zero clipboard pollution on mouse highlights, disable this setting: **Settings → General → Selection → uncheck "Copy to pasteboard on selection" (or "Copy to clipboard on selection")**. With it disabled, mouse highlights are handled exclusively by the plugin's Accessibility path and never touch the clipboard. Explicit copies (`Cmd+C`, `Cmd+Shift+C`) still work normally.
+
+</details>
+
+
+<details>
+<summary><b>How It Works</b></summary>
+
+On X11/Wayland/WSL, the PRIMARY selection is a separate buffer populated when you drag to highlight text. On macOS, the plugin achieves the same semantics via the **Accessibility API**:
+
+- When you drag the mouse to highlight text in a supported terminal, a passive event listener (`CGEventTap`) detects the mouse button release.
+- It immediately reads the selected text via `kAXSelectedTextAttribute` — entirely separate from the clipboard.
+- The plugin stores this as the current selection.
+- Typing or pasting replaces the highlighted text exactly as on X11, Wayland, and WSL.
+
+For terminals without Accessibility support (which use custom GPU renderers), mouse highlights produce no primary selection event. Keyboard selection (Shift+Arrow), copy, cut, paste, undo, and redo all work on all terminals regardless.
+
+</details>
+
+
+<details>
+<summary><b>Remapping Cmd+C and Cmd+Shift+C in iTerm2</b></summary>
+
+> **Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see  [Terminal Setup](#terminal-setup)
+
+By default, Cmd+C sends the SIGINT interrupt signal. This guide remaps things so that:
+- **Cmd+C** → sends the escape sequence `[67;6u` which the plugin uses for copy
+- **Cmd+Shift+C** → sends SIGINT (`0x03`), the traditional interrupt signal
+
+---
+
+### Step 1 — Open iTerm2 Settings
+
+Press **⌘,** (Cmd + comma) to open Settings, then click the **Keys** tab at the top.
+
+Make sure you're on the **Key Bindings** sub-tab (not Navigation Shortcuts, Hotkey, etc.).
+
+> ⚠️ Use the top-level **Keys** tab, NOT Profiles → Keys. This makes the bindings apply to all sessions globally.
+
+---
+
+### Step 2 — Remove any existing Cmd+C and Cmd+Shift+C bindings
+
+Scroll through the list and look for any existing entries that have `^c` or `^⇧c` on the right side. Select each one and click the **–** button at the bottom left to delete them.
+
+---
+
+### Step 3 — Add Cmd+C → Escape Sequence
+
+1. Click the **+** button at the bottom left
+2. Click in the **Keyboard Shortcut** field and press **Cmd+C** — it should show `^c`
+3. Set **Action** to **"Send Escape Sequence"**
+4. In the text field enter:
+   ```
+   [67;6u
+   ```
+   *(iTerm2 prepends `ESC` automatically, so this sends `\x1b[67;6u`)*
+5. Set the dropdown to **"Apply to all sessions"**
+6. Click **OK**
+
+---
+
+### Step 4 — Add Cmd+Shift+C → SIGINT
+
+1. Click the **+** button again
+2. Click in the **Keyboard Shortcut** field and press **Cmd+Shift+C** — it should show `^⇧c`
+3. Set **Action** to **"Send Hex Code"**
+4. In the text field enter:
+   ```
+   0x03
+   ```
+5. Set the dropdown to **"Apply to all sessions"**
+6. Click **OK**
+
+---
+
+### Result
+
+You should now see two entries in the list like in the screenshot:
+
+| Action | Shortcut |
+|---|---|
+| In all sessions, Send Hex Codes: `0x03` | `^⇧c` |
+| In all sessions, Send `^[ [67;6u` | `^c` |
+
+</details>
+
+<details>
+<summary><b>tmux on macOS</b></summary>
+
+Inside tmux, the agent may lack access to the user-level pasteboard service due to macOS bootstrap namespace isolation. If clipboard operations fail inside tmux:
+
+1. Install `reattach-to-user-namespace`:
+   ```bash
+   brew install reattach-to-user-namespace
+   ```
+
+The plugin detects tmux automatically (via `$TMUX`) and wraps the agent launch with `reattach-to-user-namespace` when it is available. No additional configuration is required.
+
+</details>
+
+<details>
+<summary><b>Build Details and Requirements</b></summary>
+
+The macOS agent (`zes-macos-clipboard-agent`) is an Objective-C binary. Requirements:
+
+- **Apple Command Line Tools**: `xcode-select --install`
+- **macOS 10.15+** (Catalina or later)
+- **No third-party dependencies** — links only against system frameworks (`AppKit`, `Foundation`, `CoreFoundation`, `ApplicationServices`, `CoreGraphics`)
+
+Build manually:
+
+```bash
+# Replace with your actual plugin directory path
+# Common locations:
+#   Oh My Zsh:  ~/.oh-my-zsh/custom/plugins/zsh-edit-select
+#   Zinit:      ~/.local/share/zinit/plugins/Michael-Matta1---zsh-edit-select
+#   Manual:     wherever you ran: git clone ...
+PLUGIN_DIR=~/.oh-my-zsh/custom/plugins/zsh-edit-select  # ← change this
+
+cd "$PLUGIN_DIR/impl-macos/backends/macos"
+make clean && make
+```
+
+The agent compiles and installs automatically on first shell load if the binary is absent.
+
+> **After rebuilding**: If you rebuild the agent binary, macOS may require you to re-grant Accessibility permission. In System Settings → Privacy & Security → Accessibility, toggle the permission off and back on for your terminal application.
+
+</details>
+
+---
+
 ## Default Key Bindings Reference
 
 ### Navigation Keys
@@ -1879,6 +2103,11 @@ comprehensive support across platforms via our custom agent implementations:
 
 ### ✅ Fully Supported
 
+**macOS:**
+
+- **Native macOS Support** - True PRIMARY selection detection via Accessibility API (AXUIElement)
+- **Zero clipboard contamination** - Mouse highlights never overwrite the system clipboard
+
 **X11 & XWayland:**
 
 - **X11** - Complete PRIMARY selection support via XFixes extension
@@ -1958,7 +2187,7 @@ display server.
 <details>
 <summary><b>Core Features (Universal)</b></summary>
 
-These features work universally on X11, Wayland, XWayland, and WSL:
+These features work universally on X11, Wayland, XWayland, WSL, and macOS:
 
 - ✅ Shift+Arrow keys for text selection
 - ✅ Ctrl+A to select all

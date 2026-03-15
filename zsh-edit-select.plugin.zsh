@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.1
+# Version: 0.6.3
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # zsh-edit-select — Unified platform loader
@@ -29,11 +29,11 @@ typeset -g _zes_impl="" _zes_reason=""
 #   8. Fallback to x11 — safe default; xclip is widely available.
 if [[ -n "${ZES_FORCE_IMPL:-}" ]]; then
   case "$ZES_FORCE_IMPL" in
-    x11|wayland|wsl) _zes_impl="$ZES_FORCE_IMPL"; _zes_reason="forced via ZES_FORCE_IMPL" ;;
-    *) print -u2 "zsh-edit-select: invalid ZES_FORCE_IMPL='$ZES_FORCE_IMPL' (use x11, wayland, or wsl)"; return 1 ;;
+    x11|wayland|wsl|macos) _zes_impl="$ZES_FORCE_IMPL"; _zes_reason="forced via ZES_FORCE_IMPL" ;;
+    *) print -u2 "zsh-edit-select: invalid ZES_FORCE_IMPL='$ZES_FORCE_IMPL' (use x11, wayland, wsl, or macos)"; return 1 ;;
   esac
 elif [[ "$OSTYPE" == darwin* ]]; then
-  _zes_impl=x11; _zes_reason="macOS ($OSTYPE)"
+  _zes_impl=macos; _zes_reason="macOS ($OSTYPE)"
 elif [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
   _zes_impl=wsl; _zes_reason="WSL detected"
 elif [[ "${XDG_SESSION_TYPE:-}" == wayland ]]; then
@@ -80,6 +80,13 @@ elif [[ $_zes_impl == "x11" ]]; then
     ( cd "${_x11:h}" && make >/dev/null 2>&1 )
     [[ ! -x "$_x11" ]] && print -u2 "zsh-edit-select: X11 agent build failed. Install: libx11-dev libxfixes-dev"
   fi
+elif [[ $_zes_impl == "macos" ]]; then
+  # Build the macOS pasteboard agent from source if the binary is missing.
+  local _macos="${_zes_dir}/impl-macos/backends/macos/zes-macos-clipboard-agent"
+  if [[ ! -x "$_macos" ]] && [[ -f "${_macos:h}/Makefile" ]]; then
+    ( cd "${_macos:h}" && make >/dev/null 2>&1 )
+    [[ ! -x "$_macos" ]] && print -u2 "zsh-edit-select: macOS agent build failed. Run: xcode-select --install"
+  fi
 fi
 
 # Lazily compile the plugin .zsh files to bytecode on first load.
@@ -108,6 +115,6 @@ typeset -gr ZES_IMPL_PATH="${_zes_dir}/impl-${_zes_impl}"
 
 # Clean up all loader-local variables so they do not leak into the shell
 # environment.  The exported ZES_* variables above are the only public API.
-unset _zes_dir _zes_impl _zes_reason _zes_plugin _zes_f _wl _xwl _x11
+unset _zes_dir _zes_impl _zes_reason _zes_plugin _zes_f _wl _xwl _x11 _macos
 
 return 0

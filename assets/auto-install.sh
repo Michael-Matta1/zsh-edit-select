@@ -54,7 +54,7 @@ fi
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.6.1"
+readonly SCRIPT_VERSION="0.6.3"
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -980,7 +980,7 @@ find_windows_terminal_settings() {
     fi
 
     local wt_path="/mnt/c/Users/${win_user}/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"
-    
+
     if [[ -f "$wt_path" ]]; then
         WT_SETTINGS_PATH="$wt_path"
         echo "$wt_path"
@@ -3957,7 +3957,7 @@ def update_json(file_path, reversed_copy):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            
+
         # Check if already fully configured
         if data.get('_zes_configured') == True:
             # Need to double check if mode matches preference
@@ -3975,33 +3975,33 @@ def update_json(file_path, reversed_copy):
         # 2. Add/update actions
         if 'actions' not in data:
             data['actions'] = []
-            
+
         actions = data['actions']
         # Remove any existing zsh-edit-select actions
         actions = [a for a in actions if a.get('id') not in ('User.copy.644BA8F2', 'User.sendIntr')]
-        
+
         # Add basic copy action
         actions.append({"command": {"action": "copy", "singleLine": False}, "id": "User.copy.644BA8F2"})
-        
+
         # Add reversed mode action if requested
         if reversed_copy:
             actions.append({"command": {"action": "sendInput", "input": "\u001d"}, "id": "User.sendIntr"})
-            
+
         data['actions'] = actions
 
         # 3. Add/update keybindings
         if 'keybindings' not in data:
             data['keybindings'] = []
-            
+
         keybindings = data['keybindings']
         # Remove existing zsh-edit-select config keybindings
         keybindings = [k for k in keybindings if k.get('id') not in ('User.copy.644BA8F2', 'User.sendIntr')]
-        
+
         # Add bindings based on mode
         keybindings.append({"id": "User.copy.644BA8F2", "keys": "ctrl+c"})
         if reversed_copy:
             keybindings.append({"id": "User.sendIntr", "keys": "ctrl+shift+c"})
-            
+
         data['keybindings'] = keybindings
 
         # Write safely to temp file, then replace
@@ -4009,11 +4009,11 @@ def update_json(file_path, reversed_copy):
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             # Indent handles multiline pretty-printing
             json.dump(data, f, indent=4, ensure_ascii=False)
-            
+
         shutil.move(temp_path, file_path)
         print("SUCCESS")
         return 0
-        
+
     except Exception as e:
         print(f"ERROR: {str(e)}", file=sys.stderr)
         return 1
@@ -4533,7 +4533,7 @@ check_windows_terminal_conflicts() {
     if [[ -z "$config" ]] || [[ ! -f "$config" ]]; then
         return
     fi
-    
+
     # Conflict: if they already have ctrl+c mapped to something else that we didn't add
     if grep -qi "\"keys\":.*\"ctrl+c\"" "$config" 2>/dev/null; then
         if ! grep -q "\"id\":.*\"User.copy.644BA8F2\"" "$config" 2>/dev/null; then
@@ -4541,7 +4541,7 @@ check_windows_terminal_conflicts() {
             print_conflict "Windows Terminal" "ctrl+c binding" "Custom ctrl+c binding found that may conflict with zsh-edit-select's copy action"
         fi
     fi
-    
+
     # Check for other terminal copy shortcuts that might conflict with reversed mode
     if [[ "$USER_WANTS_REVERSED_COPY" == "y" ]]; then
         if grep -qi "\"keys\":.*\"ctrl+shift+c\"" "$config" 2>/dev/null; then

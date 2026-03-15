@@ -445,13 +445,18 @@ function edit-select::show-menu() {
 	_zesw_banner
 
 	_zesw_section_header "Current Configuration"
-	local _platform_disp="WSL"
-	if [[ "$_ZES_MONITOR_TYPE" == "x11" ]]; then
-		_platform_disp="XWayland (WSL)"
-	elif [[ "$_ZES_MONITOR_TYPE" == "wayland" ]]; then
-		_platform_disp="Wayland (WSL)"
+	_zesw_status_line "Platform" "macOS"
+	# macOS-specific: show Accessibility (PRIMARY selection) permission status.
+	if [[ -x "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" ]]; then
+		if "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" \
+				--check-ax 2>/dev/null; then
+			_zesw_status_line "Mouse Selection" \
+				"${_ZESW_CLR_HILITE}Active (AX) ✓${_ZESW_CLR_RESET}"
+		else
+			_zesw_status_line "Mouse Selection" \
+				"${_ZESW_CLR_WARN}Clipboard only — run 'edit-select setup-ax'${_ZESW_CLR_RESET}"
+		fi
 	fi
-	_zesw_status_line "Platform" "$_platform_disp"
 	_zesw_status_line "Mouse Replace" "$(_zesw_get_mouse_status)"
 
 	_zesw_section_header "Configuration Options"
@@ -1250,13 +1255,7 @@ function edit-select::view-config() {
 	fi
 
 	_zesw_section_header "Active Runtime Settings"
-	local backend_disp="clip.exe / powershell.exe (WSL)"
-	if [[ "$_ZES_MONITOR_TYPE" == "x11" ]]; then
-		backend_disp="XWayland (agent)"
-	elif [[ "$_ZES_MONITOR_TYPE" == "wayland" ]]; then
-		backend_disp="Wayland (native)"
-	fi
-	printf "  %sClipboard:%s %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$backend_disp"
+	printf "  %sClipboard:%s NSPasteboard (macOS)\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 
 	printf "\n  %sMouse Integration:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	local mouse_status="$(_zesw_get_mouse_status)"

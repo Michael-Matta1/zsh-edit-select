@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.1
+# Version: 0.6.3
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Wayland-native text selection and editing for Zsh command line.
@@ -677,9 +677,15 @@ function edit-select::apply-mouse-replacement-config() {
         add-zle-hook-widget line-pre-redraw edit-select::zle-line-pre-redraw
         # Enable terminal focus reporting (DECSET 1004) and bind focus
         # event handlers so cross-pane selection changes are suppressed.
-        # Written to /dev/tty to avoid triggering Powerlevel10k instant-prompt
-        # console-output warnings during zsh initialization.
-        printf '\e[?1004h' >/dev/tty 2>/dev/null
+        # Deferred to the first ZLE prompt via zle-line-init so that the
+        # terminal's immediate CSI I reply is consumed by the already-bound
+        # widgets instead of printing as raw ^[[I on VTE-based terminals.
+        function _zes_enable_focus_reporting() {
+            printf '\e[?1004h' >/dev/tty 2>/dev/null
+            add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
+        }
+        zle -N _zes_enable_focus_reporting
+        add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
         bindkey -M emacs '\e[I' _zes_terminal_focus_in
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
@@ -692,6 +698,7 @@ function edit-select::apply-mouse-replacement-config() {
         bindkey -M emacs '^V' edit-select::paste-clipboard
         bindkey -M edit-select '^V' edit-select::paste-clipboard
         add-zle-hook-widget -d line-pre-redraw edit-select::zle-line-pre-redraw 2>/dev/null
+        add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
         printf '\e[?1004l' >/dev/tty 2>/dev/null
         bindkey -M emacs -r '\e[I' 2>/dev/null
         bindkey -M emacs -r '\e[O' 2>/dev/null

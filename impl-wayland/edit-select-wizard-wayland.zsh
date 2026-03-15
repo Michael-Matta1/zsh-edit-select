@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.1
+# Version: 0.6.3
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 
@@ -335,6 +335,44 @@ function _zesw_capture_key() {
 	printf "%s ℹ%s  Captured key: %s%s%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$_ZESW_CLR_HILITE" "$result_var" "$_ZESW_CLR_RESET"
 }
 
+# Prompt user to choose between auto-detecting or manually entering a custom
+# keybinding sequence. Stores result in the variable named by $1.
+# Returns 0 on success, 1 if cancelled/empty.
+function _zesw_read_custom_key() {
+	local -n _rck_ref=$1
+	local _rck_input="" _rck_method=""
+
+	printf "\n"
+	_zesw_info "How would you like to enter the keybinding?"
+	printf "\n"
+	_zesw_print_option 1 "Auto-detect       ${_ZESW_CLR_DIM}— Press the key and we'll detect it${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Enter manually    ${_ZESW_CLR_DIM}— Type the escape sequence (e.g. ^[[1;6H)${_ZESW_CLR_RESET}"
+	printf "\n"
+	_zesw_info "${_ZESW_CLR_WARN}Note:${_ZESW_CLR_RESET} Auto-detect may not work for complex keybindings such as those involving Shift"
+	_zesw_input_prompt "Choose (1-2):"
+	read -r _rck_method
+
+	case "$_rck_method" in
+		1)
+			_zesw_capture_key _rck_input
+			;;
+		2)
+			_zesw_input_prompt "Type the key pattern and press Enter:"
+			read -r _rck_input
+			;;
+		*)
+			_zesw_error "Invalid choice. Operation cancelled."
+			return 1
+			;;
+	esac
+
+	if [[ -z $_rck_input ]]; then
+		_zesw_error "No binding entered. Operation cancelled."
+		return 1
+	fi
+	_rck_ref="$_rck_input"
+	return 0
+}
 
 # Status Helper Functions
 
@@ -589,12 +627,11 @@ function edit-select::configure-select-all() {
 		1) edit-select::set-keybinding SELECT_ALL "$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL" ;;
 		2) edit-select::set-keybinding SELECT_ALL "^[[65;6u" ;;
 		3)
-			_zesw_input_prompt "Enter key sequence (e.g., ^A or ^[[1;5A):"
-			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding SELECT_ALL "$custom" || {
-				_zesw_error "No binding entered. Operation cancelled."
+			if _zesw_read_custom_key custom; then
+				edit-select::set-keybinding SELECT_ALL "$custom"
+			else
 				_zesw_prompt_continue
-			}
+			fi
 			;;
 		4) return ;;
 	esac
@@ -629,12 +666,11 @@ function edit-select::configure-paste() {
 		1) edit-select::set-keybinding PASTE "$_EDIT_SELECT_DEFAULT_KEY_PASTE" ;;
 		2) edit-select::set-keybinding PASTE "^[[86;6u" ;;
 		3)
-			_zesw_input_prompt "Enter key sequence (e.g., ^V or ^[[1;5V):"
-			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding PASTE "$custom" || {
-				_zesw_error "No binding entered. Operation cancelled."
+			if _zesw_read_custom_key custom; then
+				edit-select::set-keybinding PASTE "$custom"
+			else
 				_zesw_prompt_continue
-			}
+			fi
 			;;
 		4) return ;;
 	esac
@@ -669,12 +705,11 @@ function edit-select::configure-cut() {
 		1) edit-select::set-keybinding CUT "$_EDIT_SELECT_DEFAULT_KEY_CUT" ;;
 		2) edit-select::set-keybinding CUT "^[[88;6u" ;;
 		3)
-			_zesw_input_prompt "Enter key sequence (e.g., ^X or ^[[1;5X):"
-			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding CUT "$custom" || {
-				_zesw_error "No binding entered. Operation cancelled."
+			if _zesw_read_custom_key custom; then
+				edit-select::set-keybinding CUT "$custom"
+			else
 				_zesw_prompt_continue
-			}
+			fi
 			;;
 		4) return ;;
 	esac
@@ -730,11 +765,11 @@ function edit-select::configure-copy() {
 		edit-select::set-keybinding COPY "${presets[$choice]}"
 	elif (( choice == ${#presets[@]} + 1 )); then
 		local custom
-		_zesw_capture_key custom
-		[[ -n $custom ]] && edit-select::set-keybinding COPY "$custom" || {
-			_zesw_error "No key captured"
+		if _zesw_read_custom_key custom; then
+			edit-select::set-keybinding COPY "$custom"
+		else
 			_zesw_prompt_continue
-		}
+		fi
 	fi
 }
 
@@ -783,11 +818,11 @@ function edit-select::configure-word-left() {
 		edit-select::set-keybinding WORD_LEFT "${presets[$choice]}"
 	elif (( choice == ${#presets[@]} + 1 )); then
 		local custom
-		_zesw_capture_key custom
-		[[ -n $custom ]] && edit-select::set-keybinding WORD_LEFT "$custom" || {
-			_zesw_error "No key captured"
+		if _zesw_read_custom_key custom; then
+			edit-select::set-keybinding WORD_LEFT "$custom"
+		else
 			_zesw_prompt_continue
-		}
+		fi
 	fi
 }
 
@@ -836,11 +871,11 @@ function edit-select::configure-word-right() {
 		edit-select::set-keybinding WORD_RIGHT "${presets[$choice]}"
 	elif (( choice == ${#presets[@]} + 1 )); then
 		local custom
-		_zesw_capture_key custom
-		[[ -n $custom ]] && edit-select::set-keybinding WORD_RIGHT "$custom" || {
-			_zesw_error "No key captured"
+		if _zesw_read_custom_key custom; then
+			edit-select::set-keybinding WORD_RIGHT "$custom"
+		else
 			_zesw_prompt_continue
-		}
+		fi
 	fi
 }
 
@@ -887,11 +922,11 @@ function edit-select::configure-buffer-start() {
 		edit-select::set-keybinding BUFFER_START "${presets[$choice]}"
 	elif (( choice == ${#presets[@]} + 1 )); then
 		local custom
-		_zesw_capture_key custom
-		[[ -n $custom ]] && edit-select::set-keybinding BUFFER_START "$custom" || {
-			_zesw_error "No key captured"
+		if _zesw_read_custom_key custom; then
+			edit-select::set-keybinding BUFFER_START "$custom"
+		else
 			_zesw_prompt_continue
-		}
+		fi
 	fi
 }
 
@@ -938,11 +973,11 @@ function edit-select::configure-buffer-end() {
 		edit-select::set-keybinding BUFFER_END "${presets[$choice]}"
 	elif (( choice == ${#presets[@]} + 1 )); then
 		local custom
-		_zesw_capture_key custom
-		[[ -n $custom ]] && edit-select::set-keybinding BUFFER_END "$custom" || {
-			_zesw_error "No key captured"
+		if _zesw_read_custom_key custom; then
+			edit-select::set-keybinding BUFFER_END "$custom"
+		else
 			_zesw_prompt_continue
-		}
+		fi
 	fi
 }
 
@@ -973,12 +1008,11 @@ function edit-select::configure-undo() {
 	case "$choice" in
 		1) edit-select::set-keybinding UNDO "$_EDIT_SELECT_DEFAULT_KEY_UNDO" ;;
 		2)
-			_zesw_input_prompt "Enter key sequence (e.g., ^Z or ^[[1;5Z):"
-			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding UNDO "$custom" || {
-				_zesw_error "No binding entered. Operation cancelled."
+			if _zesw_read_custom_key custom; then
+				edit-select::set-keybinding UNDO "$custom"
+			else
 				_zesw_prompt_continue
-			}
+			fi
 			;;
 		3) return ;;
 	esac
@@ -1013,12 +1047,11 @@ function edit-select::configure-redo() {
 		1) edit-select::set-keybinding REDO "$_EDIT_SELECT_DEFAULT_KEY_REDO" ;;
 		2) edit-select::set-keybinding REDO "^Y" ;;
 		3)
-			_zesw_input_prompt "Enter key sequence (e.g., ^Y or ^[[1;5Y):"
-			read -r custom
-			[[ -n $custom ]] && edit-select::set-keybinding REDO "$custom" || {
-				_zesw_error "No binding entered. Operation cancelled."
+			if _zesw_read_custom_key custom; then
+				edit-select::set-keybinding REDO "$custom"
+			else
 				_zesw_prompt_continue
-			}
+			fi
 			;;
 		4) return ;;
 	esac

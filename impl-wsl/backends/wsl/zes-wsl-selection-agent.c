@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.6.1
+// Version: 0.6.3
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // Linux-side clipboard agent for zsh-edit-select WSL backend.
