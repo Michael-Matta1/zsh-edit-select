@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.1
+# Version: 0.6.3
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 
@@ -287,6 +287,46 @@ function _zesw_confirm_prompt() {
 	printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
 }
 
+# Prompt user to choose between auto-detecting or manually entering a custom
+# keybinding sequence. Stores result in the variable named by $1.
+# Returns 0 on success, 1 if cancelled/empty.
+function _zesw_read_custom_key() {
+	local _rck_input="" _rck_method=""
+
+	printf "\n"
+	_zesw_info "How would you like to enter the keybinding?"
+	printf "\n"
+	_zesw_print_option 1 "Auto-detect       ${_ZESW_CLR_DIM}— Press the key and we'll detect it${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Enter manually    ${_ZESW_CLR_DIM}— Type the escape sequence (e.g. ^[[1;6H)${_ZESW_CLR_RESET}"
+	printf "\n"
+	_zesw_info "${_ZESW_CLR_WARN}Note:${_ZESW_CLR_RESET} Auto-detect may not work for complex keybindings such as those involving Shift"
+	_zesw_input_prompt "Choose (1-2):"
+	read -r _rck_method
+
+	case "$_rck_method" in
+		1)
+			_zesw_input_prompt "Press your desired key combination:"
+			read -k 1 _rck_input
+			printf "\n"
+			;;
+		2)
+			_zesw_input_prompt "Type the key pattern and press Enter:"
+			read -r _rck_input
+			;;
+		*)
+			_zesw_error "Invalid choice. Operation cancelled."
+			return 1
+			;;
+	esac
+
+	if [[ -z $_rck_input ]]; then
+		_zesw_error "No binding entered. Operation cancelled."
+		return 1
+	fi
+	eval "$1=\${_rck_input}"
+	return 0
+}
+
 # Return "enabled" or "disabled" reflecting the current EDIT_SELECT_MOUSE_REPLACEMENT value.
 function _zesw_get_mouse_status() {
 	(( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"
@@ -473,18 +513,16 @@ function edit-select::configure-mouse-replacement() {
 				_zesw_prompt_continue
 				;;
 			3)
-				_zesw_info "Custom binding configuration..."
-				_zesw_input_prompt "Press your desired key combination:"
-				read -k 1 custom_key
-				printf "\n"
-				_zesw_info "You pressed: ${_ZESW_CLR_HILITE}$custom_key${_ZESW_CLR_RESET}"
-				_zesw_confirm_prompt "Apply this binding?"
-				read -r confirm
-				if [[ $confirm =~ ^[Yy]$ ]]; then
-					_zesw_loading "Applying custom binding" 2
-					_zesw_success "Custom binding applied"
-				else
-					_zesw_info "Cancelled"
+				if _zesw_read_custom_key custom_key; then
+					_zesw_info "You pressed: ${_ZESW_CLR_HILITE}$custom_key${_ZESW_CLR_RESET}"
+					_zesw_confirm_prompt "Apply this binding?"
+					read -r confirm
+					if [[ $confirm =~ ^[Yy]$ ]]; then
+						_zesw_loading "Applying custom binding" 2
+						_zesw_success "Custom binding applied"
+					else
+						_zesw_info "Cancelled"
+					fi
 				fi
 				_zesw_prompt_continue
 				;;
@@ -538,14 +576,13 @@ function edit-select::configure-select-all() {
 			_zesw_success "Select All bound to Ctrl+Shift+A"
 			;;
 		3)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_SELECT_ALL="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Select All bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_SELECT_ALL="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Select All bound to custom key"
+			fi
 			;;
 		4) return ;;
 	esac
@@ -593,14 +630,13 @@ function edit-select::configure-paste() {
 			_zesw_success "Paste bound to Ctrl+Shift+V"
 			;;
 		3)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_PASTE="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_PASTE" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Paste bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_PASTE="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_PASTE" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Paste bound to custom key"
+			fi
 			;;
 		4) return ;;
 	esac
@@ -648,14 +684,13 @@ function edit-select::configure-cut() {
 			_zesw_success "Cut bound to Ctrl+Shift+X"
 			;;
 		3)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_CUT="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_CUT" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Cut bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_CUT="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_CUT" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Cut bound to custom key"
+			fi
 			;;
 		4) return ;;
 	esac
@@ -712,14 +747,13 @@ function edit-select::configure-copy() {
 			_zesw_success "Copy bound to Ctrl+Y"
 			;;
 		3)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_COPY="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_COPY" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Copy bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_COPY="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_COPY" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Copy bound to custom key"
+			fi
 			;;
 		4) return ;;
 	esac
@@ -771,14 +805,13 @@ function edit-select::configure-word-left() {
 			_zesw_success "Word Left bound to ^[b"
 			;;
 		3)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_WORD_LEFT="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Word Left bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_WORD_LEFT="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Word Left bound to custom key"
+			fi
 			;;
 		4) return ;;
 	esac
@@ -830,14 +863,13 @@ function edit-select::configure-word-right() {
 			_zesw_success "Word Right bound to ^[f"
 			;;
 		3)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Word Right bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Word Right bound to custom key"
+			fi
 			;;
 		4) return ;;
 	esac
@@ -881,14 +913,13 @@ function edit-select::configure-buffer-start() {
 			_zesw_success "Buffer Start bound to Ctrl+Shift+Home (^[[1;6H)"
 			;;
 		2)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_BUFFER_START="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_BUFFER_START" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Buffer Start bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_BUFFER_START="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_BUFFER_START" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Buffer Start bound to custom key"
+			fi
 			;;
 		3) return ;;
 	esac
@@ -932,14 +963,13 @@ function edit-select::configure-buffer-end() {
 			_zesw_success "Buffer End bound to Ctrl+Shift+End (^[[1;6F)"
 			;;
 		2)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_BUFFER_END="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_BUFFER_END" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Buffer End bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_BUFFER_END="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_BUFFER_END" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Buffer End bound to custom key"
+			fi
 			;;
 		3) return ;;
 	esac
@@ -979,14 +1009,13 @@ function edit-select::configure-undo() {
 			_zesw_success "Undo bound to Ctrl+Z"
 			;;
 		2)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_UNDO="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_UNDO" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Undo bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_UNDO="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_UNDO" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Undo bound to custom key"
+			fi
 			;;
 		3) return ;;
 	esac
@@ -1026,14 +1055,13 @@ function edit-select::configure-redo() {
 			_zesw_success "Redo bound to Ctrl+Shift+Z"
 			;;
 		2)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 custom_key
-			printf "\n"
-			typeset -g EDIT_SELECT_KEY_REDO="$custom_key"
-			edit-select::save-config "EDIT_SELECT_KEY_REDO" "$custom_key"
-			edit-select::apply-keybindings
-			_zesw_loading "Applying custom binding" 2
-			_zesw_success "Redo bound to custom key"
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_REDO="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_REDO" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Redo bound to custom key"
+			fi
 			;;
 		3) return ;;
 	esac

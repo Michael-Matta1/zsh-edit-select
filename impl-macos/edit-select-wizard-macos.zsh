@@ -7,7 +7,6 @@
 
 
 typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select/config"
-typeset -g _EDIT_SELECT_WIZARD_DIR="${0:A:h}"
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SELECT_ALL='^A'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_PASTE+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_PASTE='^V'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_CUT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_CUT='^X'
@@ -45,7 +44,7 @@ function _zesw_init_colors() {
 	typeset -g _ZESW_RESET='\033[0m'
 	typeset -g _ZESW_BOLD='\033[1m'
 
-	# Performance optimization: Pre-cache gradient colors in associative array
+	# Pre-cache gradient colors
 	typeset -g -A _ZESW_GRADIENT_CACHE
 	_ZESW_GRADIENT_CACHE[cyan]='\033[38;2;0;255;255m'
 	_ZESW_GRADIENT_CACHE[c1]='\033[38;2;14;245;255m'
@@ -82,7 +81,7 @@ function _zesw_banner() {
 	local RESET='\033[0m'
 	local BOLD='\033[1m'
 
-	# Gradient colors (pre-defined for each line for performance)
+	# Gradient colors
 	local -a colors
 	colors=(
 		'\033[38;2;0;255;255m'    # Line 1: Cyan
@@ -118,7 +117,7 @@ function _zesw_banner() {
 		"              ╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝               "
 	)
 
-	# 10-segment gradient colors for smooth transition (cyan to blue)
+	# Gradient colors
 	local c1='\033[38;2;0;255;255m'
 	local c2='\033[38;2;11;245;255m'
 	local c3='\033[38;2;22;235;255m'
@@ -130,7 +129,7 @@ function _zesw_banner() {
 	local c9='\033[38;2;89;167;255m'
 	local c10='\033[38;2;100;150;255m'
 
-	# Build border with exactly 75 '═' characters (5×8 + 5×7 across 10 gradient stops)
+	# Build border with gradient
 	local top_border="${c1}╔════════${c2}════════${c3}═══════${c4}════════${c5}═══════${c6}════════${c7}═══════${c8}════════${c9}═══════${c10}═══════╗"
 	local bottom_border="${c1}╚════════${c2}════════${c3}═══════${c4}════════${c5}═══════${c6}════════${c7}═══════${c8}════════${c9}═══════${c10}═══════╝"
 
@@ -157,7 +156,7 @@ function _zesw_banner() {
 	printf "${bottom_border}${RESET}\n\n"
 }
 
-# Enhanced success box with smooth gradient and pulse/glow animation
+# Success box with animation
 function _zesw_success_box() {
 	local msg="$1"
 	local show_animation="${2:-true}"  # Enable pulse animation by default
@@ -171,7 +170,7 @@ function _zesw_success_box() {
 		r=$(( 0 + 150 * progress / 100 ))     # 0 -> 150
 		g=$(( 255 ))                           # constant 255
 		b=$(( 255 - 200 * progress / 100 ))   # 255 -> 55
-		gradient_msg+="\033[38;2;${r};${g};${b}m${char}"  # Inlined: avoid subshell per-char
+		gradient_msg+="\033[38;2;${r};${g};${b}m${char}"
 	done
 
 	# Add padding
@@ -179,7 +178,7 @@ function _zesw_success_box() {
 	local padding=$(( (width - ${#msg}) / 2 ))
 	local padded_gradient="$(printf '%*s' $padding '')${gradient_msg}$(printf '%*s' $((width - ${#msg} - padding)) '')"
 
-	# Smooth gradient colors (8 layers for smooth transition)
+	# Gradient colors
 	local c1='\033[38;2;0;255;255m'      # Cyan
 	local c2='\033[38;2;14;245;255m'
 	local c3='\033[38;2;29;235;255m'
@@ -189,7 +188,7 @@ function _zesw_success_box() {
 	local c7='\033[38;2;86;175;255m'
 	local c8='\033[38;2;100;150;255m'    # Blue
 
-	# Build borders with 8-segment gradient (62 chars: 6×8 + 2×7 = 62)
+	# Build borders with gradient
 	local top_border="${c1}╔════════${c2}════════${c3}════════${c4}════════${c5}════════${c6}════════${c7}═══════${c8}═══════╗"
 	local bottom_border="${c1}╚════════${c2}════════${c3}════════${c4}════════${c5}════════${c6}════════${c7}═══════${c8}═══════╝"
 
@@ -214,25 +213,27 @@ function _zesw_success_box() {
 		printf "${bottom_border}${_ZESW_RESET}\n"
 		sleep 0.08
 
-		# Frame 3: Subtle glow
+		# Frame 3: Soft glow
 		printf "\033[u"  # Restore cursor position
 		printf "\n${top_border}${_ZESW_RESET}\n"
 		printf "${glow3}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${glow3}║${_ZESW_RESET}\n"
 		printf "${bottom_border}${_ZESW_RESET}\n"
 		sleep 0.08
+	fi
 
-		# Final state: Standard gradient borders
+	# Final frame: Normal colors
+	if [[ "$show_animation" == "true" ]]; then
 		printf "\033[u"  # Restore cursor position
 	fi
 
-	# Display final state
 	printf "\n${top_border}${_ZESW_RESET}\n"
-	printf "${c1}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${c8}║${_ZESW_RESET}\n"
-	printf "${bottom_border}${_ZESW_RESET}\n"
+	printf "${c1}║${_ZESW_RESET}${padded_gradient}${_ZESW_RESET}${c8}║${_ZESW_RESET}"
+
+	printf "\n${bottom_border}${_ZESW_RESET}\n\n"
 }
 
 
-# UI Helper Functions
+# UI Components
 
 
 # Pause execution and wait for the user to press Enter.
@@ -286,56 +287,6 @@ function _zesw_confirm_prompt() {
 	printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
 }
 
-# Input validation helper
-function _zesw_validate_choice() {
-	local choice="$1" min="$2" max="$3"
-	[[ "$choice" =~ ^[0-9]+$ ]] || return 1
-	(( choice >= min && choice <= max )) || return 1
-	return 0
-}
-
-# Key capture function for custom keybindings
-function _zesw_capture_key() {
-	local result_var=""
-	local key_sequence=""
-
-	printf "%s▶%s Press the key combination you want to use: " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-
-	# Read raw key input
-	read -k 1 key_sequence
-
-	# Handle multi-byte sequences (escape sequences)
-	if [[ "$key_sequence" == $'\e' ]]; then
-		local additional=""
-		# Read additional bytes for escape sequence with timeout
-		read -t 0.1 -k 5 additional 2>/dev/null
-		key_sequence+="$additional"
-	fi
-
-	printf "\n"
-
-	# Convert to ZLE notation if needed
-	if [[ "$key_sequence" == $'\e'* ]]; then
-		# It's an escape sequence, convert to ^[ notation
-		result_var="^[${key_sequence#$'\e'}"
-	elif [[ "$key_sequence" =~ ^[[:cntrl:]]$ ]]; then
-		# It's a control character, convert to ^ notation
-		local char_code=$(printf '%d' "'$key_sequence")
-		if (( char_code < 32 )); then
-			local letter=$(printf "\\$(printf '%03o' $((char_code + 64)))")
-			result_var="^$letter"
-		else
-			result_var="$key_sequence"
-		fi
-	else
-		result_var="$key_sequence"
-	fi
-
-	# Display captured key
-	printf "%s ℹ%s  Captured key: %s%s%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$_ZESW_CLR_HILITE" "$result_var" "$_ZESW_CLR_RESET"
-	eval "$1=\${result_var}"
-}
-
 # Prompt user to choose between auto-detecting or manually entering a custom
 # keybinding sequence. Stores result in the variable named by $1.
 # Returns 0 on success, 1 if cancelled/empty.
@@ -354,7 +305,9 @@ function _zesw_read_custom_key() {
 
 	case "$_rck_method" in
 		1)
-			_zesw_capture_key _rck_input
+			_zesw_input_prompt "Press your desired key combination:"
+			read -k 1 _rck_input
+			printf "\n"
 			;;
 		2)
 			_zesw_input_prompt "Type the key pattern and press Enter:"
@@ -374,21 +327,17 @@ function _zesw_read_custom_key() {
 	return 0
 }
 
-# Status Helper Functions
-
-
-# Return a human-readable label for the active display server type based on $_ZES_MONITOR_TYPE.
-function _zesw_get_monitor_type() {
-	case "$_ZES_MONITOR_TYPE" in
-		x11) printf "XWayland" ;;
-		wayland) printf "Wayland (native)" ;;
-		*) printf "Unknown" ;;
-	esac
-}
-
 # Return "enabled" or "disabled" reflecting the current EDIT_SELECT_MOUSE_REPLACEMENT value.
 function _zesw_get_mouse_status() {
 	(( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"
+}
+
+# Validate input
+function _zesw_validate_choice() {
+	local choice="$1"
+	local min="$2"
+	local max="$3"
+	[[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= min && choice <= max ))
 }
 
 
@@ -402,37 +351,19 @@ function edit-select::delete-config-key() {
 	(( ${#filtered[@]} )) && printf '%s\n' "${filtered[@]}" > "$_EDIT_SELECT_CONFIG_FILE" || rm -f "$_EDIT_SELECT_CONFIG_FILE"
 }
 
-# Persist a key/value pair to the config file, creating the directory and file when needed.
+# Persist a key/value pair to the config file, creating it when needed.
 # Values are written as key="value" except for EDIT_SELECT_MOUSE_REPLACEMENT which is unquoted.
 # Args: key, value.
 function edit-select::save-config() {
-	local key="$1"
-	local value="$2"
-	local config_dir="${_EDIT_SELECT_CONFIG_FILE:h}"
-
-	# Create directory if needed
-	if [[ ! -d "$config_dir" ]]; then
-		mkdir -p "$config_dir" || {
-			_zesw_error "Failed to create config directory: $config_dir"
-			return 1
-		}
-	fi
-
-	# Read existing config
+	mkdir -p "${_EDIT_SELECT_CONFIG_FILE:h}" >/dev/null 2>&1
 	local -a lines
 	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] && lines=("${(@f)$(<$_EDIT_SELECT_CONFIG_FILE)}")
-
-	# Remove old entry if exists
-	lines=("${(@)lines:#${key}=*}")
-
-	# Add new entry
-	if [[ $key == EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
-		lines+=("${key}=${value}")
+	lines=("${(@)lines:#${1}=*}")
+	if [[ $1 == EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
+		lines+=("${1}=${2}")
 	else
-		lines+=("${key}=\"${value}\"")
+		lines+=("${1}=\"${2}\"")
 	fi
-
-	# Write to file
 	printf '%s\n' "${lines[@]}" > "$_EDIT_SELECT_CONFIG_FILE"
 }
 
@@ -513,7 +444,18 @@ function edit-select::show-menu() {
 	_zesw_banner
 
 	_zesw_section_header "Current Configuration"
-	_zesw_status_line "Platform" "$(_zesw_get_monitor_type)"
+	_zesw_status_line "Platform" "macOS"
+	# macOS-specific: show Accessibility (PRIMARY selection) permission status.
+	if [[ -x "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" ]]; then
+		if "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" \
+				--check-ax 2>/dev/null; then
+			_zesw_status_line "Mouse Selection" \
+				"${_ZESW_CLR_HILITE}Active (AX) ✓${_ZESW_CLR_RESET}"
+		else
+			_zesw_status_line "Mouse Selection" \
+				"${_ZESW_CLR_WARN}Clipboard only — run 'edit-select setup-ax'${_ZESW_CLR_RESET}"
+		fi
+	fi
 	_zesw_status_line "Mouse Replace" "$(_zesw_get_mouse_status)"
 
 	_zesw_section_header "Configuration Options"
@@ -528,7 +470,7 @@ function edit-select::show-menu() {
 }
 
 
-# Mouse Replacement Configuration
+# Mouse Configuration
 
 
 # Interactive loop to enable or disable the mouse-region replacement feature.
@@ -536,66 +478,72 @@ function edit-select::configure-mouse-replacement() {
 	while true; do
 		_zesw_banner
 
-		_zesw_section_header "Current Status"
-		local mouse_status="$(_zesw_get_mouse_status)"
-		if [[ $mouse_status == "enabled" ]]; then
-			_zesw_status_line "Status" "${_ZESW_CLR_HILITE}Enabled ✓${_ZESW_CLR_RESET}"
+		_zesw_section_header "Current Setting"
+		local binding_desc
+		if (( EDIT_SELECT_MOUSE_REPLACEMENT )); then
+			binding_desc="${_ZESW_CLR_HILITE}^X${_ZESW_CLR_RESET}"
 		else
-			_zesw_status_line "Status" "${_ZESW_CLR_DIM}Disabled${_ZESW_CLR_RESET}"
+			binding_desc="${_ZESW_CLR_DIM}Not bound${_ZESW_CLR_RESET}"
 		fi
+		_zesw_status_line "Binding" "$binding_desc"
+		_zesw_status_line "Status" "$(_zesw_get_mouse_status)"
 
-		_zesw_info "Integrates mouse selections into ZLE (Zsh Line Editor)"
+		_zesw_info "Delete selection and copy to clipboard"
 
-		_zesw_section_header "Feature Capabilities"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Replace mouse selections by typing over them\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Replace mouse selections by pasting over them\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Cut mouse selections\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Terminal-native text editing workflow\n"
-
-		_zesw_section_header "Options"
-		_zesw_print_option 1 "Enable  ${_ZESW_CLR_DIM}— Activate mouse-replacement integration${_ZESW_CLR_RESET}"
-		_zesw_print_option 2 "Disable ${_ZESW_CLR_DIM}— Use keyboard-only for selection replacement${_ZESW_CLR_RESET}"
+		_zesw_section_header "Available Presets"
+		_zesw_print_option 1 "Ctrl+X                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+		_zesw_print_option 2 "Ctrl+Shift+X          ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
+		_zesw_print_option 3 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 		_zesw_separator
-		_zesw_print_option 3 "Back to main menu"
+		_zesw_print_option 4 "Back"
 
-		_zesw_input_prompt "Choose option (1-3):"
+		_zesw_input_prompt "Choose option (1-4):"
 		read -r choice
 
-		if ! _zesw_validate_choice "$choice" 1 3; then
-			_zesw_error "Invalid choice. Please enter a number between 1-3."
+		if ! _zesw_validate_choice "$choice" 1 4; then
+			_zesw_error "Invalid choice. Please enter a number between 1-4."
 			_zesw_prompt_continue
 			continue
 		fi
 
 		case "$choice" in
-			1) edit-select::set-mouse-replacement enabled; return ;;
-			2) edit-select::set-mouse-replacement disabled; return ;;
-			3) return ;;
+			1)
+				typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
+				edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" 1
+				edit-select::apply-mouse-replacement-config
+				_zesw_loading "Applying Ctrl+X binding" 2
+				_zesw_success "Mouse replacement enabled with Ctrl+X"
+				_zesw_prompt_continue
+				;;
+			2)
+				typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=0
+				edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" 0
+				edit-select::apply-mouse-replacement-config
+				_zesw_loading "Disabling mouse replacement" 2
+				_zesw_success "Mouse replacement disabled — Using standard behavior"
+				_zesw_prompt_continue
+				;;
+			3)
+				if _zesw_read_custom_key custom_key; then
+					_zesw_info "You pressed: ${_ZESW_CLR_HILITE}$custom_key${_ZESW_CLR_RESET}"
+					_zesw_confirm_prompt "Apply this binding?"
+					read -r confirm
+					if [[ $confirm =~ ^[Yy]$ ]]; then
+						_zesw_loading "Applying custom binding" 2
+						_zesw_success "Custom binding applied"
+					else
+						_zesw_info "Cancelled"
+					fi
+				fi
+				_zesw_prompt_continue
+				;;
+			4) return ;;
 		esac
 	done
 }
 
-# Apply and persist a mouse-replacement enable/disable choice. Args: "enabled" | "disabled".
-function edit-select::set-mouse-replacement() {
-	local value
-	[[ $1 == enabled ]] && value=1 || value=0
 
-	_zesw_loading "Applying configuration" 2
-
-	edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" "$value"
-	typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=$value
-	edit-select::apply-mouse-replacement-config
-
-	if (( value )); then
-		_zesw_success "Mouse replacement enabled — Mouse selections now integrated with ZLE"
-	else
-		_zesw_success "Mouse replacement disabled — Using keyboard-only selection mode"
-	fi
-	_zesw_prompt_continue
-}
-
-
-# Individual Keybinding Configuration
+# Individual Keybinding Configurations
 
 
 # Interactive menu to set the Select All keybinding.
@@ -605,12 +553,12 @@ function edit-select::configure-select-all() {
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_SELECT_ALL${_ZESW_CLR_RESET}"
 
-	_zesw_info "Select the entire command line with one keystroke"
+	_zesw_info "Delete selection and copy to clipboard"
 
 	_zesw_section_header "Available Presets"
-	_zesw_print_option 1 "Ctrl+A          ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Ctrl+Shift+A    ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
-	_zesw_print_option 3 "Custom binding  ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Ctrl+X                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Shift+X          ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
 	_zesw_print_option 4 "Back"
 
@@ -624,17 +572,32 @@ function edit-select::configure-select-all() {
 	fi
 
 	case "$choice" in
-		1) edit-select::set-keybinding SELECT_ALL "$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL" ;;
-		2) edit-select::set-keybinding SELECT_ALL "^[[65;6u" ;;
+		1)
+			typeset -g EDIT_SELECT_KEY_SELECT_ALL="^A"
+			edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "^A"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+A binding" 2
+			_zesw_success "Select All bound to Ctrl+A"
+			;;
+		2)
+			typeset -g EDIT_SELECT_KEY_SELECT_ALL="^[[65;5u"
+			edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "^[[65;5u"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+A binding" 2
+			_zesw_success "Select All bound to Ctrl+Shift+A"
+			;;
 		3)
-			if _zesw_read_custom_key custom; then
-				edit-select::set-keybinding SELECT_ALL "$custom"
-			else
-				_zesw_prompt_continue
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_SELECT_ALL="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Select All bound to custom key"
 			fi
 			;;
 		4) return ;;
 	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Paste keybinding.
@@ -644,12 +607,12 @@ function edit-select::configure-paste() {
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_PASTE${_ZESW_CLR_RESET}"
 
-	_zesw_info "Insert clipboard content at cursor position"
+	_zesw_info "Insert from clipboard"
 
 	_zesw_section_header "Available Presets"
-	_zesw_print_option 1 "Ctrl+V          ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Ctrl+Shift+V    ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
-	_zesw_print_option 3 "Custom binding  ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Ctrl+V                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Shift+V          ${_ZESW_CLR_DIM}— Alternative for terminals${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
 	_zesw_print_option 4 "Back"
 
@@ -663,17 +626,32 @@ function edit-select::configure-paste() {
 	fi
 
 	case "$choice" in
-		1) edit-select::set-keybinding PASTE "$_EDIT_SELECT_DEFAULT_KEY_PASTE" ;;
-		2) edit-select::set-keybinding PASTE "^[[86;6u" ;;
+		1)
+			typeset -g EDIT_SELECT_KEY_PASTE="^V"
+			edit-select::save-config "EDIT_SELECT_KEY_PASTE" "^V"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+V binding" 2
+			_zesw_success "Paste bound to Ctrl+V"
+			;;
+		2)
+			typeset -g EDIT_SELECT_KEY_PASTE="^[[86;5u"
+			edit-select::save-config "EDIT_SELECT_KEY_PASTE" "^[[86;5u"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+V binding" 2
+			_zesw_success "Paste bound to Ctrl+Shift+V"
+			;;
 		3)
-			if _zesw_read_custom_key custom; then
-				edit-select::set-keybinding PASTE "$custom"
-			else
-				_zesw_prompt_continue
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_PASTE="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_PASTE" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Paste bound to custom key"
 			fi
 			;;
 		4) return ;;
 	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Cut keybinding.
@@ -683,12 +661,12 @@ function edit-select::configure-cut() {
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_CUT${_ZESW_CLR_RESET}"
 
-	_zesw_info "Delete selection and copy to clipboard"
+	_zesw_info "Delete and copy to clipboard"
 
 	_zesw_section_header "Available Presets"
-	_zesw_print_option 1 "Ctrl+X          ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Ctrl+Shift+X    ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
-	_zesw_print_option 3 "Custom binding  ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Ctrl+X                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Shift+X          ${_ZESW_CLR_DIM}— Alternative for terminals${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
 	_zesw_print_option 4 "Back"
 
@@ -702,17 +680,32 @@ function edit-select::configure-cut() {
 	fi
 
 	case "$choice" in
-		1) edit-select::set-keybinding CUT "$_EDIT_SELECT_DEFAULT_KEY_CUT" ;;
-		2) edit-select::set-keybinding CUT "^[[88;6u" ;;
+		1)
+			typeset -g EDIT_SELECT_KEY_CUT="^X"
+			edit-select::save-config "EDIT_SELECT_KEY_CUT" "^X"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+X binding" 2
+			_zesw_success "Cut bound to Ctrl+X"
+			;;
+		2)
+			typeset -g EDIT_SELECT_KEY_CUT="^[[88;5u"
+			edit-select::save-config "EDIT_SELECT_KEY_CUT" "^[[88;5u"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+X binding" 2
+			_zesw_success "Cut bound to Ctrl+Shift+X"
+			;;
 		3)
-			if _zesw_read_custom_key custom; then
-				edit-select::set-keybinding CUT "$custom"
-			else
-				_zesw_prompt_continue
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_CUT="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_CUT" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Cut bound to custom key"
 			fi
 			;;
 		4) return ;;
 	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Copy keybinding.
@@ -733,44 +726,49 @@ function edit-select::configure-copy() {
 	printf "         to see what sequence your terminal sends. See Terminal Setup in the\n"
 	printf "         documentation for per-terminal configuration steps.\n"
 
-	local -a presets=(
-		"^[[67;6u"
-		"^Y"
-	)
-	local -a preset_labels=(
-		"Ctrl+Shift+C     — Default (^[[67;6u, may require terminal configuration)"
-		"Ctrl+Y           — Alternative without Shift requirement"
-	)
-
 	_zesw_section_header "Available Presets"
-	local i
-	for (( i=1; i<=${#presets[@]}; i++ )); do
-		_zesw_print_option $i "${preset_labels[$i]}"
-	done
-	_zesw_print_option $(( ${#presets[@]} + 1 )) "Custom binding   — Enter your own key sequence"
+	_zesw_print_option 1 "Ctrl+Shift+C     ${_ZESW_CLR_DIM}— Default (^[[67;6u, may require terminal configuration)${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Y           ${_ZESW_CLR_DIM}— Alternative without Shift requirement${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding   ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option $(( ${#presets[@]} + 2 )) "Back"
+	_zesw_print_option 4 "Back"
 
-	local max=$(( ${#presets[@]} + 2 ))
-	_zesw_input_prompt "Choose option (1-${max}):"
+	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
 
-	if ! _zesw_validate_choice "$choice" 1 "$max"; then
-		_zesw_error "Invalid choice. Please enter a number between 1-${max}."
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
 		_zesw_prompt_continue
 		return
 	fi
 
-	if (( choice <= ${#presets[@]} )); then
-		edit-select::set-keybinding COPY "${presets[$choice]}"
-	elif (( choice == ${#presets[@]} + 1 )); then
-		local custom
-		if _zesw_read_custom_key custom; then
-			edit-select::set-keybinding COPY "$custom"
-		else
-			_zesw_prompt_continue
-		fi
-	fi
+	case "$choice" in
+		1)
+			typeset -g EDIT_SELECT_KEY_COPY="^[[67;6u"
+			edit-select::save-config "EDIT_SELECT_KEY_COPY" "^[[67;6u"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+C binding" 2
+			_zesw_success "Copy bound to Ctrl+Shift+C"
+			;;
+		2)
+			typeset -g EDIT_SELECT_KEY_COPY="^Y"
+			edit-select::save-config "EDIT_SELECT_KEY_COPY" "^Y"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Y binding" 2
+			_zesw_success "Copy bound to Ctrl+Y"
+			;;
+		3)
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_COPY="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_COPY" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Copy bound to custom key"
+			fi
+			;;
+		4) return ;;
+	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Word Left navigation keybinding.
@@ -786,44 +784,49 @@ function edit-select::configure-word-left() {
 		"$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	printf "         Run 'cat' and press Ctrl+Left to see the exact sequence yours sends.\n"
 
-	local -a presets=(
-		"^[[1;5D"
-		"^[b"
-	)
-	local -a preset_labels=(
-		"Ctrl+Left        — Default (^[[1;5D, standard xterm/VT sequence)"
-		"Ctrl+Left alt    — Alternative (^[b, some terminal emulators)"
-	)
-
 	_zesw_section_header "Available Presets"
-	local i
-	for (( i=1; i<=${#presets[@]}; i++ )); do
-		_zesw_print_option $i "${preset_labels[$i]}"
-	done
-	_zesw_print_option $(( ${#presets[@]} + 1 )) "Custom binding   — Enter your own key sequence"
+	_zesw_print_option 1 "Ctrl+Left        ${_ZESW_CLR_DIM}— Default (^[[1;5D, standard xterm/VT sequence)${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Left alt    ${_ZESW_CLR_DIM}— Alternative (^[b, some terminal emulators)${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding   ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option $(( ${#presets[@]} + 2 )) "Back"
+	_zesw_print_option 4 "Back"
 
-	local max=$(( ${#presets[@]} + 2 ))
-	_zesw_input_prompt "Choose option (1-${max}):"
+	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
 
-	if ! _zesw_validate_choice "$choice" 1 "$max"; then
-		_zesw_error "Invalid choice. Please enter a number between 1-${max}."
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
 		_zesw_prompt_continue
 		return
 	fi
 
-	if (( choice <= ${#presets[@]} )); then
-		edit-select::set-keybinding WORD_LEFT "${presets[$choice]}"
-	elif (( choice == ${#presets[@]} + 1 )); then
-		local custom
-		if _zesw_read_custom_key custom; then
-			edit-select::set-keybinding WORD_LEFT "$custom"
-		else
-			_zesw_prompt_continue
-		fi
-	fi
+	case "$choice" in
+		1)
+			typeset -g EDIT_SELECT_KEY_WORD_LEFT="^[[1;5D"
+			edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "^[[1;5D"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Left binding" 2
+			_zesw_success "Word Left bound to Ctrl+Left (^[[1;5D)"
+			;;
+		2)
+			typeset -g EDIT_SELECT_KEY_WORD_LEFT="^[b"
+			edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "^[b"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Alt+B binding" 2
+			_zesw_success "Word Left bound to ^[b"
+			;;
+		3)
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_WORD_LEFT="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Word Left bound to custom key"
+			fi
+			;;
+		4) return ;;
+	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Word Right navigation keybinding.
@@ -839,44 +842,49 @@ function edit-select::configure-word-right() {
 		"$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	printf "         Run 'cat' and press Ctrl+Right to see the exact sequence yours sends.\n"
 
-	local -a presets=(
-		"^[[1;5C"
-		"^[f"
-	)
-	local -a preset_labels=(
-		"Ctrl+Right       — Default (^[[1;5C, standard xterm/VT sequence)"
-		"Ctrl+Right alt   — Alternative (^[f, some terminal emulators)"
-	)
-
 	_zesw_section_header "Available Presets"
-	local i
-	for (( i=1; i<=${#presets[@]}; i++ )); do
-		_zesw_print_option $i "${preset_labels[$i]}"
-	done
-	_zesw_print_option $(( ${#presets[@]} + 1 )) "Custom binding   — Enter your own key sequence"
+	_zesw_print_option 1 "Ctrl+Right       ${_ZESW_CLR_DIM}— Default (^[[1;5C, standard xterm/VT sequence)${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Right alt   ${_ZESW_CLR_DIM}— Alternative (^[f, some terminal emulators)${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding   ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option $(( ${#presets[@]} + 2 )) "Back"
+	_zesw_print_option 4 "Back"
 
-	local max=$(( ${#presets[@]} + 2 ))
-	_zesw_input_prompt "Choose option (1-${max}):"
+	_zesw_input_prompt "Choose option (1-4):"
 	read -r choice
 
-	if ! _zesw_validate_choice "$choice" 1 "$max"; then
-		_zesw_error "Invalid choice. Please enter a number between 1-${max}."
+	if ! _zesw_validate_choice "$choice" 1 4; then
+		_zesw_error "Invalid choice. Please enter a number between 1-4."
 		_zesw_prompt_continue
 		return
 	fi
 
-	if (( choice <= ${#presets[@]} )); then
-		edit-select::set-keybinding WORD_RIGHT "${presets[$choice]}"
-	elif (( choice == ${#presets[@]} + 1 )); then
-		local custom
-		if _zesw_read_custom_key custom; then
-			edit-select::set-keybinding WORD_RIGHT "$custom"
-		else
-			_zesw_prompt_continue
-		fi
-	fi
+	case "$choice" in
+		1)
+			typeset -g EDIT_SELECT_KEY_WORD_RIGHT="^[[1;5C"
+			edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "^[[1;5C"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Right binding" 2
+			_zesw_success "Word Right bound to Ctrl+Right (^[[1;5C)"
+			;;
+		2)
+			typeset -g EDIT_SELECT_KEY_WORD_RIGHT="^[f"
+			edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "^[f"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Alt+F binding" 2
+			_zesw_success "Word Right bound to ^[f"
+			;;
+		3)
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Word Right bound to custom key"
+			fi
+			;;
+		4) return ;;
+	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Buffer Start navigation keybinding (Ctrl+Shift+Home by default).
@@ -892,42 +900,41 @@ function edit-select::configure-buffer-start() {
 		"$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	printf "         Run 'cat' and press Ctrl+Shift+Home to see the exact sequence yours sends.\n"
 
-	local -a presets=(
-		"^[[1;6H"
-	)
-	local -a preset_labels=(
-		"Ctrl+Shift+Home  — Default (^[[1;6H, standard xterm/VT sequence)"
-	)
-
 	_zesw_section_header "Available Presets"
-	local i
-	for (( i=1; i<=${#presets[@]}; i++ )); do
-		_zesw_print_option $i "${preset_labels[$i]}"
-	done
-	_zesw_print_option $(( ${#presets[@]} + 1 )) "Custom binding   — Enter your own key sequence"
+	_zesw_print_option 1 "Ctrl+Shift+Home  ${_ZESW_CLR_DIM}— Default (^[[1;6H, standard xterm/VT sequence)${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Custom binding   ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option $(( ${#presets[@]} + 2 )) "Back"
+	_zesw_print_option 3 "Back"
 
-	local max=$(( ${#presets[@]} + 2 ))
-	_zesw_input_prompt "Choose option (1-${max}):"
+	_zesw_input_prompt "Choose option (1-3):"
 	read -r choice
 
-	if ! _zesw_validate_choice "$choice" 1 "$max"; then
-		_zesw_error "Invalid choice. Please enter a number between 1-${max}."
+	if ! _zesw_validate_choice "$choice" 1 3; then
+		_zesw_error "Invalid choice. Please enter a number between 1-3."
 		_zesw_prompt_continue
 		return
 	fi
 
-	if (( choice <= ${#presets[@]} )); then
-		edit-select::set-keybinding BUFFER_START "${presets[$choice]}"
-	elif (( choice == ${#presets[@]} + 1 )); then
-		local custom
-		if _zesw_read_custom_key custom; then
-			edit-select::set-keybinding BUFFER_START "$custom"
-		else
-			_zesw_prompt_continue
-		fi
-	fi
+	case "$choice" in
+		1)
+			typeset -g EDIT_SELECT_KEY_BUFFER_START="^[[1;6H"
+			edit-select::save-config "EDIT_SELECT_KEY_BUFFER_START" "^[[1;6H"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+Home binding" 2
+			_zesw_success "Buffer Start bound to Ctrl+Shift+Home (^[[1;6H)"
+			;;
+		2)
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_BUFFER_START="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_BUFFER_START" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Buffer Start bound to custom key"
+			fi
+			;;
+		3) return ;;
+	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Buffer End navigation keybinding (Ctrl+Shift+End by default).
@@ -943,56 +950,9 @@ function edit-select::configure-buffer-end() {
 		"$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	printf "         Run 'cat' and press Ctrl+Shift+End to see the exact sequence yours sends.\n"
 
-	local -a presets=(
-		"^[[1;6F"
-	)
-	local -a preset_labels=(
-		"Ctrl+Shift+End   — Default (^[[1;6F, standard xterm/VT sequence)"
-	)
-
 	_zesw_section_header "Available Presets"
-	local i
-	for (( i=1; i<=${#presets[@]}; i++ )); do
-		_zesw_print_option $i "${preset_labels[$i]}"
-	done
-	_zesw_print_option $(( ${#presets[@]} + 1 )) "Custom binding   — Enter your own key sequence"
-	_zesw_separator
-	_zesw_print_option $(( ${#presets[@]} + 2 )) "Back"
-
-	local max=$(( ${#presets[@]} + 2 ))
-	_zesw_input_prompt "Choose option (1-${max}):"
-	read -r choice
-
-	if ! _zesw_validate_choice "$choice" 1 "$max"; then
-		_zesw_error "Invalid choice. Please enter a number between 1-${max}."
-		_zesw_prompt_continue
-		return
-	fi
-
-	if (( choice <= ${#presets[@]} )); then
-		edit-select::set-keybinding BUFFER_END "${presets[$choice]}"
-	elif (( choice == ${#presets[@]} + 1 )); then
-		local custom
-		if _zesw_read_custom_key custom; then
-			edit-select::set-keybinding BUFFER_END "$custom"
-		else
-			_zesw_prompt_continue
-		fi
-	fi
-}
-
-# Interactive menu to set the Undo keybinding.
-function edit-select::configure-undo() {
-	_zesw_banner
-
-	_zesw_section_header "Current Setting"
-	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_UNDO${_ZESW_CLR_RESET}"
-
-	_zesw_info "Undo last editing action"
-
-	_zesw_section_header "Available Presets"
-	_zesw_print_option 1 "Ctrl+Z          ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Custom binding  ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Ctrl+Shift+End   ${_ZESW_CLR_DIM}— Default (^[[1;6F, standard xterm/VT sequence)${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Custom binding   ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
 	_zesw_print_option 3 "Back"
 
@@ -1006,16 +966,71 @@ function edit-select::configure-undo() {
 	fi
 
 	case "$choice" in
-		1) edit-select::set-keybinding UNDO "$_EDIT_SELECT_DEFAULT_KEY_UNDO" ;;
+		1)
+			typeset -g EDIT_SELECT_KEY_BUFFER_END="^[[1;6F"
+			edit-select::save-config "EDIT_SELECT_KEY_BUFFER_END" "^[[1;6F"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+End binding" 2
+			_zesw_success "Buffer End bound to Ctrl+Shift+End (^[[1;6F)"
+			;;
 		2)
-			if _zesw_read_custom_key custom; then
-				edit-select::set-keybinding UNDO "$custom"
-			else
-				_zesw_prompt_continue
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_BUFFER_END="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_BUFFER_END" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Buffer End bound to custom key"
 			fi
 			;;
 		3) return ;;
 	esac
+	_zesw_prompt_continue
+}
+
+# Interactive menu to set the Undo keybinding.
+function edit-select::configure-undo() {
+	_zesw_banner
+
+	_zesw_section_header "Current Setting"
+	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_UNDO${_ZESW_CLR_RESET}"
+
+	_zesw_info "Undo last edit"
+
+	_zesw_section_header "Available Presets"
+	_zesw_print_option 1 "Ctrl+Z                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_separator
+	_zesw_print_option 3 "Back"
+
+	_zesw_input_prompt "Choose option (1-3):"
+	read -r choice
+
+	if ! _zesw_validate_choice "$choice" 1 3; then
+		_zesw_error "Invalid choice. Please enter a number between 1-3."
+		_zesw_prompt_continue
+		return
+	fi
+
+	case "$choice" in
+		1)
+			typeset -g EDIT_SELECT_KEY_UNDO="^Z"
+			edit-select::save-config "EDIT_SELECT_KEY_UNDO" "^Z"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Z binding" 2
+			_zesw_success "Undo bound to Ctrl+Z"
+			;;
+		2)
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_UNDO="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_UNDO" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Undo bound to custom key"
+			fi
+			;;
+		3) return ;;
+	esac
+	_zesw_prompt_continue
 }
 
 # Interactive menu to set the Redo keybinding.
@@ -1025,84 +1040,53 @@ function edit-select::configure-redo() {
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_REDO${_ZESW_CLR_RESET}"
 
-	_zesw_info "Redo last undone action"
+	_zesw_info "Redo last undone edit"
 
 	_zesw_section_header "Available Presets"
-	_zesw_print_option 1 "Ctrl+Shift+Z    ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Ctrl+Y          ${_ZESW_CLR_DIM}— Alternative binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 3 "Custom binding  ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Ctrl+Shift+Z          ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option 4 "Back"
+	_zesw_print_option 3 "Back"
 
-	_zesw_input_prompt "Choose option (1-4):"
+	_zesw_input_prompt "Choose option (1-3):"
 	read -r choice
 
-	if ! _zesw_validate_choice "$choice" 1 4; then
-		_zesw_error "Invalid choice. Please enter a number between 1-4."
+	if ! _zesw_validate_choice "$choice" 1 3; then
+		_zesw_error "Invalid choice. Please enter a number between 1-3."
 		_zesw_prompt_continue
 		return
 	fi
 
 	case "$choice" in
-		1) edit-select::set-keybinding REDO "$_EDIT_SELECT_DEFAULT_KEY_REDO" ;;
-		2) edit-select::set-keybinding REDO "^Y" ;;
-		3)
-			if _zesw_read_custom_key custom; then
-				edit-select::set-keybinding REDO "$custom"
-			else
-				_zesw_prompt_continue
+		1)
+			typeset -g EDIT_SELECT_KEY_REDO="^[[90;6u"
+			edit-select::save-config "EDIT_SELECT_KEY_REDO" "^[[90;6u"
+			edit-select::apply-keybindings
+			_zesw_loading "Applying Ctrl+Shift+Z binding" 2
+			_zesw_success "Redo bound to Ctrl+Shift+Z"
+			;;
+		2)
+			if _zesw_read_custom_key custom_key; then
+				typeset -g EDIT_SELECT_KEY_REDO="$custom_key"
+				edit-select::save-config "EDIT_SELECT_KEY_REDO" "$custom_key"
+				edit-select::apply-keybindings
+				_zesw_loading "Applying custom binding" 2
+				_zesw_success "Redo bound to custom key"
 			fi
 			;;
-		4) return ;;
+		3) return ;;
 	esac
-}
-
-# Save and immediately apply a single keybinding change, then print a success message.
-# Uses edit-select::save-config and edit-select::apply-keybindings internally.
-# Args: KEY_NAME (e.g. WORD_LEFT), ZLE key sequence (e.g. ^[[1;5D).
-function edit-select::set-keybinding() {
-	[[ -z $2 ]] && return 1
-
-	_zesw_loading "Updating keybinding" 2
-
-	edit-select::save-config "EDIT_SELECT_KEY_${1}" "$2"
-	case "$1" in
-		SELECT_ALL) typeset -g EDIT_SELECT_KEY_SELECT_ALL="$2" ;;
-		PASTE) typeset -g EDIT_SELECT_KEY_PASTE="$2" ;;
-		CUT) typeset -g EDIT_SELECT_KEY_CUT="$2" ;;
-		COPY) typeset -g EDIT_SELECT_KEY_COPY="$2" ;;
-		UNDO) typeset -g EDIT_SELECT_KEY_UNDO="$2" ;;
-		REDO) typeset -g EDIT_SELECT_KEY_REDO="$2" ;;
-		WORD_LEFT) typeset -g EDIT_SELECT_KEY_WORD_LEFT="$2" ;;
-		WORD_RIGHT) typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$2" ;;
-		BUFFER_START) typeset -g EDIT_SELECT_KEY_BUFFER_START="$2" ;;
-		BUFFER_END) typeset -g EDIT_SELECT_KEY_BUFFER_END="$2" ;;
-	esac
-	edit-select::apply-keybindings
-
-	local action_name
-	case "$1" in
-		SELECT_ALL) action_name="Select-All" ;;
-		PASTE) action_name="Paste" ;;
-		CUT) action_name="Cut" ;;
-		COPY) action_name="Copy" ;;
-		UNDO) action_name="Undo" ;;
-		REDO) action_name="Redo" ;;
-		WORD_LEFT) action_name="Word Left" ;;
-		WORD_RIGHT) action_name="Word Right" ;;
-		BUFFER_START) action_name="Buffer Start" ;;
-		BUFFER_END) action_name="Buffer End" ;;
-	esac
-	_zesw_success "$action_name keybinding updated to: ${_ZESW_CLR_HILITE}$2${_ZESW_CLR_RESET}"
 	_zesw_prompt_continue
 }
 
-# Confirm with the user then reset all keybindings to factory defaults,
-# re-applying them live and persisting the defaults to the config file.
+# Resets all keybindings to their default values after user confirmation.
 function edit-select::reset-keybindings() {
 	_zesw_banner
 
-	_zesw_section_header "Default Bindings"
+	printf "\n%s⚠ WARNING ⚠%s\n" "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET"
+	printf "This will reset all keybindings to their defaults.\n\n"
+
+	_zesw_section_header "Default Keybindings"
 	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Select All  → Ctrl+A\n"
 	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Paste       → Ctrl+V\n"
 	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Cut         → Ctrl+X\n"
@@ -1150,7 +1134,7 @@ function edit-select::reset-keybindings() {
 # Keybindings Menu
 
 
-# Interactive loop for the keybindings submenu; dispatches to individual configure-* functions.
+# Interactive menu to configure all keybindings for the plugin.
 function edit-select::configure-keybindings() {
 	while true; do
 		_zesw_banner
@@ -1214,8 +1198,7 @@ function edit-select::configure-keybindings() {
 # Configuration View & Reset
 
 
-# Confirm with the user then permanently delete the config file and restore all settings
-# (keybindings and mouse replacement) to factory defaults.
+# Resets the entire plugin configuration to defaults after user confirmation.
 function edit-select::reset-config() {
 	_zesw_banner
 
@@ -1252,7 +1235,7 @@ function edit-select::reset-config() {
 	_zesw_prompt_continue
 }
 
-# Display the config file path and contents alongside all active runtime settings.
+# Displays the current plugin configuration as a formatted summary.
 function edit-select::view-config() {
 	_zesw_banner
 
@@ -1271,8 +1254,7 @@ function edit-select::view-config() {
 	fi
 
 	_zesw_section_header "Active Runtime Settings"
-	printf "  %sClipboard:%s wl-copy / wl-paste (Wayland)\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
-	printf "  %sMonitor Type:%s %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$(_zesw_get_monitor_type)"
+	printf "  %sClipboard:%s NSPasteboard (macOS)\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 
 	printf "\n  %sMouse Integration:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	local mouse_status="$(_zesw_get_mouse_status)"
@@ -1296,7 +1278,7 @@ function edit-select::view-config() {
 
 	_zesw_section_header "Plugin Information"
 	printf "  %sPlugin Directory:%s\n" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
-	printf "  %s%s%s\n" "$_ZESW_CLR_DIM" "$_EDIT_SELECT_WIZARD_DIR" "$_ZESW_CLR_RESET"
+	printf "  %s%s%s\n" "$_ZESW_CLR_DIM" "$_EDIT_SELECT_PLUGIN_DIR" "$_ZESW_CLR_RESET"
 
 	_zesw_prompt_continue
 }
@@ -1305,7 +1287,7 @@ function edit-select::view-config() {
 # Main Entry Point
 
 
-# Entry point: initialize colors, load current keybindings, and run the main wizard loop.
+# Main entry point for the interactive configuration wizard.
 function edit-select::config-wizard() {
 	_zesw_init_colors
 
@@ -1335,7 +1317,7 @@ function edit-select::config-wizard() {
 			4) edit-select::reset-config ;;
 			5)
 				# Exit with success box
-				printf '\033[2J\033[3J\033[H'  # Clear screen and scrollback
+				printf '\033[2J\033[3J\033[H'
 				_zesw_success_box "Configuration Saved"
 				_zesw_info "Your changes are active and will persist across shell sessions"
 				printf "\n"
