@@ -44,7 +44,7 @@ function _zes_request_ax_permission() {
 # READINESS SIGNAL: The daemon writes an empty seq file BEFORE posix_spawn().
 # We poll for the seq file's existence (up to 40×25ms = 1s).
 #
-# TMUX BOOTSTRAP NAMESPACE FIX (Correction D):
+# TMUX BOOTSTRAP NAMESPACE FIX:
 # Inside tmux, the shell may be in tmux's bootstrap namespace without
 # pboard. If reattach-to-user-namespace is available, wrap the launch.
 # The ${+commands[...]} lookup is a zero-cost zsh hash table probe.

@@ -32,7 +32,7 @@
 //   NSApplicationActivationPolicyAccessory called in main() BEFORE fork(),
 //   so the child inherits the established pboard Mach port.
 //   setActivationPolicy:Accessory is required for CGEventTapCreate to
-//   succeed on macOS 15 Sequoia (see Correction P).
+//   succeed on macOS 15 Sequoia.
 //   NSApplicationLoad() is deprecated since macOS 10.15 — NOT used.
 //
 // Operation modes (first matching flag wins):
@@ -196,7 +196,7 @@ static int ensure_cache_dir(const char *dir) {
   snprintf(g_seq_path, sizeof(g_seq_path), "%s/%s", g_cache_dir, SEQ_FILE);
   snprintf(g_pid_path, sizeof(g_pid_path), "%s/%s", g_cache_dir, PID_FILE);
 
-  struct stat st; /* Correction J: MUST declare before stat() call */
+  struct stat st; /* MUST declare before stat() call */
   if (stat(g_cache_dir, &st) == -1) {
     if (mkdir(g_cache_dir, 0700) == -1 && errno != EEXIST)
       return -1;
@@ -720,7 +720,7 @@ static int run_daemon(const char *exe_path, const char *cache_dir_arg) {
    It is called in the individual run_* functions (and after fork() in
    run_daemon).
 
-   ACTIVATION POLICY (Correction P):
+   ACTIVATION POLICY:
    setActivationPolicy:NSApplicationActivationPolicyAccessory MUST be called
    immediately after [NSApplication sharedApplication]. Without it, on macOS
    15 Sequoia, CGEventTapCreate silently returns NULL even when Accessibility

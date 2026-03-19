@@ -39,23 +39,50 @@ typeset -g _EDIT_SELECT_SEQ_FILE="$_EDIT_SELECT_CACHE_DIR/seq"
 typeset -g _EDIT_SELECT_PRIMARY_FILE="$_EDIT_SELECT_CACHE_DIR/primary"
 typeset -g _EDIT_SELECT_PID_FILE="$_EDIT_SELECT_CACHE_DIR/agent.pid"
 
-# ── Default undo/redo key sequences (read-only) ────────────────────────
+# ── Default key sequences (read-only) ────────────────────────
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SELECT_ALL='^A'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_PASTE+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_PASTE='^V'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_CUT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_CUT='^X'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_COPY+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_COPY='^[[67;6u'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_UNDO+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_UNDO='^Z'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_REDO+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_REDO='^[[90;6u'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_LEFT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_LEFT='^[[1;5D'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT='^[[1;5C'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT+x} ]]  && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT='^[[1;6D'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT='^[[1;6C'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_START+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_START='^[[1;6H'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
+
+# ─────────────────────────────────────────────────────────────────────
+# edit-select::apply-key-defaults
+# Apply default key sequences if not already set by user config.
+# ─────────────────────────────────────────────────────────────────────
+function edit-select::apply-key-defaults() {
+    EDIT_SELECT_KEY_SELECT_ALL="${EDIT_SELECT_KEY_SELECT_ALL:-$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL}"
+    EDIT_SELECT_KEY_PASTE="${EDIT_SELECT_KEY_PASTE:-$_EDIT_SELECT_DEFAULT_KEY_PASTE}"
+    EDIT_SELECT_KEY_CUT="${EDIT_SELECT_KEY_CUT:-$_EDIT_SELECT_DEFAULT_KEY_CUT}"
+    EDIT_SELECT_KEY_COPY="${EDIT_SELECT_KEY_COPY:-$_EDIT_SELECT_DEFAULT_KEY_COPY}"
+    EDIT_SELECT_KEY_UNDO="${EDIT_SELECT_KEY_UNDO:-$_EDIT_SELECT_DEFAULT_KEY_UNDO}"
+    EDIT_SELECT_KEY_REDO="${EDIT_SELECT_KEY_REDO:-$_EDIT_SELECT_DEFAULT_KEY_REDO}"
+    EDIT_SELECT_KEY_WORD_LEFT="${EDIT_SELECT_KEY_WORD_LEFT:-$_EDIT_SELECT_DEFAULT_KEY_WORD_LEFT}"
+    EDIT_SELECT_KEY_WORD_RIGHT="${EDIT_SELECT_KEY_WORD_RIGHT:-$_EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT}"
+    EDIT_SELECT_KEY_SEL_WORD_LEFT="${EDIT_SELECT_KEY_SEL_WORD_LEFT:-$_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT}"
+    EDIT_SELECT_KEY_SEL_WORD_RIGHT="${EDIT_SELECT_KEY_SEL_WORD_RIGHT:-$_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT}"
+    EDIT_SELECT_KEY_BUFFER_START="${EDIT_SELECT_KEY_BUFFER_START:-$_EDIT_SELECT_DEFAULT_KEY_BUFFER_START}"
+    EDIT_SELECT_KEY_BUFFER_END="${EDIT_SELECT_KEY_BUFFER_END:-$_EDIT_SELECT_DEFAULT_KEY_BUFFER_END}"
+}
 
 # ─────────────────────────────────────────────────────────────────────
 # edit-select::load-config
 # Source user config and apply defaults for unset keys.
 # ─────────────────────────────────────────────────────────────────────
 function edit-select::load-config() {
-    [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]] && \
-        source "$_EDIT_SELECT_CONFIG_FILE" 2>/dev/null
-    EDIT_SELECT_KEY_UNDO="${EDIT_SELECT_KEY_UNDO:-$_EDIT_SELECT_DEFAULT_KEY_UNDO}"
-    EDIT_SELECT_KEY_REDO="${EDIT_SELECT_KEY_REDO:-$_EDIT_SELECT_DEFAULT_KEY_REDO}"
+    [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]] && source "$_EDIT_SELECT_CONFIG_FILE" 2>/dev/null
+    edit-select::apply-key-defaults
 }
 
 # ─────────────────────────────────────────────────────────────────────
-# _zes_sync_after_paste  [WSL PATTERN — Correction B]
+# _zes_sync_after_paste
 # Reset selection state after paste or cut, with cache re-read.
 # Re-reading LAST_PRIMARY and updating LAST_MTIME is critical: without
 # it, two consecutive copies of the same text produce only one detectable
@@ -208,7 +235,7 @@ function _zes_detect_mouse_selection() {
 }
 
 # ─────────────────────────────────────────────────────────────────────
-# _zes_delete_mouse_selection  [WSL PATTERN — Correction A]
+# _zes_delete_mouse_selection
 # Remove active selection from BUFFER at occurrence closest to CURSOR.
 # Uses complete ZLE state cleanup (WSL pattern):
 #   REGION_ACTIVE=0, _zes_sync_after_paste, deactivate-region, -K main.
@@ -258,7 +285,7 @@ function _zes_delete_mouse_selection() {
         BUFFER="${BUFFER:0:$target_pos}${BUFFER:$((target_pos + sel_len))}"
         CURSOR=$target_pos
         REGION_ACTIVE=0
-        # WSL pattern (Correction A): full ZLE state cleanup.
+        # WSL pattern: full ZLE state cleanup.
         _zes_sync_after_paste
         _EDIT_SELECT_NEW_SELECTION_EVENT=0
         _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
@@ -479,82 +506,12 @@ zle -N _zes_terminal_focus_in
 function _zes_terminal_focus_out() { : }
 zle -N _zes_terminal_focus_out
 
-# Keymap setup in anonymous function (avoids leaking loop variables).
-function { emulate -L zsh
-    bindkey -N edit-select
-    bindkey -M edit-select -R '^@'-'^?' edit-select::deselect-and-input
-    bindkey -M edit-select -R ' '-'~'   edit-select::replace-selection
-
-    local -a nav_bind=(
-        'kLFT' '^[[1;2D' 'backward-char'
-        'kRIT' '^[[1;2C' 'forward-char'
-        'kri'  '^[[1;2A' 'up-line'
-        'kind' '^[[1;2B' 'down-line'
-        'kHOM' '^[[1;2H' 'beginning-of-line'
-        'kEND' '^[[1;2F' 'end-of-line'
-        ''     '^[[1;6H' 'beginning-of-buffer'
-        ''     '^[[1;6F' 'end-of-buffer'
-        ''     '^[[1;6D' 'backward-word'
-        ''     '^[[1;6C' 'forward-word'
-    )
-
-    local i ti esc wid seq
-    for ((i = 1; i <= ${#nav_bind}; i += 3)); do
-        ti=${nav_bind[i]}
-        esc=${nav_bind[i + 1]}
-        wid=${nav_bind[i + 2]}
-        seq=${terminfo[$ti]:-$esc}
-        zle -N "edit-select::${wid}" _zes_activate_region_and_dispatch
-        bindkey -M emacs       "$seq" "edit-select::${wid}"
-        bindkey -M edit-select "$seq" "edit-select::${wid}"
-    done
-
-    local -a dest_bind=(
-        'kdch1' '^[[3~' 'edit-select::kill-region'
-        'bs'    '^?'    'edit-select::kill-region'
-    )
-    for ((i = 1; i <= ${#dest_bind}; i += 3)); do
-        seq=${terminfo[${dest_bind[i]}]:-${dest_bind[i + 1]}}
-        bindkey -M edit-select "$seq" "${dest_bind[i + 2]}"
-    done
-
-    bindkey -M edit-select '^[[67;6u' edit-select::copy-region
-    bindkey -M edit-select '^X'       edit-select::cut-region
-    bindkey -M edit-select '^[[200~'  edit-select::bracketed-paste-replace
-    bindkey -M emacs '^A'             edit-select::select-all
-    bindkey -M emacs '^[[67;6u'       edit-select::copy-region
-    bindkey -M emacs '^X'             edit-select::cut-region
-    bindkey '^X'                      edit-select::cut-region
-    bindkey -M emacs '^[[1;5D'        backward-word
-    bindkey -M emacs '^[[1;5C'        forward-word
-    bindkey -M edit-select '\e[I'     _zes_terminal_focus_in
-    bindkey -M edit-select '\e[O'     _zes_terminal_focus_out
-}
-
 # ─────────────────────────────────────────────────────────────────────
-# edit-select::zle-line-pre-redraw  [WSL PATTERN — Correction C]
+# edit-select::zle-line-pre-redraw
 # ZLE hook: fires AFTER every widget, BEFORE the display redraws.
 # Must be fast — no forks.  Detects AX selection changes via seq-file
 # mtime (one stat syscall).  Daemon liveness checked at most once
 # every 30s.
-#
-# EMPTY-PRIMARY HANDLING (WSL pattern — Correction C):
-# When primary is empty, clear active selections and do NOT set
-# NEW_SELECTION_EVENT.  x11's pre-redraw sets it unconditionally — wrong.
-#
-# EVENT_FIRED_FOR_MTIME RESET:
-# When this hook detects a new mtime it MUST set
-# _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0.  Without this reset, the next
-# keypress's _zes_sync_selection_state would see the same (already-
-# consumed) mtime with a stale EVENT_FIRED_FOR_MTIME==1 and enter the
-# suppression branch, clearing NEW_SELECTION_EVENT and
-# ACTIVE_SELECTION before any widget can act on the selection.
-# Resetting to 0 ensures the suppression branch is skipped.
-# _zes_sync_selection_state is then the only one that sets it to 1
-# (after the widget has consumed the event).
-#
-# NO SUPPRESSION BLOCK: Unlike WSL, no _ZES_SELF_WRITE_CONTENT check
-# is needed. The daemon never fires on clipboard writes.
 # ─────────────────────────────────────────────────────────────────────
 function edit-select::zle-line-pre-redraw() {
     ((!EDIT_SELECT_MOUSE_REPLACEMENT)) && return
@@ -588,7 +545,6 @@ function edit-select::zle-line-pre-redraw() {
                 _EDIT_SELECT_NEW_SELECTION_EVENT=1
             else
                 # Empty primary: selection was cleared (click-deselect, paste).
-                # WSL pattern (Correction C): do NOT fire NEW_SELECTION_EVENT.
                 _EDIT_SELECT_ACTIVE_SELECTION=""
                 _EDIT_SELECT_PENDING_SELECTION=""
                 _ZES_SELECTION_SET_TIME=0
@@ -598,55 +554,8 @@ function edit-select::zle-line-pre-redraw() {
     fi
 }
 
-# ─────────────────────────────────────────────────────────────────────
-# edit-select::apply-mouse-replacement-config
-# Apply keybindings and ZLE hook based on EDIT_SELECT_MOUSE_REPLACEMENT.
-# Called once at startup and by wizard when toggling.
-# ─────────────────────────────────────────────────────────────────────
-function edit-select::apply-mouse-replacement-config() {
-    autoload -Uz add-zle-hook-widget
-    if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
-        bindkey -M emacs -R ' '-'~' edit-select::handle-char
-        bindkey -M emacs '^?' edit-select::delete-mouse-or-backspace
-        bindkey -M emacs "${terminfo[kdch1]:-^[[3~}" \
-            edit-select::delete-mouse-or-delete
-        bindkey -M emacs '^[[200~' edit-select::bracketed-paste-replace
-        bindkey -M emacs '^V' edit-select::paste-clipboard
-        bindkey -M edit-select '^V' edit-select::paste-clipboard
-        _zes_start_monitor
-        add-zle-hook-widget line-pre-redraw edit-select::zle-line-pre-redraw
-        # Enable terminal focus reporting (DECSET 1004).
-        # Written to /dev/tty to avoid Powerlevel10k instant-prompt warnings.
-        printf '\e[?1004h' >/dev/tty 2>/dev/null
-        bindkey -M emacs '\e[I' _zes_terminal_focus_in
-        bindkey -M emacs '\e[O' _zes_terminal_focus_out
-        bindkey '\e[I' _zes_terminal_focus_in
-        bindkey '\e[O' _zes_terminal_focus_out
-    else
-        bindkey -M emacs -R ' '-'~' self-insert
-        bindkey -M emacs '^?' backward-delete-char
-        bindkey -M emacs "${terminfo[kdch1]:-^[[3~}" delete-char
-        bindkey -M emacs '^[[200~' bracketed-paste
-        bindkey -M emacs '^V' edit-select::paste-clipboard
-        bindkey -M edit-select '^V' edit-select::paste-clipboard
-        add-zle-hook-widget -d line-pre-redraw \
-            edit-select::zle-line-pre-redraw 2>/dev/null
-        printf '\e[?1004l' >/dev/tty 2>/dev/null
-        bindkey -M emacs -r '\e[I' 2>/dev/null
-        bindkey -M emacs -r '\e[O' 2>/dev/null
-        bindkey -r '\e[I' 2>/dev/null
-        bindkey -r '\e[O' 2>/dev/null
-        _EDIT_SELECT_LAST_PRIMARY=""
-        _EDIT_SELECT_ACTIVE_SELECTION=""
-        _EDIT_SELECT_PENDING_SELECTION=""
-    fi
-}
 
-# ─────────────────────────────────────────────────────────────────────
-# edit-select (public CLI)  [x11 PATTERN — Correction E]
-# Source wizard then explicitly call edit-select::config-wizard.
-# Also provides: setup-ax (Accessibility permission prompt).
-# ─────────────────────────────────────────────────────────────────────
+# Public CLI entry-point.
 function edit-select() {
     if [[ $1 == conf || $1 == config ]]; then
         local wizard_file="$_EDIT_SELECT_PLUGIN_DIR/edit-select-wizard-macos.zsh"
@@ -655,14 +564,12 @@ function edit-select() {
                 print -u2 "Error: Failed to load configuration wizard"
                 return 1
             }
-            edit-select::config-wizard   # explicit call required (x11 pattern)
+            edit-select::config-wizard
         else
             print -u2 "Error: Configuration wizard not found at: $wizard_file"
             return 1
         fi
     elif [[ $1 == setup-ax ]]; then
-        # Prompt for Accessibility permission required for true PRIMARY
-        # selection (AX mouse selection). One-time setup.
         if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
             print "Requesting Accessibility permission for mouse selection..."
             print "A system dialog will appear. Click 'Open System Settings',"
@@ -690,14 +597,101 @@ function edit-select() {
     fi
 }
 
-# ── Source backend (x11 pattern: after all function definitions — Correction G) ──
-# Sets _EDIT_SELECT_MONITOR_BIN and defines the 6 backend functions.
+# Source backend
 source "$_EDIT_SELECT_PLUGIN_DIR/backends/macos/macos-backend.zsh"
 
-# ── Load user configuration ─────────────────────────────────────────────
+# Migrate config files
+if [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]]; then
+    local _zes_cfg=$(<"$_EDIT_SELECT_CONFIG_FILE")
+    local _zes_cfg_changed=0
+    local _zes_keys_changed=0
+
+    if [[ "$_zes_cfg" == *'EDIT_SELECT_MOUSE_REPLACEMENT="enabled"'* ]] || \
+       [[ "$_zes_cfg" == *'EDIT_SELECT_MOUSE_REPLACEMENT="disabled"'* ]]; then
+        _zes_cfg="${_zes_cfg//EDIT_SELECT_MOUSE_REPLACEMENT=\"enabled\"/EDIT_SELECT_MOUSE_REPLACEMENT=1}"
+        _zes_cfg="${_zes_cfg//EDIT_SELECT_MOUSE_REPLACEMENT=\"disabled\"/EDIT_SELECT_MOUSE_REPLACEMENT=0}"
+        _zes_cfg_changed=1
+    fi
+
+
+    if [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_SELECT_ALL="^[[65;5u"'* ]] || \
+       [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_PASTE="^[[86;5u"'* ]]   || \
+       [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_CUT="^[[88;5u"'* ]]; then
+        _zes_cfg="${_zes_cfg//EDIT_SELECT_KEY_SELECT_ALL=\"^[[65;5u\"/EDIT_SELECT_KEY_SELECT_ALL=\"^[[65;6u\"}"
+        _zes_cfg="${_zes_cfg//EDIT_SELECT_KEY_PASTE=\"^[[86;5u\"/EDIT_SELECT_KEY_PASTE=\"^[[86;6u\"}"
+        _zes_cfg="${_zes_cfg//EDIT_SELECT_KEY_CUT=\"^[[88;5u\"/EDIT_SELECT_KEY_CUT=\"^[[88;6u\"}"
+        _zes_cfg_changed=1
+        _zes_keys_changed=1
+    fi
+    if ((_zes_cfg_changed)); then
+        print -r -- "$_zes_cfg" >"$_EDIT_SELECT_CONFIG_FILE"
+    fi
+    if ((_zes_keys_changed)); then
+        unset EDIT_SELECT_KEY_SELECT_ALL EDIT_SELECT_KEY_PASTE EDIT_SELECT_KEY_CUT
+    fi
+fi
+
+# Read user config
 edit-select::load-config
 
-# ── Undo/redo keybindings (x11 pattern: direct bindings — Correction F) ─
+# Establish keymap. NOTE: Requires edit-select::load-config to have run first.
+function { emulate -L zsh
+    bindkey -N edit-select
+    bindkey -M edit-select -R '^@'-'^?' edit-select::deselect-and-input
+    bindkey -M edit-select -R ' '-'~'   edit-select::replace-selection
+
+    local -a nav_bind=(
+        'kLFT' '^[[1;2D' 'backward-char'
+        'kRIT' '^[[1;2C' 'forward-char'
+        'kri'  '^[[1;2A' 'up-line'
+        'kind' '^[[1;2B' 'down-line'
+        'kHOM' '^[[1;2H' 'beginning-of-line'
+        'kEND' '^[[1;2F' 'end-of-line'
+        ''     "$EDIT_SELECT_KEY_BUFFER_START" 'beginning-of-buffer'
+        ''     "$EDIT_SELECT_KEY_BUFFER_END"   'end-of-buffer'
+        ''     "$EDIT_SELECT_KEY_SEL_WORD_LEFT" 'backward-word'
+        ''     "$EDIT_SELECT_KEY_SEL_WORD_RIGHT" 'forward-word'
+    )
+
+    local i ti esc wid seq
+    for ((i = 1; i <= ${#nav_bind}; i += 3)); do
+        ti=${nav_bind[i]}
+        esc=${nav_bind[i + 1]}
+        wid=${nav_bind[i + 2]}
+        [[ -z "$esc" ]] && continue
+        seq=${terminfo[$ti]:-$esc}
+        zle -N "edit-select::${wid}" _zes_activate_region_and_dispatch
+        bindkey -M emacs       "$seq" "edit-select::${wid}"
+        bindkey -M edit-select "$seq" "edit-select::${wid}"
+    done
+
+    local -a dest_bind=(
+        'kdch1' '^[[3~' 'edit-select::kill-region'
+        'bs'    '^?'    'edit-select::kill-region'
+    )
+    for ((i = 1; i <= ${#dest_bind}; i += 3)); do
+        seq=${terminfo[${dest_bind[i]}]:-${dest_bind[i + 1]}}
+        bindkey -M edit-select "$seq" "${dest_bind[i + 2]}"
+    done
+
+    [[ -n "$EDIT_SELECT_KEY_COPY" ]] && bindkey -M edit-select "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
+    [[ -n "$EDIT_SELECT_KEY_CUT" ]]  && bindkey -M edit-select "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
+    bindkey -M edit-select '^[[200~'  edit-select::bracketed-paste-replace
+
+    [[ -n "$EDIT_SELECT_KEY_SELECT_ALL" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_SELECT_ALL" edit-select::select-all
+    [[ -n "$EDIT_SELECT_KEY_COPY" ]]       && bindkey -M emacs "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
+    if [[ -n "$EDIT_SELECT_KEY_CUT" ]]; then
+        bindkey -M emacs "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
+        bindkey "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
+    fi
+
+    [[ -n "$EDIT_SELECT_KEY_WORD_LEFT" ]]  && bindkey -M emacs "$EDIT_SELECT_KEY_WORD_LEFT" backward-word
+    [[ -n "$EDIT_SELECT_KEY_WORD_RIGHT" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_WORD_RIGHT" forward-word
+    bindkey -M edit-select '\e[I'     _zes_terminal_focus_in
+    bindkey -M edit-select '\e[O'     _zes_terminal_focus_out
+}
+
+# Undo/redo
 if [[ -n "$EDIT_SELECT_KEY_UNDO" ]]; then
     bindkey -M emacs "$EDIT_SELECT_KEY_UNDO" undo
     bindkey "$EDIT_SELECT_KEY_UNDO" undo
@@ -707,27 +701,14 @@ if [[ -n "$EDIT_SELECT_KEY_REDO" ]]; then
     bindkey "$EDIT_SELECT_KEY_REDO" redo
 fi
 
-# ── Config migration: normalize legacy "enabled"/"disabled" to 1/0 ──────
-if [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]]; then
-    local _zes_cfg=$(<"$_EDIT_SELECT_CONFIG_FILE")
-    if [[ "$_zes_cfg" == *'EDIT_SELECT_MOUSE_REPLACEMENT="enabled"'* ]] || \
-       [[ "$_zes_cfg" == *'EDIT_SELECT_MOUSE_REPLACEMENT="disabled"'* ]]; then
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_MOUSE_REPLACEMENT=\"enabled\"/EDIT_SELECT_MOUSE_REPLACEMENT=1}"
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_MOUSE_REPLACEMENT=\"disabled\"/EDIT_SELECT_MOUSE_REPLACEMENT=0}"
-        print -r -- "$_zes_cfg" >"$_EDIT_SELECT_CONFIG_FILE"
-    fi
-    source "$_EDIT_SELECT_CONFIG_FILE" 2>/dev/null
-fi
-
-# ── Normalize MOUSE_REPLACEMENT value ──────────────────────────────────
+# Normalize MOUSE_REPLACEMENT
 case $EDIT_SELECT_MOUSE_REPLACEMENT in
 enabled | 1)  EDIT_SELECT_MOUSE_REPLACEMENT=1 ;;
 disabled | 0) EDIT_SELECT_MOUSE_REPLACEMENT=0 ;;
 *)            EDIT_SELECT_MOUSE_REPLACEMENT=1 ;;
 esac
 
-# ── Startup: pre-populate LAST_PRIMARY and LAST_MTIME (x11 pattern) ────
-# Prevents spurious empty→non-empty mtime transition on first ZLE callback.
+# Startup pre-populate
 if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
     _zes_start_monitor
     if ((_EDIT_SELECT_DAEMON_ACTIVE)) && [[ -f "$_EDIT_SELECT_PRIMARY_FILE" ]]; then
@@ -739,5 +720,57 @@ if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
     fi
 fi
 
-# ── Apply keybindings ──────────────────────────────────────────────────
+# Apply config
+function _zes_enable_focus_reporting() {
+    printf '\e[?1004h' >/dev/tty 2>/dev/null
+    add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
+}
+zle -N _zes_enable_focus_reporting
+
+function edit-select::apply-mouse-replacement-config() {
+    autoload -Uz add-zle-hook-widget
+    if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
+        bindkey -M emacs -R ' '-'~' edit-select::handle-char
+        bindkey -M emacs '^?' edit-select::delete-mouse-or-backspace
+        bindkey -M emacs "${terminfo[kdch1]:-^[[3~}" \
+            edit-select::delete-mouse-or-delete
+        bindkey -M emacs '^[[200~' edit-select::bracketed-paste-replace
+        if [[ -n "$EDIT_SELECT_KEY_PASTE" ]]; then
+            bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
+            bindkey -M edit-select "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
+        fi
+        _zes_start_monitor
+        add-zle-hook-widget line-pre-redraw edit-select::zle-line-pre-redraw
+        # Enable terminal focus reporting (DECSET 1004) and bind focus
+        # event handlers so cross-pane selection changes are suppressed.
+        # Deferred to the first ZLE prompt via zle-line-init so that the
+        # terminal's immediate CSI I reply is consumed by the already-bound
+        # widgets instead of printing as raw ^[[I on VTE-based terminals.
+        add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
+        bindkey -M emacs '\e[I' _zes_terminal_focus_in
+        bindkey -M emacs '\e[O' _zes_terminal_focus_out
+        bindkey '\e[I' _zes_terminal_focus_in
+        bindkey '\e[O' _zes_terminal_focus_out
+    else
+        bindkey -M emacs -R ' '-'~' self-insert
+        bindkey -M emacs '^?' backward-delete-char
+        bindkey -M emacs "${terminfo[kdch1]:-^[[3~}" delete-char
+        bindkey -M emacs '^[[200~' bracketed-paste
+        if [[ -n "$EDIT_SELECT_KEY_PASTE" ]]; then
+            bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
+            bindkey -M edit-select "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
+        fi
+        add-zle-hook-widget -d line-pre-redraw \
+            edit-select::zle-line-pre-redraw 2>/dev/null
+        add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
+        printf '\e[?1004l' >/dev/tty 2>/dev/null
+        bindkey -M emacs -r '\e[I' 2>/dev/null
+        bindkey -M emacs -r '\e[O' 2>/dev/null
+        bindkey -r '\e[I' 2>/dev/null
+        bindkey -r '\e[O' 2>/dev/null
+        _EDIT_SELECT_LAST_PRIMARY=""
+        _EDIT_SELECT_ACTIVE_SELECTION=""
+        _EDIT_SELECT_PENDING_SELECTION=""
+    fi
+}
 edit-select::apply-mouse-replacement-config

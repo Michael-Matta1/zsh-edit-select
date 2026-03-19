@@ -24,7 +24,9 @@ typeset -g _EDIT_SELECT_WIZARD_DIR="${0:A:h}"
 # Buffer navigation: standard xterm/VT sequences for Ctrl+Shift+Home / Ctrl+Shift+End.
 # If your terminal sends different sequences, configure them here.
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_START+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_START='^[[1;6H'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]]   && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT+x} ]]  && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT='^[[1;6D'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT='^[[1;6C'
 
 
 # Color & Visual Utilities
@@ -306,10 +308,23 @@ function _zesw_capture_key() {
 
 	# Handle multi-byte sequences (escape sequences)
 	if [[ "$key_sequence" == $'\e' ]]; then
-		local additional=""
-		# Read additional bytes for escape sequence with timeout
-		read -t 0.1 -k 5 additional 2>/dev/null
-		key_sequence+="$additional"
+		local byte=""
+
+		# read -t 0 -k 1 attempts a non-blocking read (zero timeout). On POSIX PTYs
+		# this uses select(2) internally. If a byte is available it is consumed and
+		# stored in $byte (return 0). If no byte is available it returns non-zero
+		# immediately and $byte is empty, so we fall back to a 25 ms timed read to
+		# catch sequences that arrive slightly after the initial ESC (slow terminals
+		# or heavy load). The while loop then drains any remaining buffered bytes.
+		if ! read -t 0 -k 1 byte 2>/dev/null; then
+			read -t 0.025 -k 1 byte 2>/dev/null
+		fi
+		key_sequence+="$byte"
+		byte=""
+		while IFS= read -t 0 -k 1 byte 2>/dev/null; do
+			key_sequence+="$byte"
+			byte=""
+		done
 	fi
 
 	printf "\n"
@@ -320,15 +335,24 @@ function _zesw_capture_key() {
 		result_var="^[${key_sequence#$'\e'}"
 	elif [[ "$key_sequence" =~ ^[[:cntrl:]]$ ]]; then
 		# It's a control character, convert to ^ notation
-		local char_code=$(printf '%d' "'$key_sequence")
-		if (( char_code < 32 )); then
-			local letter=$(printf "\\$(printf '%03o' $((char_code + 64)))")
+		local char_code=$(( #key_sequence ))
+		if (( char_code > 0 && char_code < 32 )); then
+			local letter=${(#)$(( char_code + 64 ))}
 			result_var="^$letter"
+		elif (( char_code == 127 )); then
+			result_var="^?"
 		else
 			result_var="$key_sequence"
 		fi
 	else
 		result_var="$key_sequence"
+	fi
+
+	if [[ "$result_var" == '^[' ]]; then
+		printf "%s ✗%s  Bare ESC cannot be used as a binding.\n" \
+			"$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET"
+		eval "$1=''"
+		return 1
 	fi
 
 	# Display captured key
@@ -354,7 +378,7 @@ function _zesw_read_custom_key() {
 
 	case "$_rck_method" in
 		1)
-			_zesw_capture_key _rck_input
+			_zesw_capture_key _rck_input || return 1
 			;;
 		2)
 			_zesw_input_prompt "Type the key pattern and press Enter:"
@@ -457,15 +481,24 @@ function edit-select::apply-keybindings() {
 	local key
 	for key in '^A' '^V' '^X'; do bindkey -M emacs -r "$key" 2>/dev/null; done
 	bindkey -r '^X' 2>/dev/null
+
+	bindkey -M emacs -r '^Z' 2>/dev/null
+	bindkey -r '^Z' 2>/dev/null
+	bindkey -M emacs -r '^[[90;6u' 2>/dev/null
+	bindkey -r '^[[90;6u' 2>/dev/null
+
 	# Remove hardcoded defaults before re-applying configurable versions
 	bindkey -M emacs -r '^[[67;6u' 2>/dev/null
 	bindkey -M edit-select -r '^[[67;6u' 2>/dev/null
 	bindkey -M emacs -r '^[[1;5D' 2>/dev/null
+	bindkey -M edit-select -r '^[[1;5D' 2>/dev/null
 	bindkey -M emacs -r '^[[1;5C' 2>/dev/null
+	bindkey -M edit-select -r '^[[1;5C' 2>/dev/null
 	bindkey -M emacs -r '^[[1;6H' 2>/dev/null
 	bindkey -M edit-select -r '^[[1;6H' 2>/dev/null
 	bindkey -M emacs -r '^[[1;6F' 2>/dev/null
 	bindkey -M edit-select -r '^[[1;6F' 2>/dev/null
+
 	[[ -n $EDIT_SELECT_KEY_SELECT_ALL ]] && bindkey -M emacs "$EDIT_SELECT_KEY_SELECT_ALL" edit-select::select-all
 	if [[ -n $EDIT_SELECT_KEY_PASTE ]]; then
 		bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
@@ -528,35 +561,43 @@ function edit-select::show-menu() {
 }
 
 
-# Mouse Replacement Configuration
+# Mouse Configuration
 
+
+# Apply and persist a mouse-replacement enable/disable choice. Args: "enabled" | "disabled".
+function edit-select::set-mouse-replacement() {
+	local value
+	[[ $1 == enabled ]] && value=1 || value=0
+
+	_zesw_loading "Applying configuration" 2
+
+	edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" "$value"
+	typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=$value
+	edit-select::apply-mouse-replacement-config
+
+	if (( value )); then
+		_zesw_success "Mouse replacement enabled"
+	else
+		_zesw_success "Mouse replacement disabled"
+	fi
+	_zesw_prompt_continue
+}
 
 # Interactive loop to enable or disable the mouse-region replacement feature.
 function edit-select::configure-mouse-replacement() {
 	while true; do
 		_zesw_banner
 
-		_zesw_section_header "Current Status"
-		local mouse_status="$(_zesw_get_mouse_status)"
-		if [[ $mouse_status == "enabled" ]]; then
-			_zesw_status_line "Status" "${_ZESW_CLR_HILITE}Enabled ✓${_ZESW_CLR_RESET}"
-		else
-			_zesw_status_line "Status" "${_ZESW_CLR_DIM}Disabled${_ZESW_CLR_RESET}"
-		fi
+		_zesw_section_header "Current Setting"
+		_zesw_status_line "Status" "$(_zesw_get_mouse_status)"
 
-		_zesw_info "Integrates mouse selections into ZLE (Zsh Line Editor)"
-
-		_zesw_section_header "Feature Capabilities"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Replace mouse selections by typing over them\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Replace mouse selections by pasting over them\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Cut mouse selections\n"
-		printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Terminal-native text editing workflow\n"
+		_zesw_info "When enabled, typing replaces an active mouse selection"
 
 		_zesw_section_header "Options"
-		_zesw_print_option 1 "Enable  ${_ZESW_CLR_DIM}— Activate mouse-replacement integration${_ZESW_CLR_RESET}"
-		_zesw_print_option 2 "Disable ${_ZESW_CLR_DIM}— Use keyboard-only for selection replacement${_ZESW_CLR_RESET}"
+		_zesw_print_option 1 "Enable   ${_ZESW_CLR_DIM}— Typing replaces the mouse selection${_ZESW_CLR_RESET}"
+		_zesw_print_option 2 "Disable  ${_ZESW_CLR_DIM}— Use standard shell behavior${_ZESW_CLR_RESET}"
 		_zesw_separator
-		_zesw_print_option 3 "Back to main menu"
+		_zesw_print_option 3 "Back"
 
 		_zesw_input_prompt "Choose option (1-3):"
 		read -r choice
@@ -573,25 +614,6 @@ function edit-select::configure-mouse-replacement() {
 			3) return ;;
 		esac
 	done
-}
-
-# Apply and persist a mouse-replacement enable/disable choice. Args: "enabled" | "disabled".
-function edit-select::set-mouse-replacement() {
-	local value
-	[[ $1 == enabled ]] && value=1 || value=0
-
-	_zesw_loading "Applying configuration" 2
-
-	edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" "$value"
-	typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=$value
-	edit-select::apply-mouse-replacement-config
-
-	if (( value )); then
-		_zesw_success "Mouse replacement enabled — Mouse selections now integrated with ZLE"
-	else
-		_zesw_success "Mouse replacement disabled — Using keyboard-only selection mode"
-	fi
-	_zesw_prompt_continue
 }
 
 
@@ -1065,33 +1087,54 @@ function edit-select::set-keybinding() {
 
 	_zesw_loading "Updating keybinding" 2
 
+	# Save and remove the OLD binding before overwriting the variable
+	local _zes_old_key
+	case "$1" in
+		SELECT_ALL) _zes_old_key="$EDIT_SELECT_KEY_SELECT_ALL" ;;
+		PASTE)      _zes_old_key="$EDIT_SELECT_KEY_PASTE"      ;;
+		CUT)        _zes_old_key="$EDIT_SELECT_KEY_CUT"        ;;
+		COPY)       _zes_old_key="$EDIT_SELECT_KEY_COPY"       ;;
+		UNDO)       _zes_old_key="$EDIT_SELECT_KEY_UNDO"       ;;
+		REDO)       _zes_old_key="$EDIT_SELECT_KEY_REDO"       ;;
+		WORD_LEFT)  _zes_old_key="$EDIT_SELECT_KEY_WORD_LEFT"  ;;
+		WORD_RIGHT) _zes_old_key="$EDIT_SELECT_KEY_WORD_RIGHT" ;;
+		BUFFER_START) _zes_old_key="$EDIT_SELECT_KEY_BUFFER_START" ;;
+		BUFFER_END)   _zes_old_key="$EDIT_SELECT_KEY_BUFFER_END"   ;;
+	esac
+	if [[ -n "$_zes_old_key" && "$_zes_old_key" != "$2" ]]; then
+		bindkey -M emacs -r "$_zes_old_key" 2>/dev/null
+		bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null
+		# CUT, UNDO, and REDO are also bound in the main keymap
+		[[ "$1" == CUT || "$1" == UNDO || "$1" == REDO ]] && bindkey -r "$_zes_old_key" 2>/dev/null
+	fi
+
 	edit-select::save-config "EDIT_SELECT_KEY_${1}" "$2"
 	case "$1" in
-		SELECT_ALL) typeset -g EDIT_SELECT_KEY_SELECT_ALL="$2" ;;
-		PASTE) typeset -g EDIT_SELECT_KEY_PASTE="$2" ;;
-		CUT) typeset -g EDIT_SELECT_KEY_CUT="$2" ;;
-		COPY) typeset -g EDIT_SELECT_KEY_COPY="$2" ;;
-		UNDO) typeset -g EDIT_SELECT_KEY_UNDO="$2" ;;
-		REDO) typeset -g EDIT_SELECT_KEY_REDO="$2" ;;
-		WORD_LEFT) typeset -g EDIT_SELECT_KEY_WORD_LEFT="$2" ;;
-		WORD_RIGHT) typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$2" ;;
+		SELECT_ALL)   typeset -g EDIT_SELECT_KEY_SELECT_ALL="$2"   ;;
+		PASTE)        typeset -g EDIT_SELECT_KEY_PASTE="$2"        ;;
+		CUT)          typeset -g EDIT_SELECT_KEY_CUT="$2"          ;;
+		COPY)         typeset -g EDIT_SELECT_KEY_COPY="$2"         ;;
+		UNDO)         typeset -g EDIT_SELECT_KEY_UNDO="$2"         ;;
+		REDO)         typeset -g EDIT_SELECT_KEY_REDO="$2"         ;;
+		WORD_LEFT)    typeset -g EDIT_SELECT_KEY_WORD_LEFT="$2"    ;;
+		WORD_RIGHT)   typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$2"   ;;
 		BUFFER_START) typeset -g EDIT_SELECT_KEY_BUFFER_START="$2" ;;
-		BUFFER_END) typeset -g EDIT_SELECT_KEY_BUFFER_END="$2" ;;
+		BUFFER_END)   typeset -g EDIT_SELECT_KEY_BUFFER_END="$2"   ;;
 	esac
 	edit-select::apply-keybindings
 
 	local action_name
 	case "$1" in
-		SELECT_ALL) action_name="Select-All" ;;
-		PASTE) action_name="Paste" ;;
-		CUT) action_name="Cut" ;;
-		COPY) action_name="Copy" ;;
-		UNDO) action_name="Undo" ;;
-		REDO) action_name="Redo" ;;
-		WORD_LEFT) action_name="Word Left" ;;
-		WORD_RIGHT) action_name="Word Right" ;;
+		SELECT_ALL)   action_name="Select-All"   ;;
+		PASTE)        action_name="Paste"        ;;
+		CUT)          action_name="Cut"          ;;
+		COPY)         action_name="Copy"         ;;
+		UNDO)         action_name="Undo"         ;;
+		REDO)         action_name="Redo"         ;;
+		WORD_LEFT)    action_name="Word Left"    ;;
+		WORD_RIGHT)   action_name="Word Right"   ;;
 		BUFFER_START) action_name="Buffer Start" ;;
-		BUFFER_END) action_name="Buffer End" ;;
+		BUFFER_END)   action_name="Buffer End"   ;;
 	esac
 	_zesw_success "$action_name keybinding updated to: ${_ZESW_CLR_HILITE}$2${_ZESW_CLR_RESET}"
 	_zesw_prompt_continue
@@ -1118,6 +1161,22 @@ function edit-select::reset-keybindings() {
 	read -r confirm
 	if [[ $confirm =~ ^[Yy]$ ]]; then
 		_zesw_loading "Resetting keybindings" 3
+
+		# Remove all old bindings before resetting to defaults
+		local _k
+		for _k in "$EDIT_SELECT_KEY_SELECT_ALL" "$EDIT_SELECT_KEY_PASTE" "$EDIT_SELECT_KEY_CUT" "$EDIT_SELECT_KEY_COPY"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_CUT"; do
+			[[ -n "$_k" ]] && bindkey -r "$_k" 2>/dev/null
+		done
+		for _k in "$EDIT_SELECT_KEY_UNDO" "$EDIT_SELECT_KEY_REDO"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_WORD_LEFT" "$EDIT_SELECT_KEY_WORD_RIGHT" "$EDIT_SELECT_KEY_BUFFER_START" "$EDIT_SELECT_KEY_BUFFER_END"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"
 		typeset -g EDIT_SELECT_KEY_CUT="$_EDIT_SELECT_DEFAULT_KEY_CUT"
@@ -1231,6 +1290,22 @@ function edit-select::reset-config() {
 	if [[ $confirm =~ ^[Yy]$ ]]; then
 		_zesw_loading "Deleting configuration" 2
 		rm -f "$_EDIT_SELECT_CONFIG_FILE"
+
+		# Remove all old bindings before resetting to defaults
+		local _k
+		for _k in "$EDIT_SELECT_KEY_SELECT_ALL" "$EDIT_SELECT_KEY_PASTE" "$EDIT_SELECT_KEY_CUT" "$EDIT_SELECT_KEY_COPY"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_CUT"; do
+			[[ -n "$_k" ]] && bindkey -r "$_k" 2>/dev/null
+		done
+		for _k in "$EDIT_SELECT_KEY_UNDO" "$EDIT_SELECT_KEY_REDO"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_WORD_LEFT" "$EDIT_SELECT_KEY_WORD_RIGHT" "$EDIT_SELECT_KEY_BUFFER_START" "$EDIT_SELECT_KEY_BUFFER_END"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"

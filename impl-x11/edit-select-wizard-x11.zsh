@@ -23,7 +23,9 @@ typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-
 # Buffer navigation: standard xterm/VT sequences for Ctrl+Shift+Home / Ctrl+Shift+End.
 # If your terminal sends different sequences, configure them here.
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_START+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_START='^[[1;6H'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]]   && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT+x} ]]  && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT='^[[1;6D'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT='^[[1;6C'
 
 
 # Color & Visual Utilities
@@ -287,6 +289,70 @@ function _zesw_confirm_prompt() {
 	printf "\n%s?%s %s %s[y/N]:%s " "$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET" "$1" "$_ZESW_CLR_DIM" "$_ZESW_CLR_RESET"
 }
 
+# Key capture function for custom keybindings
+function _zesw_capture_key() {
+	local result_var=""
+	local key_sequence=""
+
+	printf "%s▶%s Press the key combination you want to use: " "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+
+	# Read raw key input
+	read -k 1 key_sequence
+
+	# Handle multi-byte sequences (escape sequences)
+	if [[ "$key_sequence" == $'\e' ]]; then
+		local byte=""
+
+		# read -t 0 -k 1 attempts a non-blocking read (zero timeout). On POSIX PTYs
+		# this uses select(2) internally. If a byte is available it is consumed and
+		# stored in $byte (return 0). If no byte is available it returns non-zero
+		# immediately and $byte is empty, so we fall back to a 25 ms timed read to
+		# catch sequences that arrive slightly after the initial ESC (slow terminals
+		# or heavy load). The while loop then drains any remaining buffered bytes.
+		if ! read -t 0 -k 1 byte 2>/dev/null; then
+			read -t 0.025 -k 1 byte 2>/dev/null
+		fi
+		key_sequence+="$byte"
+		byte=""
+		while IFS= read -t 0 -k 1 byte 2>/dev/null; do
+			key_sequence+="$byte"
+			byte=""
+		done
+	fi
+
+	printf "\n"
+
+	# Convert to ZLE notation if needed
+	if [[ "$key_sequence" == $'\e'* ]]; then
+		# It's an escape sequence, convert to ^[ notation
+		result_var="^[${key_sequence#$'\e'}"
+	elif [[ "$key_sequence" =~ ^[[:cntrl:]]$ ]]; then
+		# It's a control character, convert to ^ notation
+		local char_code=$(( #key_sequence ))
+		if (( char_code > 0 && char_code < 32 )); then
+			local letter=${(#)$(( char_code + 64 ))}
+			result_var="^$letter"
+		elif (( char_code == 127 )); then
+			result_var="^?"
+		else
+			result_var="$key_sequence"
+		fi
+	else
+		result_var="$key_sequence"
+	fi
+
+	if [[ "$result_var" == '^[' ]]; then
+		printf "%s ✗%s  Bare ESC cannot be used as a binding.\n" \
+			"$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET"
+		eval "$1=''"
+		return 1
+	fi
+
+	# Display captured key
+	printf "%s ℹ%s  Captured key: %s%s%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$_ZESW_CLR_HILITE" "$result_var" "$_ZESW_CLR_RESET"
+	eval "$1=\${result_var}"
+}
+
 # Prompt user to choose between auto-detecting or manually entering a custom
 # keybinding sequence. Stores result in the variable named by $1.
 # Returns 0 on success, 1 if cancelled/empty.
@@ -305,9 +371,7 @@ function _zesw_read_custom_key() {
 
 	case "$_rck_method" in
 		1)
-			_zesw_input_prompt "Press your desired key combination:"
-			read -k 1 _rck_input
-			printf "\n"
+			_zesw_capture_key _rck_input || return 1
 			;;
 		2)
 			_zesw_input_prompt "Type the key pattern and press Enter:"
@@ -388,15 +452,24 @@ function edit-select::apply-keybindings() {
 	local key
 	for key in '^A' '^V' '^X'; do bindkey -M emacs -r "$key" 2>/dev/null; done
 	bindkey -r '^X' 2>/dev/null
+
+	bindkey -M emacs -r '^Z' 2>/dev/null
+	bindkey -r '^Z' 2>/dev/null
+	bindkey -M emacs -r '^[[90;6u' 2>/dev/null
+	bindkey -r '^[[90;6u' 2>/dev/null
+
 	# Remove hardcoded defaults before re-applying configurable versions
 	bindkey -M emacs -r '^[[67;6u' 2>/dev/null
 	bindkey -M edit-select -r '^[[67;6u' 2>/dev/null
 	bindkey -M emacs -r '^[[1;5D' 2>/dev/null
+	bindkey -M edit-select -r '^[[1;5D' 2>/dev/null
 	bindkey -M emacs -r '^[[1;5C' 2>/dev/null
+	bindkey -M edit-select -r '^[[1;5C' 2>/dev/null
 	bindkey -M emacs -r '^[[1;6H' 2>/dev/null
 	bindkey -M edit-select -r '^[[1;6H' 2>/dev/null
 	bindkey -M emacs -r '^[[1;6F' 2>/dev/null
 	bindkey -M edit-select -r '^[[1;6F' 2>/dev/null
+
 	[[ -n $EDIT_SELECT_KEY_SELECT_ALL ]] && bindkey -M emacs "$EDIT_SELECT_KEY_SELECT_ALL" edit-select::select-all
 	if [[ -n $EDIT_SELECT_KEY_PASTE ]]; then
 		bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
@@ -462,71 +535,54 @@ function edit-select::show-menu() {
 # Mouse Configuration
 
 
+# Apply and persist a mouse-replacement enable/disable choice. Args: "enabled" | "disabled".
+function edit-select::set-mouse-replacement() {
+	local value
+	[[ $1 == enabled ]] && value=1 || value=0
+
+	_zesw_loading "Applying configuration" 2
+
+	edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" "$value"
+	typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=$value
+	edit-select::apply-mouse-replacement-config
+
+	if (( value )); then
+		_zesw_success "Mouse replacement enabled"
+	else
+		_zesw_success "Mouse replacement disabled"
+	fi
+	_zesw_prompt_continue
+}
+
 # Interactive loop to enable or disable the mouse-region replacement feature.
 function edit-select::configure-mouse-replacement() {
 	while true; do
 		_zesw_banner
 
 		_zesw_section_header "Current Setting"
-		local binding_desc
-		if (( EDIT_SELECT_MOUSE_REPLACEMENT )); then
-			binding_desc="${_ZESW_CLR_HILITE}^X${_ZESW_CLR_RESET}"
-		else
-			binding_desc="${_ZESW_CLR_DIM}Not bound${_ZESW_CLR_RESET}"
-		fi
-		_zesw_status_line "Binding" "$binding_desc"
 		_zesw_status_line "Status" "$(_zesw_get_mouse_status)"
 
-		_zesw_info "Delete selection and copy to clipboard"
+		_zesw_info "When enabled, typing replaces an active mouse selection"
 
-		_zesw_section_header "Available Presets"
-		_zesw_print_option 1 "Ctrl+X                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-		_zesw_print_option 2 "Ctrl+Shift+X          ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
-		_zesw_print_option 3 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+		_zesw_section_header "Options"
+		_zesw_print_option 1 "Enable   ${_ZESW_CLR_DIM}— Typing replaces the mouse selection${_ZESW_CLR_RESET}"
+		_zesw_print_option 2 "Disable  ${_ZESW_CLR_DIM}— Use standard shell behavior${_ZESW_CLR_RESET}"
 		_zesw_separator
-		_zesw_print_option 4 "Back"
+		_zesw_print_option 3 "Back"
 
-		_zesw_input_prompt "Choose option (1-4):"
+		_zesw_input_prompt "Choose option (1-3):"
 		read -r choice
 
-		if ! _zesw_validate_choice "$choice" 1 4; then
-			_zesw_error "Invalid choice. Please enter a number between 1-4."
+		if ! _zesw_validate_choice "$choice" 1 3; then
+			_zesw_error "Invalid choice. Please enter a number between 1-3."
 			_zesw_prompt_continue
 			continue
 		fi
 
 		case "$choice" in
-			1)
-				typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
-				edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" 1
-				edit-select::apply-mouse-replacement-config
-				_zesw_loading "Applying Ctrl+X binding" 2
-				_zesw_success "Mouse replacement enabled with Ctrl+X"
-				_zesw_prompt_continue
-				;;
-			2)
-				typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=0
-				edit-select::save-config "EDIT_SELECT_MOUSE_REPLACEMENT" 0
-				edit-select::apply-mouse-replacement-config
-				_zesw_loading "Disabling mouse replacement" 2
-				_zesw_success "Mouse replacement disabled — Using standard behavior"
-				_zesw_prompt_continue
-				;;
-			3)
-				if _zesw_read_custom_key custom_key; then
-					_zesw_info "You pressed: ${_ZESW_CLR_HILITE}$custom_key${_ZESW_CLR_RESET}"
-					_zesw_confirm_prompt "Apply this binding?"
-					read -r confirm
-					if [[ $confirm =~ ^[Yy]$ ]]; then
-						_zesw_loading "Applying custom binding" 2
-						_zesw_success "Custom binding applied"
-					else
-						_zesw_info "Cancelled"
-					fi
-				fi
-				_zesw_prompt_continue
-				;;
-			4) return ;;
+			1) edit-select::set-mouse-replacement enabled ;;
+			2) edit-select::set-mouse-replacement disabled ;;
+			3) return ;;
 		esac
 	done
 }
@@ -542,12 +598,12 @@ function edit-select::configure-select-all() {
 	_zesw_section_header "Current Setting"
 	_zesw_status_line "Binding" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_SELECT_ALL${_ZESW_CLR_RESET}"
 
-	_zesw_info "Delete selection and copy to clipboard"
+	_zesw_info "Select the entire command line"
 
 	_zesw_section_header "Available Presets"
-	_zesw_print_option 1 "Ctrl+X                ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Ctrl+Shift+X          ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
-	_zesw_print_option 3 "Custom binding        ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
+	_zesw_print_option 1 "Ctrl+A          ${_ZESW_CLR_DIM}— Default binding${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Ctrl+Shift+A    ${_ZESW_CLR_DIM}— Alternative (may require terminal configuration)${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Custom binding  ${_ZESW_CLR_DIM}— Enter your own key sequence${_ZESW_CLR_RESET}"
 	_zesw_separator
 	_zesw_print_option 4 "Back"
 
@@ -562,6 +618,8 @@ function edit-select::configure-select-all() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_SELECT_ALL"
+			[[ -n "$_zes_old_key" ]] && bindkey -M emacs -r "$_zes_old_key" 2>/dev/null
 			typeset -g EDIT_SELECT_KEY_SELECT_ALL="^A"
 			edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "^A"
 			edit-select::apply-keybindings
@@ -569,14 +627,18 @@ function edit-select::configure-select-all() {
 			_zesw_success "Select All bound to Ctrl+A"
 			;;
 		2)
-			typeset -g EDIT_SELECT_KEY_SELECT_ALL="^[[65;5u"
-			edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "^[[65;5u"
+			local _zes_old_key="$EDIT_SELECT_KEY_SELECT_ALL"
+			[[ -n "$_zes_old_key" ]] && bindkey -M emacs -r "$_zes_old_key" 2>/dev/null
+			typeset -g EDIT_SELECT_KEY_SELECT_ALL="^[[65;6u"
+			edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "^[[65;6u"
 			edit-select::apply-keybindings
 			_zesw_loading "Applying Ctrl+Shift+A binding" 2
 			_zesw_success "Select All bound to Ctrl+Shift+A"
 			;;
 		3)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_SELECT_ALL"
+				[[ -n "$_zes_old_key" ]] && bindkey -M emacs -r "$_zes_old_key" 2>/dev/null
 				typeset -g EDIT_SELECT_KEY_SELECT_ALL="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_SELECT_ALL" "$custom_key"
 				edit-select::apply-keybindings
@@ -616,6 +678,8 @@ function edit-select::configure-paste() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_PASTE"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_PASTE="^V"
 			edit-select::save-config "EDIT_SELECT_KEY_PASTE" "^V"
 			edit-select::apply-keybindings
@@ -623,14 +687,18 @@ function edit-select::configure-paste() {
 			_zesw_success "Paste bound to Ctrl+V"
 			;;
 		2)
-			typeset -g EDIT_SELECT_KEY_PASTE="^[[86;5u"
-			edit-select::save-config "EDIT_SELECT_KEY_PASTE" "^[[86;5u"
+			local _zes_old_key="$EDIT_SELECT_KEY_PASTE"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
+			typeset -g EDIT_SELECT_KEY_PASTE="^[[86;6u"
+			edit-select::save-config "EDIT_SELECT_KEY_PASTE" "^[[86;6u"
 			edit-select::apply-keybindings
 			_zesw_loading "Applying Ctrl+Shift+V binding" 2
 			_zesw_success "Paste bound to Ctrl+Shift+V"
 			;;
 		3)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_PASTE"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_PASTE="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_PASTE" "$custom_key"
 				edit-select::apply-keybindings
@@ -670,6 +738,8 @@ function edit-select::configure-cut() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_CUT"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_CUT="^X"
 			edit-select::save-config "EDIT_SELECT_KEY_CUT" "^X"
 			edit-select::apply-keybindings
@@ -677,14 +747,18 @@ function edit-select::configure-cut() {
 			_zesw_success "Cut bound to Ctrl+X"
 			;;
 		2)
-			typeset -g EDIT_SELECT_KEY_CUT="^[[88;5u"
-			edit-select::save-config "EDIT_SELECT_KEY_CUT" "^[[88;5u"
+			local _zes_old_key="$EDIT_SELECT_KEY_CUT"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
+			typeset -g EDIT_SELECT_KEY_CUT="^[[88;6u"
+			edit-select::save-config "EDIT_SELECT_KEY_CUT" "^[[88;6u"
 			edit-select::apply-keybindings
 			_zesw_loading "Applying Ctrl+Shift+X binding" 2
 			_zesw_success "Cut bound to Ctrl+Shift+X"
 			;;
 		3)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_CUT"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_CUT="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_CUT" "$custom_key"
 				edit-select::apply-keybindings
@@ -733,6 +807,8 @@ function edit-select::configure-copy() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_COPY"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_COPY="^[[67;6u"
 			edit-select::save-config "EDIT_SELECT_KEY_COPY" "^[[67;6u"
 			edit-select::apply-keybindings
@@ -740,6 +816,8 @@ function edit-select::configure-copy() {
 			_zesw_success "Copy bound to Ctrl+Shift+C"
 			;;
 		2)
+			local _zes_old_key="$EDIT_SELECT_KEY_COPY"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_COPY="^Y"
 			edit-select::save-config "EDIT_SELECT_KEY_COPY" "^Y"
 			edit-select::apply-keybindings
@@ -748,6 +826,8 @@ function edit-select::configure-copy() {
 			;;
 		3)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_COPY"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_COPY="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_COPY" "$custom_key"
 				edit-select::apply-keybindings
@@ -791,6 +871,8 @@ function edit-select::configure-word-left() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_WORD_LEFT"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_WORD_LEFT="^[[1;5D"
 			edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "^[[1;5D"
 			edit-select::apply-keybindings
@@ -798,6 +880,8 @@ function edit-select::configure-word-left() {
 			_zesw_success "Word Left bound to Ctrl+Left (^[[1;5D)"
 			;;
 		2)
+			local _zes_old_key="$EDIT_SELECT_KEY_WORD_LEFT"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_WORD_LEFT="^[b"
 			edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "^[b"
 			edit-select::apply-keybindings
@@ -806,6 +890,8 @@ function edit-select::configure-word-left() {
 			;;
 		3)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_WORD_LEFT"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_WORD_LEFT="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_WORD_LEFT" "$custom_key"
 				edit-select::apply-keybindings
@@ -849,6 +935,8 @@ function edit-select::configure-word-right() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_WORD_RIGHT"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_WORD_RIGHT="^[[1;5C"
 			edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "^[[1;5C"
 			edit-select::apply-keybindings
@@ -856,6 +944,8 @@ function edit-select::configure-word-right() {
 			_zesw_success "Word Right bound to Ctrl+Right (^[[1;5C)"
 			;;
 		2)
+			local _zes_old_key="$EDIT_SELECT_KEY_WORD_RIGHT"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_WORD_RIGHT="^[f"
 			edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "^[f"
 			edit-select::apply-keybindings
@@ -864,6 +954,8 @@ function edit-select::configure-word-right() {
 			;;
 		3)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_WORD_RIGHT"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_WORD_RIGHT="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_WORD_RIGHT" "$custom_key"
 				edit-select::apply-keybindings
@@ -906,6 +998,8 @@ function edit-select::configure-buffer-start() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_BUFFER_START"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_BUFFER_START="^[[1;6H"
 			edit-select::save-config "EDIT_SELECT_KEY_BUFFER_START" "^[[1;6H"
 			edit-select::apply-keybindings
@@ -914,6 +1008,8 @@ function edit-select::configure-buffer-start() {
 			;;
 		2)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_BUFFER_START"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_BUFFER_START="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_BUFFER_START" "$custom_key"
 				edit-select::apply-keybindings
@@ -956,6 +1052,8 @@ function edit-select::configure-buffer-end() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_BUFFER_END"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_BUFFER_END="^[[1;6F"
 			edit-select::save-config "EDIT_SELECT_KEY_BUFFER_END" "^[[1;6F"
 			edit-select::apply-keybindings
@@ -964,6 +1062,8 @@ function edit-select::configure-buffer-end() {
 			;;
 		2)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_BUFFER_END"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -M edit-select -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_BUFFER_END="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_BUFFER_END" "$custom_key"
 				edit-select::apply-keybindings
@@ -1002,6 +1102,8 @@ function edit-select::configure-undo() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_UNDO"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_UNDO="^Z"
 			edit-select::save-config "EDIT_SELECT_KEY_UNDO" "^Z"
 			edit-select::apply-keybindings
@@ -1010,6 +1112,8 @@ function edit-select::configure-undo() {
 			;;
 		2)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_UNDO"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_UNDO="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_UNDO" "$custom_key"
 				edit-select::apply-keybindings
@@ -1048,6 +1152,8 @@ function edit-select::configure-redo() {
 
 	case "$choice" in
 		1)
+			local _zes_old_key="$EDIT_SELECT_KEY_REDO"
+			[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
 			typeset -g EDIT_SELECT_KEY_REDO="^[[90;6u"
 			edit-select::save-config "EDIT_SELECT_KEY_REDO" "^[[90;6u"
 			edit-select::apply-keybindings
@@ -1056,6 +1162,8 @@ function edit-select::configure-redo() {
 			;;
 		2)
 			if _zesw_read_custom_key custom_key; then
+				local _zes_old_key="$EDIT_SELECT_KEY_REDO"
+				[[ -n "$_zes_old_key" ]] && { bindkey -M emacs -r "$_zes_old_key" 2>/dev/null; bindkey -r "$_zes_old_key" 2>/dev/null; }
 				typeset -g EDIT_SELECT_KEY_REDO="$custom_key"
 				edit-select::save-config "EDIT_SELECT_KEY_REDO" "$custom_key"
 				edit-select::apply-keybindings
@@ -1091,6 +1199,22 @@ function edit-select::reset-keybindings() {
 	read -r confirm
 	if [[ $confirm =~ ^[Yy]$ ]]; then
 		_zesw_loading "Resetting keybindings" 3
+
+		# Remove all old bindings before resetting to defaults
+		local _k
+		for _k in "$EDIT_SELECT_KEY_SELECT_ALL" "$EDIT_SELECT_KEY_PASTE" "$EDIT_SELECT_KEY_CUT" "$EDIT_SELECT_KEY_COPY"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_CUT"; do
+			[[ -n "$_k" ]] && bindkey -r "$_k" 2>/dev/null
+		done
+		for _k in "$EDIT_SELECT_KEY_UNDO" "$EDIT_SELECT_KEY_REDO"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_WORD_LEFT" "$EDIT_SELECT_KEY_WORD_RIGHT" "$EDIT_SELECT_KEY_BUFFER_START" "$EDIT_SELECT_KEY_BUFFER_END"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"
 		typeset -g EDIT_SELECT_KEY_CUT="$_EDIT_SELECT_DEFAULT_KEY_CUT"
@@ -1203,6 +1327,22 @@ function edit-select::reset-config() {
 	if [[ $confirm =~ ^[Yy]$ ]]; then
 		_zesw_loading "Deleting configuration" 2
 		rm -f "$_EDIT_SELECT_CONFIG_FILE"
+
+		# Remove all old bindings before resetting to defaults
+		local _k
+		for _k in "$EDIT_SELECT_KEY_SELECT_ALL" "$EDIT_SELECT_KEY_PASTE" "$EDIT_SELECT_KEY_CUT" "$EDIT_SELECT_KEY_COPY"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_CUT"; do
+			[[ -n "$_k" ]] && bindkey -r "$_k" 2>/dev/null
+		done
+		for _k in "$EDIT_SELECT_KEY_UNDO" "$EDIT_SELECT_KEY_REDO"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -r "$_k" 2>/dev/null; }
+		done
+		for _k in "$EDIT_SELECT_KEY_WORD_LEFT" "$EDIT_SELECT_KEY_WORD_RIGHT" "$EDIT_SELECT_KEY_BUFFER_START" "$EDIT_SELECT_KEY_BUFFER_END"; do
+			[[ -n "$_k" ]] && { bindkey -M emacs -r "$_k" 2>/dev/null; bindkey -M edit-select -r "$_k" 2>/dev/null; }
+		done
+
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"
