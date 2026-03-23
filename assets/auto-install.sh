@@ -54,7 +54,7 @@ fi
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.6.3"
+readonly SCRIPT_VERSION="0.6.4"
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -78,6 +78,7 @@ declare -i FAILED_TESTS=0
 declare -i WARNING_TESTS=0
 
 # Detection results
+DETECTED_OS=""                # "linux" | "macos" | "wsl"
 DETECTED_DISPLAY_SERVER=""
 DETECTED_DISTRO_ID=""
 DETECTED_DISTRO_NAME=""
@@ -98,6 +99,9 @@ SKIP_VERIFY=0
 SKIP_CONFLICTS=0
 NON_INTERACTIVE=0
 TEST_MODE=0
+
+# Opt-in install/build flags (set during interactive session)
+_ZES_USER_SKIPPED_DEPS=1    # 1 = user declined deps (default), 0 = user accepted deps
 
 # Installation State
 KITTY_FRESHLY_INSTALLED=0
@@ -1123,8 +1127,43 @@ check_essential_commands() {
 
 # System Detection Functions
 
+detect_os() {
+    print_step "Detecting operating system..."
+    local _uname
+    _uname="$(uname -s 2>/dev/null)"
+    case "$_uname" in
+        Darwin)
+            DETECTED_OS="macos"
+            DETECTED_DISPLAY_SERVER="macos"
+            print_success "Detected macOS" "detect_os"
+            ;;
+        Linux)
+            if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ -n "${WSL_INTEROP:-}" ]]; then
+                DETECTED_OS="wsl"
+            else
+                DETECTED_OS="linux"
+            fi
+            ;;
+        MSYS*|MINGW*|CYGWIN*)
+            DETECTED_OS="windows"
+            print_error "Git Bash/MSYS is not supported directly. Please run the installer inside WSL."
+            exit 1
+            ;;
+        *)
+            DETECTED_OS="linux"
+            ;;
+    esac
+}
+
 detect_display_server() {
     print_step "Detecting display server..."
+
+    # macOS uses its own native display system — skip all Linux detection
+    if [[ "$DETECTED_OS" == "macos" ]]; then
+        DETECTED_DISPLAY_SERVER="macos"
+        print_success "Display server: macOS (CoreGraphics + Accessibility API)" "display_server"
+        return
+    fi
 
     # Method 1: XDG_SESSION_TYPE (most reliable)
     if [[ -n "${XDG_SESSION_TYPE:-}" ]]; then
@@ -1279,6 +1318,10 @@ detect_package_manager() {
             DETECTED_PACKAGE_MANAGER="nix"
         elif command_exists swupd; then
             DETECTED_PACKAGE_MANAGER="swupd"
+        elif command_exists brew; then
+            DETECTED_PACKAGE_MANAGER="brew"
+        elif command_exists port; then
+            DETECTED_PACKAGE_MANAGER="port"
         else
             DETECTED_PACKAGE_MANAGER="unknown"
         fi
@@ -1307,6 +1350,17 @@ detect_package_manager() {
 
 detect_linux_distro() {
     print_step "Detecting Linux distribution..."
+
+    # macOS: set distro fields and exit early
+    if [[ "$DETECTED_OS" == "macos" ]]; then
+        DETECTED_DISTRO_ID="macos"
+        DETECTED_DISTRO_NAME="macOS"
+        DETECTED_DISTRO_VERSION="$(sw_vers -productVersion 2>/dev/null || echo 'unknown')"
+        print_success "macOS ${DETECTED_DISTRO_VERSION}" "distro"
+        detect_package_manager
+        print_substep "Package Manager: ${DETECTED_PACKAGE_MANAGER:-none}"
+        return
+    fi
 
     # Method 1: /etc/os-release (standard)
     if [[ -f /etc/os-release ]]; then
@@ -1771,6 +1825,32 @@ detect_terminals() {
         fi
     fi
 
+    # macOS-specific terminal detection (iTerm2, Terminal.app, Ghostty)
+    if [[ "$DETECTED_OS" == "macos" ]]; then
+        # iTerm2
+        if [[ -d "/Applications/iTerm.app" ]] || [[ -d "$HOME/Applications/iTerm.app" ]]; then
+            if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " iterm2 " ]]; then
+                DETECTED_TERMINALS+=("iterm2")
+                print_substep "Found: iTerm2"
+            fi
+        fi
+        # Terminal.app (always present on macOS)
+        if [[ -d "/System/Applications/Utilities/Terminal.app" ]] || \
+           [[ -d "/Applications/Utilities/Terminal.app" ]]; then
+            if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " terminal-app " ]]; then
+                DETECTED_TERMINALS+=("terminal-app")
+                print_substep "Found: Terminal.app"
+            fi
+        fi
+        # Ghostty
+        if command_exists ghostty || [[ -d "/Applications/Ghostty.app" ]]; then
+            if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " ghostty " ]]; then
+                DETECTED_TERMINALS+=("ghostty")
+                print_substep "Found: Ghostty"
+            fi
+        fi
+    fi
+
     if [[ ${#DETECTED_TERMINALS[@]} -eq 0 ]]; then
         print_warning "No known terminal emulators detected"
         print_info "Terminal configuration will need to be done manually"
@@ -2000,9 +2080,31 @@ install_dependencies() {
         return
     fi
 
+    # Ask the user whether they want to install build deps at all.
+    # Pre-built binaries are downloaded automatically by the plugin on first load.
+    # Local compilation is opt-in only.
+    if [[ $NON_INTERACTIVE -eq 0 ]]; then
+        echo ""
+        print_info "Pre-built agent binaries are downloaded automatically from GitHub Releases"
+        print_info "on first plugin load — no build tools required for normal use."
+        echo ""
+        if ! ask_yes_no "Install build dependencies to compile agents from source? (optional)" "n"; then
+            print_info "Skipping dependency installation."
+            print_info "Pre-built binaries will be fetched automatically on first plugin load."
+            _ZES_USER_SKIPPED_DEPS=1
+            return
+        fi
+        _ZES_USER_SKIPPED_DEPS=0
+    else
+        print_info "Non-interactive mode defaults to using pre-built binaries."
+        print_info "Skipping local compilation dependencies."
+        _ZES_USER_SKIPPED_DEPS=1
+        return
+    fi
+
     print_step "Installing dependencies..."
 
-    if [[ $SUDO_AVAILABLE -eq 0 ]]; then
+    if [[ $SUDO_AVAILABLE -eq 0 ]] && [[ "$DETECTED_OS" != "macos" ]]; then
         print_warning "Cannot install dependencies without sudo privileges"
         MANUAL_STEPS+=("Install dependencies manually based on your distribution")
         return
@@ -2020,6 +2122,7 @@ install_dependencies() {
     eopkg) install_deps_eopkg ;;
     nix) install_deps_nix ;;
     swupd) install_deps_swupd ;;
+    brew | port) install_deps_macos ;;
     *)
         print_warning "Unknown package manager: $DETECTED_PACKAGE_MANAGER"
         print_info "Please install dependencies manually:"
@@ -2027,6 +2130,8 @@ install_dependencies() {
         if [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
             print_info "  - libx11-dev libxfixes-dev (X11 libraries)"
             print_info "  - xclip (clipboard tool, optional)"
+        elif [[ "$DETECTED_DISPLAY_SERVER" == "macos" ]]; then
+            print_info "  - Xcode Command Line Tools: xcode-select --install"
         else
             print_info "  - wayland-dev wayland-protocols (Wayland libraries)"
             print_info "  - wl-clipboard (clipboard tool, optional)"
@@ -2037,6 +2142,37 @@ install_dependencies() {
         return
         ;;
     esac
+}
+
+install_deps_macos() {
+    print_substep "macOS: checking Xcode Command Line Tools..."
+
+    # Xcode Command Line Tools provide clang + all required SDK headers
+    # (AppKit, ApplicationServices, CoreGraphics). No Homebrew packages needed.
+    if ! xcode-select -p &>/dev/null 2>&1; then
+        print_step "Installing Xcode Command Line Tools (provides clang + SDK headers)..."
+        print_info "A system dialog will appear. Click 'Install' and wait to complete."
+        xcode-select --install 2>/dev/null || true
+        echo ""
+        print_info "After the CLT installation completes, press Enter to continue..."
+        flush_stdin
+        read -r
+    else
+        print_success "Xcode Command Line Tools already installed: $(xcode-select -p)" "xcode_clt"
+    fi
+
+    # Optional: tmux users benefit from reattach-to-user-namespace for
+    # proper pasteboard namespace access inside tmux sessions.
+    if command_exists tmux && command_exists brew; then
+        echo ""
+        print_info "tmux detected. 'reattach-to-user-namespace' improves clipboard inside tmux."
+        if ask_yes_no "Install reattach-to-user-namespace via brew? (optional)" "n"; then
+            brew install reattach-to-user-namespace 2>/dev/null || \
+                print_warning "brew install failed; run manually: brew install reattach-to-user-namespace"
+        fi
+    fi
+
+    print_success "macOS build dependencies ready" "deps_install"
 }
 
 ask_xwayland_deps() {
@@ -2910,10 +3046,16 @@ SHELDON
 # Agent Build Functions
 
 build_monitor_daemons() {
-    print_header "Phase 4: Building Agents"
+    print_header "Phase 4: Agents"
 
     if [[ ! -d "$PLUGIN_INSTALL_DIR" ]]; then
         print_error "Plugin directory not found: $PLUGIN_INSTALL_DIR" "monitor_build"
+        return
+    fi
+
+    # macOS clipboard agent
+    if [[ "$DETECTED_DISPLAY_SERVER" == "macos" ]]; then
+        build_macos_agent
         return
     fi
 
@@ -2925,6 +3067,51 @@ build_monitor_daemons() {
         if [[ -n "${DISPLAY:-}" ]]; then
             build_xwayland_monitor
         fi
+    fi
+}
+
+build_macos_agent() {
+    print_step "Building macOS clipboard agent..."
+
+    local build_dir="$PLUGIN_INSTALL_DIR/impl-macos/backends/macos"
+    if [[ ! -d "$build_dir" ]]; then
+        print_warning "macOS agent source not found: $build_dir" "macos_build"
+        print_info "The plugin will attempt to auto-compile on first shell load."
+        return
+    fi
+    if [[ ! -f "$build_dir/Makefile" ]]; then
+        print_warning "No Makefile found in $build_dir" "macos_build"
+        return
+    fi
+
+    local missing_tools=()
+    if ! command_exists clang && ! command_exists gcc; then
+        missing_tools+=("clang (from Xcode Command Line Tools)")
+    fi
+    if ! command_exists make; then
+        missing_tools+=( "make (from Xcode Command Line Tools)" )
+    fi
+
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        print_error "Missing build tools: ${missing_tools[*]}" "macos_build"
+        print_info "Run: xcode-select --install"
+        MANUAL_STEPS+=("Install Xcode CLT then rebuild: cd $build_dir && make")
+        return
+    fi
+
+    local build_output
+    if build_output=$(cd "$build_dir" && { make clean 2>/dev/null || true; } && make 2>&1); then
+        local agent_bin="$build_dir/zes-macos-clipboard-agent"
+        if [[ -x "$agent_bin" ]]; then
+            print_success "macOS clipboard agent built successfully" "macos_build"
+        else
+            print_warning "Build reported success but binary not found" "macos_build"
+            MANUAL_STEPS+=("Verify macOS agent binary in $build_dir")
+        fi
+    else
+        print_error "Failed to build macOS clipboard agent" "macos_build"
+        echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
+        MANUAL_STEPS+=("Build macOS agent: cd $build_dir && make")
     fi
 }
 
@@ -3192,6 +3379,9 @@ configure_terminals() {
         alacritty) configure_alacritty ;;
         wezterm) configure_wezterm ;;
         foot) configure_foot ;;
+        iterm2) configure_iterm2 ;;
+        terminal-app) configure_terminal_app ;;
+        ghostty) configure_ghostty ;;
         vscode) configure_vscode ;;
         windows-terminal) configure_windows_terminal ;;
         konsole | gnome-terminal | xfce4-terminal | terminator | tilix)
@@ -3206,6 +3396,49 @@ configure_terminals() {
 
 backup_config() {
     backup_file "$1"
+}
+
+# ── macOS Terminal Configuration Functions ────────────────────────────────────
+
+configure_iterm2() {
+    print_step "Configuring iTerm2..."
+    # iTerm2 stores keybindings in a binary plist — cannot be set from a script.
+    # Guide the user to do it in the iTerm2 Settings UI.
+    print_info "iTerm2 remap Cmd+C → copy (escape seq) and Cmd+Shift+C → interrupt:"
+    print_info "  Settings → Keys → Key Bindings"
+    print_info "  Add: Cmd+C     → Send Escape Sequence: [67;6u"
+    print_info "  Add: Cmd+Shift+C → Send Hex Code: 0x03"
+    print_info "  (iTerm2 prepends ESC automatically)"
+    print_info "  See README.md §macOS Support → Remapping Cmd+C for full instructions."
+    MANUAL_STEPS+=("iTerm2: Remap Cmd+C to copy escape sequence — see README.md §macOS Support")
+    print_success "iTerm2 configuration instructions provided" "iterm2_config"
+}
+
+configure_terminal_app() {
+    print_step "Configuring Terminal.app..."
+    # Terminal.app has partial AX support; keyboard selection works without config.
+    # Copy-shortcut remapping requires manual steps in Terminal preferences.
+    print_info "Terminal.app: Keyboard selection (Shift+Arrow) works out of the box."
+    print_info "For copy-shortcut remapping see README.md §Terminal Setup."
+    MANUAL_STEPS+=("Terminal.app: Configure Ctrl+Shift+C shortcut if needed — see README.md §Terminal Setup")
+    print_success "Terminal.app configuration instructions provided" "terminal_app_config"
+}
+
+configure_ghostty() {
+    print_step "Configuring Ghostty..."
+
+    local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
+    local config="$config_dir/config"
+
+    # Ghostty key_binding syntax uses 'ctrl+shift+c' style by default;
+    # it does not need special escape sequence remapping because it
+    # supports kitty keyboard protocol natively.
+    print_info "Ghostty supports the kitty keyboard protocol — no key-binding config required."
+    print_info "If Shift+Arrow selection doesn't work, add to $config:"
+    print_info "  keybind = shift+left=send_text:\\x1b[1;2D"
+    print_info "  keybind = shift+right=send_text:\\x1b[1;2C"
+    MANUAL_STEPS+=("Ghostty: Verify Shift+Arrow sends correct escape sequences (see README.md §Terminal Setup)")
+    print_success "Ghostty configuration instructions provided" "ghostty_config"
 }
 
 configure_kitty() {
@@ -4596,6 +4829,7 @@ verify_plugin_files() {
     local -a required_dirs=(
         "impl-x11"
         "impl-wayland"
+        "impl-macos"
     )
 
     for file in "${required_files[@]}"; do
@@ -4643,9 +4877,20 @@ verify_zshrc_config() {
 verify_dependencies() {
     print_step "Verifying dependencies..."
 
+    local prebuilt_expected=0
+    if [[ "${_ZES_USER_SKIPPED_DEPS:-1}" -eq 1 ]]; then
+        local arch
+        arch=$(uname -m 2>/dev/null)
+        if [[ "$DETECTED_OS" == "macos" || "$DETECTED_OS" == "wsl" || "$arch" == "x86_64" || "$arch" == "amd64" || "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+            prebuilt_expected=1
+        fi
+    fi
+
     # Compiler
     if command_exists gcc || command_exists clang; then
         test_pass "C compiler available"
+    elif [[ $prebuilt_expected -eq 1 ]]; then
+        test_pass "C compiler bypassed (using pre-built agents)"
     else
         test_fail "C compiler not found" "Install gcc or clang"
     fi
@@ -4653,6 +4898,8 @@ verify_dependencies() {
     # Make
     if command_exists make; then
         test_pass "Make build system available"
+    elif [[ $prebuilt_expected -eq 1 ]]; then
+        test_pass "Make bypassed (using pre-built agents)"
     else
         test_fail "Make not found" "Install make"
     fi
@@ -4660,6 +4907,8 @@ verify_dependencies() {
     # pkg-config
     if command_exists pkg-config; then
         test_pass "pkg-config available"
+    elif [[ $prebuilt_expected -eq 1 ]]; then
+        test_pass "pkg-config bypassed (using pre-built agents)"
     else
         test_warning "pkg-config not found" "May affect build process"
     fi
@@ -4668,12 +4917,16 @@ verify_dependencies() {
     if [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
         if command_exists xclip; then
             test_pass "xclip available (fallback clipboard tool)"
+        elif [[ $prebuilt_expected -eq 1 ]]; then
+            test_pass "xclip bypassed (using pre-built custom agent)"
         else
             test_warning "xclip not found" "Custom agent will be required"
         fi
     elif [[ "$DETECTED_DISPLAY_SERVER" == "wayland" ]]; then
         if command_exists wl-copy && command_exists wl-paste; then
             test_pass "wl-clipboard available (fallback clipboard tool)"
+        elif [[ $prebuilt_expected -eq 1 ]]; then
+            test_pass "wl-clipboard bypassed (using pre-built custom agent)"
         else
             test_warning "wl-clipboard not found" "Custom agent will be required"
         fi
@@ -4706,6 +4959,11 @@ verify_dependencies() {
 verify_monitor_daemons() {
     print_step "Verifying agents..."
 
+    if [[ "${_ZES_USER_SKIPPED_DEPS:-1}" -eq 1 ]]; then
+        test_pass "Agent binaries are pre-built and will be downloaded on first shell load"
+        return
+    fi
+
     if [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
         local monitor_binary="$PLUGIN_INSTALL_DIR/impl-x11/backends/x11/zes-x11-selection-agent"
 
@@ -4728,6 +4986,14 @@ verify_monitor_daemons() {
             test_pass "XWayland clipboard agent built (optional)"
         else
             test_warning "XWayland agent not built" "Optional component"
+        fi
+    elif [[ "$DETECTED_DISPLAY_SERVER" == "macos" ]]; then
+        local macos_binary="$PLUGIN_INSTALL_DIR/impl-macos/backends/macos/zes-macos-clipboard-agent"
+        if [[ -x "$macos_binary" ]]; then
+            test_pass "macOS clipboard agent built and executable"
+        else
+            test_warning "macOS agent binary not found" \
+                "Will auto-compile on first shell load (requires Xcode CLT: xcode-select --install)"
         fi
     fi
 }
@@ -5199,6 +5465,7 @@ run_full_install() {
 
     # Phase 1: System Detection
     print_header "Phase 1: System Detection"
+    detect_os
     detect_display_server
     detect_linux_distro
     detect_plugin_manager
@@ -5220,10 +5487,33 @@ run_full_install() {
     install_plugin
 
     # Phase 4: Agents
-    build_monitor_daemons
+    # Pre-built binaries are the default; local build is opt-in
+    if [[ $NON_INTERACTIVE -eq 0 ]] && [[ "${_ZES_USER_SKIPPED_DEPS:-1}" -eq 0 ]]; then
+        echo ""
+        if ask_yes_no "Do you want to compile the agent binary from source now?" "y"; then
+            build_monitor_daemons
+        else
+            print_info "Skipping agent build. Pre-built binaries will be fetched on first load."
+        fi
+    fi
 
     # Phase 5: Terminal Configuration
     configure_terminals
+
+    # macOS: remind user about Accessibility setup
+    if [[ "$DETECTED_OS" == "macos" ]]; then
+        echo ""
+        print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_info "macOS: Accessibility Setup (for mouse type-to-replace)"
+        print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_info "After your shell reloads, run:"
+        print_info "  edit-select setup-ax"
+        print_info "This will open System Settings → Privacy & Security → Accessibility."
+        print_info "Enable the toggle for your terminal application."
+        print_info "This is a one-time step required for mouse selection support."
+        echo ""
+        MANUAL_STEPS+=("macOS: Run 'edit-select setup-ax' after reloading your shell")
+    fi
 
     # Phase 6: Conflict Detection
     check_conflicts

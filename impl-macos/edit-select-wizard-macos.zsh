@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.3
+# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 
@@ -17,11 +17,11 @@ typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-
 # be used because terminals intercept it as SIGINT.
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_COPY+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_COPY='^[[67;6u'
 # Word navigation: standard xterm/VT sequences for Ctrl+Left / Ctrl+Right.
-# If your terminal sends different sequences, configure them here.
+# If the terminal sends different sequences, configure them here.
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_LEFT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_LEFT='^[[1;5D'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT='^[[1;5C'
 # Buffer navigation: standard xterm/VT sequences for Ctrl+Shift+Home / Ctrl+Shift+End.
-# If your terminal sends different sequences, configure them here.
+# If the terminal sends different sequences, configure them here.
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_START+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_START='^[[1;6H'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]]   && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
 [[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT+x} ]]  && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT='^[[1;6D'

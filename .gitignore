@@ -9,6 +9,7 @@ impl-x11/backends/x11/zes-x11-selection-agent
 impl-x11/backends/x11/*.o
 impl-wsl/backends/wsl/zes-wsl-selection-agent
 impl-wsl/backends/wsl/zes-wsl-clipboard-helper
+impl-wsl/backends/wsl/zes-wsl-clipboard-helper.exe
 impl-wsl/tailored-variants/impl-wayland-wsl/backends-wsl/xwayland/zes-xwayland-agent
 impl-macos/backends/macos/zes-macos-clipboard-agent
 
