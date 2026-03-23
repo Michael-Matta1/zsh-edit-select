@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.3
+# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # zsh-edit-select — Unified platform loader
@@ -58,35 +58,71 @@ if [[ ! -r "$_zes_plugin" ]]; then
   return 1
 fi
 
-# Compile native agents on first use if the binary is missing.
-# Each agent is built by running `make` in its source directory.
+# Ensure native agents are present.
+#
+# Strategy (per binary, checked on every shell start via [[ ! -x ]]):
+#   1. Binary already exists → nothing to do, zero cost.
+#   2. Binary missing → source assets/fetch-agents.zsh and attempt to
+#      download a pre-built binary from the latest GitHub Release.
+#   3. Download unavailable or failed → fall back to `make` from source,
+#      exactly as before (developer / offline path, unchanged).
+#   4. Both failed → print a diagnostic with the required package names.
+#
+# WSL is excluded here: its two artifacts (Linux ELF + Windows .exe) are
+# provisioned by _zes_loader_build_wsl_artifacts() in loader-build.wsl.zsh,
+# which is sourced by the WSL plugin and follows the same download-first logic.
 if [[ $_zes_impl == "wayland" ]]; then
-  local _wl="${_zes_dir}/impl-wayland/backends/wayland/zes-wl-selection-agent"
-  local _xwl="${_zes_dir}/impl-wayland/backends/xwayland/zes-xwayland-agent"
-  # Build the pure-Wayland agent from source if the binary is missing.
-  if [[ ! -x "$_wl" ]] && [[ -f "${_wl:h}/Makefile" ]]; then
-    ( cd "${_wl:h}" && make >/dev/null 2>&1 )
-    [[ ! -x "$_wl" ]] && print -u2 "zsh-edit-select: Wayland agent build failed. Install: libwayland-dev wayland-protocols"
+
+  # 'local' is a no-op at script scope — these are plain assignments, cleaned
+  # up by the unset block at the bottom of this file.
+  _wl="${_zes_dir}/impl-wayland/backends/wayland/zes-wl-selection-agent"
+  _xwl="${_zes_dir}/impl-wayland/backends/xwayland/zes-xwayland-agent"
+
+  if [[ ! -x "$_wl" ]] || [[ ! -x "$_xwl" ]]; then
+    # Source lazily: only pays the source cost when at least one binary is absent.
+    source "${_zes_dir}/assets/fetch-agents.zsh" 2>/dev/null
   fi
-  # Build the XWayland agent from source if the binary is missing.
-  if [[ ! -x "$_xwl" ]] && [[ -f "${_xwl:h}/Makefile" ]]; then
-    ( cd "${_xwl:h}" && make >/dev/null 2>&1 )
-    [[ ! -x "$_xwl" ]] && print -u2 "zsh-edit-select: XWayland agent build failed. Install: libx11-dev libxfixes-dev"
+
+  # Pure-Wayland agent
+  if [[ ! -x "$_wl" ]]; then
+    _zes_fetch_binary "$(_zes_asset_name wayland zes-wl-selection-agent)" "$_wl" \
+      || { [[ -f "${_wl:h}/Makefile" ]] && ( cd "${_wl:h}" && make >/dev/null 2>&1 ); }
+    [[ ! -x "$_wl" ]] \
+      && print -u2 "zsh-edit-select: Wayland agent unavailable. Install: libwayland-dev wayland-protocols"
   fi
+
+  # XWayland agent
+  if [[ ! -x "$_xwl" ]]; then
+    _zes_fetch_binary "$(_zes_asset_name wayland zes-xwayland-agent)" "$_xwl" \
+      || { [[ -f "${_xwl:h}/Makefile" ]] && ( cd "${_xwl:h}" && make >/dev/null 2>&1 ); }
+    [[ ! -x "$_xwl" ]] \
+      && print -u2 "zsh-edit-select: XWayland agent unavailable. Install: libx11-dev libxfixes-dev"
+  fi
+
 elif [[ $_zes_impl == "x11" ]]; then
-  # Build the X11 selection agent from source if the binary is missing.
-  local _x11="${_zes_dir}/impl-x11/backends/x11/zes-x11-selection-agent"
-  if [[ ! -x "$_x11" ]] && [[ -f "${_x11:h}/Makefile" ]]; then
-    ( cd "${_x11:h}" && make >/dev/null 2>&1 )
-    [[ ! -x "$_x11" ]] && print -u2 "zsh-edit-select: X11 agent build failed. Install: libx11-dev libxfixes-dev"
+
+  _x11="${_zes_dir}/impl-x11/backends/x11/zes-x11-selection-agent"
+
+  if [[ ! -x "$_x11" ]]; then
+    source "${_zes_dir}/assets/fetch-agents.zsh" 2>/dev/null
+    _zes_fetch_binary "$(_zes_asset_name x11 zes-x11-selection-agent)" "$_x11" \
+      || { [[ -f "${_x11:h}/Makefile" ]] && ( cd "${_x11:h}" && make >/dev/null 2>&1 ); }
+    [[ ! -x "$_x11" ]] \
+      && print -u2 "zsh-edit-select: X11 agent unavailable. Install: libx11-dev libxfixes-dev"
   fi
+
 elif [[ $_zes_impl == "macos" ]]; then
-  # Build the macOS pasteboard agent from source if the binary is missing.
-  local _macos="${_zes_dir}/impl-macos/backends/macos/zes-macos-clipboard-agent"
-  if [[ ! -x "$_macos" ]] && [[ -f "${_macos:h}/Makefile" ]]; then
-    ( cd "${_macos:h}" && make >/dev/null 2>&1 )
-    [[ ! -x "$_macos" ]] && print -u2 "zsh-edit-select: macOS agent build failed. Run: xcode-select --install"
+
+  _macos="${_zes_dir}/impl-macos/backends/macos/zes-macos-clipboard-agent"
+
+  if [[ ! -x "$_macos" ]]; then
+    source "${_zes_dir}/assets/fetch-agents.zsh" 2>/dev/null
+    _zes_fetch_binary "$(_zes_asset_name macos zes-macos-clipboard-agent)" "$_macos" \
+      || { [[ -f "${_macos:h}/Makefile" ]] && ( cd "${_macos:h}" && make >/dev/null 2>&1 ); }
+    [[ ! -x "$_macos" ]] \
+      && print -u2 "zsh-edit-select: macOS agent unavailable. Run: xcode-select --install"
   fi
+
 fi
 
 # Lazily compile the plugin .zsh files to bytecode on first load.
@@ -94,7 +130,6 @@ fi
 # for the selected implementation.  Subsequent loads hit the .zwc cache.
 if [[ ! -f "${_zes_plugin}.zwc" ]]; then
   zcompile "$_zes_plugin" 2>/dev/null
-  local _zes_f
   for _zes_f in "${_zes_dir}/impl-${_zes_impl}"/backends/**/*.zsh(N); do
     [[ ! -f "${_zes_f}.zwc" ]] && zcompile "$_zes_f" 2>/dev/null
   done
@@ -115,6 +150,10 @@ typeset -gr ZES_IMPL_PATH="${_zes_dir}/impl-${_zes_impl}"
 
 # Clean up all loader-local variables so they do not leak into the shell
 # environment.  The exported ZES_* variables above are the only public API.
+# _zes_fetch_binary and _zes_asset_name are functions (not variables), so
+# unfunction is used — but only if fetch-agents.zsh was actually sourced
+# this session (i.e. at least one binary was absent on this load).
 unset _zes_dir _zes_impl _zes_reason _zes_plugin _zes_f _wl _xwl _x11 _macos
+(( ${+functions[_zes_fetch_binary]} )) && unfunction _zes_fetch_binary _zes_asset_name
 
 return 0

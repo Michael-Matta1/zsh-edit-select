@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.6.3
+// Version: 0.6.4
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // macOS clipboard integration agent for zsh-edit-select.
@@ -10,14 +10,14 @@
 //
 //   kCGEventLeftMouseUp (CGEventTap) → kAXSelectedTextAttribute (AX API)
 //
-// When the mouse button releases, selection is complete. We read the
+// When the mouse button releases, selection is complete. Read the
 // selected text via kAXSelectedTextAttribute. If non-empty and changed,
-// we write it to the primary cache. The clipboard (NSPasteboard) is
+// write it to the primary cache. The clipboard (NSPasteboard) is
 // NEVER touched by a mouse drag. This is NOT Copy-on-Select.
 //
 // For terminals with custom GPU renderers (Kitty, Alacritty, WezTerm,
 // Ghostty), kAXSelectedTextAttribute returns kAXErrorAttributeUnsupported.
-// We silently skip — no fallback, no Copy-on-Select, no error.
+// Silently skip — no fallback, no Copy-on-Select, no error.
 //
 // DAEMONIZATION: fork()+setsid() — NOT daemon(3).
 //   daemon(3) moves the process to the root bootstrap namespace, breaking
@@ -215,12 +215,12 @@ static int ensure_cache_dir(const char *dir) {
 
    DEDUPLICATION: kCGEventLeftMouseUp fires on every click, including
    single clicks without a selection. Without dedup, every click would
-   produce a spurious seq mtime change. We cache the last selection in
+   produce a spurious seq mtime change. Cache the last selection in
    g_last_ax_selection[4096] and skip writing if identical.
 
    Adaptive Fast-Path (is_retry param):
-   We explicitly return false if kAXSelectedTextAttribute is empty but
-   we are running in the fast path. This allows the caller to schedule a
+   Explicitly return false if kAXSelectedTextAttribute is empty but
+   running in the fast path. This allows the caller to schedule a
    5ms retry to catch natively slow terminals (Terminal.app) that update
    async, while preserving <1ms latency for fast terminals.
 
@@ -319,11 +319,11 @@ static void ax_read_and_write_selection(void) {
    Dispatches AX read to main queue via dispatch_async. This ensures the
    AX query runs on the main run loop thread as required, and also allows
    the target application to finalize its text selection model before
-   we query it (~1µs enqueue overhead, imperceptible to users).
+   queried (~1µs enqueue overhead, imperceptible to users).
 
    kCGEventTapDisabledByTimeout / kCGEventTapDisabledByUserInput:
-   macOS disables taps that block the event stream. Our tap is listen-only
-   and completes in ~1µs — it will not time out. We re-enable as a safety
+   macOS disables taps that block the event stream. The tap is listen-only
+   and completes in ~1µs — it will not time out. Re-enable as a safety
    measure in case the OS disables it anyway.
 
    IMPORTANT: This callback NEVER modifies or consumes events.
@@ -475,7 +475,7 @@ static int run_oneshot(void) {
 /* ─────────────────────────────────────────────────────────────────────
    run_copy_clipboard()
    Read stdin and write to NSPasteboard. No clipboard server needed —
-   the macOS pboard daemon owns storage persistently after we write.
+   the macOS pboard daemon owns storage persistently after writing.
    ───────────────────────────────────────────────────────────────────── */
 static int run_copy_clipboard(void) {
   size_t len = 0;

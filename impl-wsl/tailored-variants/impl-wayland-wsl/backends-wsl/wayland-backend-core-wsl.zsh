@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.3
+# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Wayland backend — auto-detects XWayland (invisible) vs pure Wayland monitor.
@@ -9,25 +9,54 @@
 # XWayland agent skips the Wayland protocol stack entirely and reads selection
 # state directly through X11 atoms.  This is simpler and avoids the surface
 # mapping requirement that Mutter imposes on Wayland clients.
-# backend tree outside tailored-variants/ so we reuse existing build targets.
+# backend tree outside tailored-variants/ to reuse existing build targets.
 typeset -g _ZES_TAILORED_BACKEND_REAL_DIR="${0:A:h}/../../../../impl-wayland/backends"
 typeset -g _ZES_WSL_XWAYLAND_AGENT_DIR="${0:A:h}/xwayland"
 
 # Binary detection uses -s (non-empty file) instead of -x because on WSL2's
 # DrvFs mounts (/mnt/c/…) the POSIX execute bit may not be set even though
-# the kernel can still exec ELF binaries.  We chmod +x as a best-effort fix.
+# the kernel can still exec ELF binaries. A chmod +x acts as a best-effort fix.
 #
-# Auto-build zes-xwayland-agent if the binary is absent but the Makefile is
-# present.
+# Provisioning strategy (same download-first pattern as the top-level loader):
+#   1. Binary already present → nothing to do.
+#   2. Download prebuilt from the latest GitHub Release via fetch-agents.zsh.
+#      The release asset is named zes-wsl-xwayland-agent (distinct from the
+#      generic zes-xwayland-agent) to make it clear this binary carries WSLg
+#      clipboard-bridging support (--monitor-clipboard).
+#   3. Download failed or offline → compile from source with `make`.
+#   4. Both failed → fall back silently to pure-Wayland monitor below.
 if [[ -n "${DISPLAY:-}" ]] && \
-   [[ ! -s "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]] && \
-   [[ -f "$_ZES_WSL_XWAYLAND_AGENT_DIR/Makefile" ]] && \
-   [[ -w "$_ZES_WSL_XWAYLAND_AGENT_DIR" ]]; then
+   [[ ! -s "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]]; then
+
+  # Resolve plugin root: this file lives at
+  #   impl-wsl/tailored-variants/impl-wayland-wsl/backends-wsl/wayland-backend-core-wsl.zsh
+  # Four :h steps reach the plugin root where assets/ lives.
+  local _zes_wsl_root="${${(%):-%N}:A:h:h:h:h:h}"
+
+  # Source the shared fetch helper if not already loaded (it may have been
+  # sourced earlier by loader-build.wsl.zsh for the main WSL agents).
+  if ! (( ${+functions[_zes_fetch_binary]} )); then
+    source "${_zes_wsl_root}/assets/fetch-agents.zsh" 2>/dev/null
+  fi
+
+  # Try download first.
+  if (( ${+functions[_zes_fetch_binary]} )); then
+    _zes_fetch_binary "zes-wsl-xwayland-agent" \
+      "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" 2>/dev/null
+  fi
+
+  # Fallback: compile from source (developer / offline path).
+  if [[ ! -s "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]] && \
+     [[ -f "$_ZES_WSL_XWAYLAND_AGENT_DIR/Makefile" ]] && \
+     [[ -w "$_ZES_WSL_XWAYLAND_AGENT_DIR" ]]; then
     ( cd "$_ZES_WSL_XWAYLAND_AGENT_DIR" && make ) >/dev/null 2>&1
-    if [[ -f "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]] && \
-       [[ ! -x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]]; then
-        chmod +x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" 2>/dev/null
-    fi
+  fi
+
+  # Ensure the execute bit is set regardless of how the binary arrived.
+  [[ -f "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]] && \
+    chmod +x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" 2>/dev/null
+
+  unset _zes_wsl_root
 fi
 if [[ -n "${DISPLAY:-}" ]] && [[ -s "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]]; then
     chmod +x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" 2>/dev/null
@@ -53,7 +82,7 @@ fi
 # last self-initiated copy so the selection detector can suppress it.
 typeset -g _ZES_SELF_WRITE_CONTENT=""
 
-# Detect whether we are running on WSL so the daemon can enable the
+# Detect whether running on WSL so the daemon can enable the
 # --monitor-clipboard flag (WSLg bridges Windows clipboard ↔ X11 CLIPBOARD).
 typeset -gi _ZES_ON_WSL=0
 if [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && grep -qi 'microsoft\|WSL' /proc/version 2>/dev/null; }; then
@@ -242,7 +271,7 @@ function _zes_wsl_check_copyonselect() {
     return 1
 }
 
-# Diagnostic command: run `edit-select-diagnose` in your shell to check
+# Diagnostic command: run `edit-select-diagnose` in the shell to check
 # daemon status, clipboard monitoring, and WSL configuration.
 # ======================================================================
 # WSL ZSH Mouse Tracking
@@ -250,10 +279,10 @@ function _zes_wsl_check_copyonselect() {
 #
 # On WSL2, Windows Terminal does not set X11 PRIMARY on mouse selection.
 # Instead of relying on copyOnSelect (which changes terminal behavior),
-# we implement native ZSH mouse tracking using SGR extended mouse mode.
+# native ZSH mouse tracking is implemented using SGR extended mouse mode.
 #
 # When enabled, the terminal forwards mouse events to ZSH as escape
-# sequences instead of doing its own selection.  We parse these events,
+# sequences instead of doing its own selection. These events are parsed,
 # map screen coordinates to BUFFER positions, and use ZLE's native
 # REGION_ACTIVE / MARK / CURSOR mechanism for selection.  This integrates
 # seamlessly with the existing edit-select keymap (type-to-replace, cut,
@@ -455,7 +484,7 @@ function _zes_screen_to_buffer_pos() {
 # the terminal input to get button/column/row/press-or-release.
 function _zes_mouse_event_handler() {
     local buf="" c=""
-    # Read until we get M (press/motion) or m (release).
+    # Read until obtaining M (press/motion) or m (release).
     # The SGR bytes are pre-buffered in ZLE's unget queue so read
     # returns immediately; -t 0.5 is a safety-net for broken sequences.
     while read -rsk 1 -t 0.5 c; do

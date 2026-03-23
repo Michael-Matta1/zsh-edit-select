@@ -27,10 +27,10 @@ support.
 >
 >---
 >
-- [Terminal Setup](#terminal-setup)
-  - [Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut)
-  - [Step 2: Configure Undo and Redo Shortcut](#step-2-configure-undo-and-redo-shortcut)
-  - [Step 3: Enable Shift Selection Keys](#step-3-enable-shift-selection-keys)
+- [Famous Terminals Configurations](#famous-terminals-configurations)
+  - [Configure Copy Shortcut](#configure-copy-shortcut)
+  - [Configure Undo and Redo Shortcut](#configure-undo-and-redo-shortcut)
+  - [Configure Shift Selection Keys](#configure-shift-selection-keys)
 - [Wayland Support](#wayland-support)
 - [WSL Support](#wsl-support)
 - [macOS Support](#macos-support)
@@ -39,12 +39,8 @@ support.
 >
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
-- [Platform Compatibility](#platform-compatibility)
-- [Performance-Optimized Architecture](#performance-optimized-architecture)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgments](#acknowledgments)
-- [References](#references)
+- [Manual Agents Build (optional)](#manual-agents-build-optional)
+
 
 ---
 
@@ -106,7 +102,7 @@ Type or paste while text is selected to replace it automatically.
 Works with both keyboard and mouse selections (when mouse replacement is enabled).
 
 <details>
-<summary><b>⚠️ Mouse Replacement Note (Safeguard Prompt)</b></summary>
+<summary><b>Mouse Replacement Feature Note (Safeguard Prompt)</b></summary>
 
 If you see the message **"Duplicate text: place cursor inside the occurrence you want to modify"**, the plugin has detected multiple identical occurrences of the selected text within your command buffer.
 
@@ -153,7 +149,7 @@ Navigate through your command line editing history:
 > operations for command line editing while preserving the ability to suspend processes when needed.
 
 > **Note:** The Copy and the Redo keybinding (Ctrl+Shift+Z) requires terminal configuration to send the
-> correct escape sequence. See [Terminal Setup](#terminal-setup) for manual configuration instructions, or use
+> correct escape sequence. See [Famous Terminals Configurations](#famous-terminals-configurations) for manual configuration instructions, or use
 > the [Auto Installation](#auto-installation) script to configure this automatically.
 
 ### Clipboard Integration
@@ -163,7 +159,7 @@ The plugin includes purpose-built clipboard agents that replace external tools e
 **Clipboard Integration Agents:** Small compiled programs built specifically for this plugin handle all
 clipboard and selection operations:
 
-> The agents handle copy, paste, and clipboard operations directly through native protocols— external tools provide fallback agents are unavailable on unknown systems. The agents communicate with the plugin through a fast in-memory cache,
+> The agents handle copy, paste, and clipboard operations directly through native protocols— external tools provide fallback only. The agents communicate with the plugin through a fast in-memory cache,
 > giving you instant clipboard response.
 
 > See [Performance-Optimized Architecture](#performance-optimized-architecture) for benchmarks and implementation details.
@@ -175,14 +171,11 @@ clipboard and selection operations:
 > **Recommendation:** If you are comfortable editing dotfiles and prefer full control over your system
 > configuration, [Manual Installation](#manual-installation) is the recommended approach.
 
-**macOS users:** For macOS, go directly to [macOS Support](#macos-support)
 
+Installation consists of two straightforward steps:
 
-Installation consists of three straightforward steps:
-
-1. install dependencies
-2. plugin to your plugin manager
-3. configure your terminal
+1. install the plugin to your plugin manager
+2. configure your terminal
 
 Each documented with exact commands and copy-paste configurations.
 
@@ -232,7 +225,7 @@ The script handles the end-to-end setup process:
 
 | Category           | Automated Actions                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dependencies**   | - Installs system packages (`git`, `zsh`, `gcc`, `make`, `xclip`/`wl-clipboard`)<br>- Detects your OS (Debian, Fedora, Arch, etc.) and uses the correct package manager (`apt`, `dnf`, `pacman`)                                                                                                                                                                                                                                                                        |
+| **Dependencies**   | - Installs system packages (`git`, `zsh`, `xclip`/`wl-clipboard`), and interactively asks to optionally install build tools (`gcc`, `make`, `clang`) for compiling the agents locally<br>- Detects your system (macOS, Debian, Fedora, Arch, etc.) and uses the correct package manager (`brew`, `port`, `apt`, `dnf`, `pacman`)                                                                                                                                                                                                                                                                        |
 | **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- _Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer._ |
 | **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                                                                                          |
 | **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and terminal configuration files (Kitty, Alacritty, WezTerm, Foot, VS Code)<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                                                                 |
@@ -286,21 +279,23 @@ required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
 > **Troubleshooting / Manual Preference:** If the automated installation fails or if you prefer to configure
 > everything yourself, you can follow the comprehensive [Manual Installation](#manual-installation) and
-> [Terminal Setup](#terminal-setup) guides below.
+> [Famous Terminals Configurations](#famous-terminals-configurations) guides below.
 
 ---
 
 ## Manual Installation
 
+
 Manual installation is the recommended approach if you are comfortable with dotfiles and want complete
-visibility and control over every change made to your system. The process consists of three steps:
+visibility and control over every change made to your system. The process consists of two steps:
 
 **macOS users:** For macOS, go directly to [macOS Support](#macos-support)
 
 
-1. **Install build dependencies** — A one-line command for your distribution.
-2. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
-3. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
+1. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
+2. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
+
+> **Pre-built Agents:** The plugin comes with portable binaries produced by GitHub workflows, which are downloaded automatically on first load. For manual build and optimal experience tailored to your specific hardware (e.g. `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
 
 All steps are fully documented with exact commands and copy-paste configuration snippets. The instructions are
 organized in collapsed sections labeled by distribution and terminal — expand only what applies to your setup.
@@ -312,92 +307,8 @@ organized in collapsed sections labeled by distribution and terminal — expand 
 
 
 
-### 1. Prerequisites (Build Dependencies)
+### 1. Install the Plugin
 
-<details>
-<summary><b>How to check if you're using X11 or Wayland</b></summary>
-
-Run this command in your terminal:
-
-```bash
-echo $XDG_SESSION_TYPE
-```
-
-- If it returns `x11` → You're using X11
-- If it returns `wayland` → You're using Wayland
-
-> **Note:** The plugin automatically detects your display server and loads the appropriate implementation.
-
-</details>
-
-The plugin automatically compiles native agents on first use. Install the required build tools and libraries
-for your platform:
-
-### For X11 Users
-
-<details>
-<summary><b>Debian/Ubuntu</b></summary>
-
-```bash
-sudo apt install build-essential libx11-dev libxfixes-dev pkg-config xclip
-```
-
-</details>
-
-<details>
-<summary><b>Arch Linux</b></summary>
-
-```bash
-sudo pacman -S --needed base-devel libx11 libxfixes pkgconf xclip
-```
-
-</details>
-
-<details>
-<summary><b>Fedora</b></summary>
-
-```bash
-sudo dnf install gcc make libX11-devel libXfixes-devel pkgconfig xclip
-```
-
-</details>
-
-### For Wayland & WSL Users
-
-<details>
-<summary><b>Debian/Ubuntu</b></summary>
-
-```bash
-sudo apt install build-essential libx11-dev libxfixes-dev libwayland-dev wayland-protocols pkg-config wl-clipboard
-```
-
-</details>
-
-<details>
-<summary><b>Arch Linux</b></summary>
-
-```bash
-sudo pacman -S --needed base-devel libx11 libxfixes wayland wayland-protocols pkgconf wl-clipboard
-```
-
-</details>
-
-<details>
-<summary><b>Fedora</b></summary>
-
-```bash
-sudo dnf install gcc make libX11-devel libXfixes-devel wayland-devel wayland-protocols-devel pkgconfig wl-clipboard
-```
-
-</details>
-
----
-
-### 2. Install the Plugin
-
-> **Important:** Before installing, ensure you have the required
-> [Build Dependencies](#1-prerequisites-build-dependencies) installed.
->
 > You may use the [Auto Installation](#auto-installation) script to perform this step automatically, or
 > [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you run into any difficulty.
 
@@ -456,10 +367,9 @@ antigen bundle Michael-Matta1/zsh-edit-select
 </details>
 
 <details>
-<summary><b>antibody</b> <sub>(deprecated)</sub></summary>
+<summary><b>antibody</b></summary>
 
-> **Note:** antibody has been archived since May 2022. Consider migrating to
-> [antidote](https://github.com/mattmc3/antidote), a drop-in replacement.
+
 
 ```bash
 antibody bundle Michael-Matta1/zsh-edit-select
@@ -468,10 +378,9 @@ antibody bundle Michael-Matta1/zsh-edit-select
 </details>
 
 <details>
-<summary><b>zgen</b> <sub>(unmaintained)</sub></summary>
+<summary><b>zgen</b></summary>
 
-> **Note:** zgen is no longer maintained. Consider migrating to [zgenom](https://github.com/jandamm/zgenom),
-> its maintained successor.
+
 
 ```bash
 zgen load Michael-Matta1/zsh-edit-select
@@ -501,14 +410,14 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 
 </details>
 
-### 3. Configure Your Terminal
+### 2. Configure Your Terminal
 
-Some terminals need configuration to support Shift selection. See [Terminal Setup](#terminal-setup) for
+Some terminals need configuration to support Shift selection. See [Famous Terminals Configurations](#famous-terminals-configurations) for
 details.
 
 **WSL users:** For WSL, go directly to [WSL Support](#wsl-support)
 
-**macOS users:** For macOS, go directly to [macOS Support](#macos-support)
+**macOS users:** For macOS, go to [macOS Support](#macos-support) for iTerm2 & Terminal.app and mouse integration support.
 
 
 ### 4. Restart Your Shell
@@ -710,7 +619,7 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ---
 
-## Terminal Setup
+## Famous Terminals Configurations
 
 > The [Auto Installation](#auto-installation) script can configure supported terminals (Kitty, WezTerm,
 > Alacritty, Foot, VS Code) automatically.
@@ -733,7 +642,7 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 </details>
 
-### Step 1: Configure Copy Shortcut
+### Configure Copy Shortcut
 
 > **⚠️ CRITICAL:** Before adding these mappings, you **MUST** remove or comment out any existing
 > `ctrl+shift+c` mappings in your terminal config (such as `map ctrl+shift+c copy_to_clipboard` in Kitty).
@@ -976,7 +885,7 @@ bindkey '^K' x-copy-selection
 
 ---
 
-### Step 2: Configure Undo and Redo Shortcut
+### Configure Undo and Redo Shortcut
 
 <details>
 <summary><b>Kitty</b></summary>
@@ -1081,7 +990,7 @@ prompt-prev=none
 
 ---
 
-### Step 3: Enable Shift Selection Keys
+### Configure Shift Selection Keys
 
 Some terminals intercept Shift key combinations by default. Here's how to configure popular terminals:
 
@@ -1282,8 +1191,7 @@ setup and uses the optimal clipboard agent:
 >
 > **Architecture:** The clipboard agents (`zes-wl-selection-agent`, `zes-xwayland-agent`,
 > `zes-x11-selection-agent`) are lightweight background processes that integrate with display server clipboard
-> protocols. Updates are written to a fast in-memory cache (typically on `XDG_RUNTIME_DIR` or `/dev/shm`). The
-> shell reads this cache via a single `stat()` call per keypress — no forks, no pipes, no latency.
+> protocols. Updates are written to a fast in-memory cache
 
 <details>
 <summary><b>Native Wayland Protocol Support (Fully Implemented)</b></summary>
@@ -1587,6 +1495,11 @@ macOS is fully supported with a native Objective-C clipboard agent that provides
 <details>
 <summary><b>Installation</b></summary>
 
+The easiest way to install on macOS is using the [Auto Installation](#auto-installation) script. It natively supports macOS, detects your package manager (`brew` or `port`), configures supported terminals (including `iTerm2`, `Terminal.app`, `Kitty`, etc.), and guides you through the Accessibility Setup process.
+
+<details>
+<summary><b>Manual Installation</b></summary>
+
 1. **Install the plugin:**
    If you are using **Oh My Zsh**, clone the repository:
    ```bash
@@ -1594,27 +1507,15 @@ macOS is fully supported with a native Objective-C clipboard agent that provides
    ```
    Then add `zsh-edit-select` to the plugins array in your `~/.zshrc`: `plugins=(... zsh-edit-select)`
 
-   > **Using another plugin manager?** If you use Zinit, Sheldon, Antigen, or a manual setup, see [2. Install the Plugin](#2-install-the-plugin) for your specific installation command.
+   > **Using another plugin manager?** If you use Zinit, Sheldon, Antigen, or a manual setup, see [1. Install the Plugin](#1-install-the-plugin) for your specific installation command.
 
-3. Install Apple Command Line Tools if not already present:
-   ```bash
-   xcode-select --install
-   ```
-   This provides `clang` and all required macOS SDK headers (`AppKit`, `ApplicationServices`, `CoreGraphics`).
-
-4. The agent compiles automatically on first shell load. To build manually:
-   ```bash
-   # Replace with your actual plugin directory
-   cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-macos/backends/macos
-   make
-   ```
-
-5. Reload your shell:
+2. Reload your shell:
    ```bash
    source ~/.zshrc
    ```
 
-6. (Recommended) Enable mouse selection — see below.
+3. (Recommended) Enable mouse selection — see below.
+</details>
 
 </details>
 
@@ -1846,7 +1747,7 @@ The agent compiles and installs automatically on first shell load if the binary 
 <details>
 <summary><b>Shift selection doesn't work</b></summary>
 
-**Solution:** Configure your terminal to pass Shift key sequences. See [Terminal Setup](#terminal-setup).
+**Solution:** Configure your terminal to pass Shift key sequences. See [Famous Terminals Configurations](#famous-terminals-configurations).
 
 **Verify:** Run `cat` and press Shift+Left. You should see an escape sequence like `^[[1;2D`.
 
@@ -1882,7 +1783,7 @@ PRIMARY selection. See [Platform Compatibility](#platform-compatibility) for mor
 <summary><b>Ctrl+C doesn't copy</b></summary>
 
 **Solution:** Configure your terminal to remap Ctrl+C. See
-[Step 1: Configure Copy Shortcut](#step-1-configure-copy-shortcut) at the [Terminal Setup](#terminal-setup)
+[Configure Copy Shortcut](#configure-copy-shortcut) at the [Famous Terminals Configurations](#famous-terminals-configurations)
 section.
 
 **Alternative:** Use Ctrl+Shift+C for copying, or configure a custom keybinding with `edit-select config`, or
@@ -2210,8 +2111,7 @@ These features work universally on X11, Wayland, XWayland, WSL, and macOS:
 ## Performance-Optimized Architecture
 
 The plugin architecture is built around compiled native C agents that run as persistent background processes.
-Each agent tracks selection changes via display server events, writes updates to a RAM-backed cache, and the
-shell reads that cache using a single `zstat` call per keypress — zero process forks during normal typing.
+Each agent tracks selection changes via display server events, writes updates to a RAM-backed cache.
 Backend detection, agent startup, and configuration loading occur once at plugin load; all subsequent
 operations use the cached results directly.
 
@@ -2719,6 +2619,88 @@ on both platforms; the remaining latency is the native protocol IPC round-trip t
 > Operations complete faster than the
 > [human perception threshold](https://www.tobii.com/resource-center/learn-articles/speed-of-human-visual-perception).
 
+
+---
+
+## Manual Agents Build (optional)
+
+<details>
+<summary><b>How to check if you're using X11 or Wayland</b></summary>
+
+Run this command in your terminal:
+
+```bash
+echo $XDG_SESSION_TYPE
+```
+
+- If it returns `x11` → You're using X11
+- If it returns `wayland` → You're using Wayland
+
+> **Note:** The plugin automatically detects your display server and loads the appropriate implementation.
+
+</details>
+
+The plugin naturally uses pre-built portable binaries. If you prefer to compile native agents yourself for an optimized build (`-march=native -mtune=native`), install the required build tools and libraries for your platform:
+
+### For X11 Users
+
+<details>
+<summary><b>Debian/Ubuntu</b></summary>
+
+```bash
+sudo apt install build-essential libx11-dev libxfixes-dev pkg-config xclip
+```
+
+</details>
+
+<details>
+<summary><b>Arch Linux</b></summary>
+
+```bash
+sudo pacman -S --needed base-devel libx11 libxfixes pkgconf xclip
+```
+
+</details>
+
+<details>
+<summary><b>Fedora</b></summary>
+
+```bash
+sudo dnf install gcc make libX11-devel libXfixes-devel pkgconfig xclip
+```
+
+</details>
+
+### For Wayland & WSL Users
+
+<details>
+<summary><b>Debian/Ubuntu</b></summary>
+
+```bash
+sudo apt install build-essential libx11-dev libxfixes-dev libwayland-dev wayland-protocols pkg-config wl-clipboard
+```
+
+</details>
+
+<details>
+<summary><b>Arch Linux</b></summary>
+
+```bash
+sudo pacman -S --needed base-devel libx11 libxfixes wayland wayland-protocols pkgconf wl-clipboard
+```
+
+</details>
+
+<details>
+<summary><b>Fedora</b></summary>
+
+```bash
+sudo dnf install gcc make libX11-devel libXfixes-devel wayland-devel wayland-protocols-devel pkgconfig wl-clipboard
+```
+
+</details>
+
+After installing dependencies, the plugin will automatically compile the agents on the next shell load, or you can run `make` inside the respective implementation directory manually.
 
 ---
 

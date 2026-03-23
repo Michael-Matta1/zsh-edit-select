@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.3
+# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Wayland-native text selection and editing for Zsh command line.
@@ -779,7 +779,7 @@ function { emulate -L zsh
     [[ -n "$EDIT_SELECT_KEY_COPY" ]] && bindkey -M edit-select "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
     [[ -n "$EDIT_SELECT_KEY_CUT" ]] && bindkey -M edit-select "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
     bindkey -M edit-select '^[[200~' edit-select::bracketed-paste-replace
-    
+
     [[ -n "$EDIT_SELECT_KEY_SELECT_ALL" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_SELECT_ALL" edit-select::select-all
     [[ -n "$EDIT_SELECT_KEY_COPY" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
     if [[ -n "$EDIT_SELECT_KEY_CUT" ]]; then

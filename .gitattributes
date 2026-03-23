@@ -3,3 +3,11 @@
 *.sh         text eol=lf working-tree-encoding=UTF-8
 *.zsh.zwc    binary
 Makefile     text eol=lf
+*.c          text eol=lf
+*.h          text eol=lf
+*.m          text eol=lf
+*.xml        text eol=lf
+*.yml        text eol=lf
+*.md         text eol=lf
+*.txt        text eol=lf
+*.json       text eol=lf

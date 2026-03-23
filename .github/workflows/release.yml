@@ -1,0 +1,435 @@
+name: Build & Release Binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DESIGN DECISIONS
+#
+# 1. Both CFLAGS and LDFLAGS are overridden in CI.
+#    CFLAGS  uses ?= in every Makefile → safely overridable.
+#    LDFLAGS uses  = in every Makefile → also overridden on the command line
+#    because CI must inject -static and drop dynamic-only linker flags
+#    (-z relro, -z now, -z noexecstack, --hash-style, --as-needed) that are
+#    meaningless or harmful for fully static binaries.
+#
+# 2. Two CFLAGS removed vs the Makefile defaults:
+#    a) -march=native / -mtune=native: emit CPU instructions specific to the
+#       build machine — binaries built with these crash on a different CPU.
+#       Removing them is mandatory for distributed binaries.
+#    b) -fno-stack-protector: disables stack canaries. Acceptable for local
+#       developer builds where performance is the priority, but wrong for
+#       binaries shipped to users. Stack protection is a cheap, effective
+#       mitigation that belongs in any distributed binary.
+#    Everything else (-flto, -fno-plt, -fipa-pta, etc.) is portable and safe.
+#
+# 3. Linux binaries are built inside an Alpine 3.21 container (musl libc)
+#    with full static linking (-static).
+#
+#    WHY NOT the old "build on ubuntu-20.04 for glibc 2.31" approach:
+#      a) ubuntu-20.04 GitHub-hosted runners were retired in April 2025.
+#      b) Even with a Docker container trick, glibc-linked binaries always
+#         carry a minimum required glibc floor. A binary built against
+#         glibc 2.31 fails on any system with glibc < 2.31 at runtime
+#         ("GLIBC_2.31 not found"). The floor rises over time as the oldest
+#         available builder ages out.
+#
+#    WHY musl + -static is strictly better for this use case:
+#      A fully static musl binary has zero runtime C library dependency.
+#      It runs on any glibc distro regardless of version (Ubuntu 14.04,
+#      Debian 8, Fedora 20 — anything), any musl distro (Alpine itself),
+#      and any Linux kernel >= ~3.x. There is no floor, no version dance,
+#      and no future maintenance burden chasing ever-older runners.
+#
+#    WHY NOT "musl + dynamic Wayland/X11":
+#      A musl binary with shared libs uses /lib/ld-musl-x86_64.so.1 as its
+#      dynamic linker. glibc distros only ship /lib64/ld-linux-x86-64.so.2.
+#      The binary would crash with "No such file or directory" on every
+#      Ubuntu/Debian/Fedora user's machine. The only way musl gives you
+#      portability across glibc distros is full static linking.
+#
+#    WHY Wayland/X11 static linking is safe here:
+#      These agents are small, focused programs: they connect to a Unix
+#      socket or X display and do nothing else. They perform no DNS lookups,
+#      no NSS calls, no dlopen — the cases where glibc static linking is
+#      notoriously broken. musl static linking is clean for these programs.
+#
+# 4. Transitive static deps are resolved via pkg-config --libs --static.
+#    For example, "pkg-config --libs --static x11 xfixes" expands to the
+#    full chain: -lXfixes -lX11 -lxcb -lXau -lXdmcp — no manual
+#    bookkeeping needed. The same applies to wayland-client.
+#    libxcb-dev, libxau-dev, libxdmcp-dev are installed explicitly because
+#    they are required for static X11 linking (transitive deps of libX11).
+#
+# 5. bash is installed explicitly in both Alpine jobs.
+#    Alpine ships only ash (busybox sh) by default. GitHub Actions executes
+#    run blocks as "bash --noprofile --norc -eo pipefail" and the fallback
+#    behaviour when bash is absent is not guaranteed across runner versions.
+#    Installing bash and declaring "defaults: run: shell: bash" at the job
+#    level makes the shell explicit and preserves -eo pipefail semantics.
+#    The bootstrap "Install build dependencies" step itself must use
+#    "shell: sh" because bash is not yet present when it runs.
+#
+# 6. aarch64 uses the native GitHub ARM64 runner (ubuntu-22.04-arm) with
+#    the same Alpine 3.21 container. No QEMU emulation.
+#    WSL agents are NOT built for aarch64: WSL runs on x86_64 Windows only.
+#
+# 7. macOS builds a universal binary via lipo — unchanged.
+#    Two compilations (-arch x86_64 and -arch arm64) are merged into one
+#    fat binary that runs natively on both Intel Macs and Apple Silicon.
+#    Alpine/musl does not apply to macOS; the macOS job uses macos-latest
+#    with clang and the standard Apple toolchain.
+#
+# 8. wayland-scanner is provided by Alpine's wayland-dev package.
+#    wayland-protocols provides xdg-shell.xml and the other XML files.
+#    The Wayland Makefile generates protocol headers from these XMLs on a
+#    fresh checkout (generated files are gitignored). No separate
+#    libwayland-bin install is needed — Alpine's wayland-dev bundles it.
+#
+# 9. A SHA256SUMS.txt is generated and attached to the release.
+#    fetch-agents.zsh verifies each downloaded binary's integrity against
+#    this file before marking it executable — the same pattern used by fzf.
+# ─────────────────────────────────────────────────────────────────────────────
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1 — Linux x86_64
+  # Runner    : ubuntu-22.04 (alive) hosting an Alpine 3.21 Docker container
+  # libc      : musl (Alpine default) + -static → zero glibc dependency
+  # Builds    : Wayland agent, XWayland agent, X11 agent, WSL agents (.elf + .exe)
+  # ───────────────────────────────────────────────────────────────────────────
+  build-linux-x86_64:
+    runs-on: ubuntu-22.04
+    container:
+      image: alpine:3.21
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # bash and git must be installed before any other run step executes.
+      # Alpine ships neither by default:
+      #   - bash: GitHub Actions executes run blocks as
+      #     "bash --noprofile --norc -eo pipefail"; behaviour when bash is
+      #     absent is not guaranteed across runner versions.
+      #   - git: required by actions/checkout.
+      # This step itself must use shell: sh because bash is not yet present.
+      - name: Install build dependencies
+        shell: sh
+        run: |
+          apk add --no-cache \
+            bash git gcc make musl-dev pkgconf \
+            wayland-dev wayland-static wayland-protocols \
+            libx11-dev libx11-static libxcb-dev libxcb-static libxau-dev libxdmcp-dev \
+            libxfixes-dev \
+            libffi-dev \
+            mingw-w64-gcc
+
+      - uses: actions/checkout@v4.2.2
+
+      # ── CFLAGS used by all Linux agents ──────────────────────────────────
+      # Removed vs Makefile defaults:
+      #   -march=native / -mtune=native  → non-portable, crashes on other CPUs
+      #   -fno-stack-protector           → unsafe for distributed binaries
+      #
+      # ── LDFLAGS for static builds ─────────────────────────────────────────
+      # Flags dropped vs the Makefile LDFLAGS:
+      #   -Wl,--as-needed      → only meaningful when linking shared libs
+      #   -Wl,-z,now           → controls dynamic linker BIND_NOW; no-op static
+      #   -Wl,-z,relro         → marks PT_GNU_RELRO segment; no-op static
+      #   -Wl,-z,noexecstack   → marks stack non-exec via PT_GNU_STACK; no-op
+      #   -Wl,--hash-style=gnu → selects symbol hash table format; dynamic only
+      # Flags added:
+      #   -static              → produce a fully self-contained static binary
+      #
+      # $(pkg-config --libs --static ...) inside double-quotes is expanded by
+      # bash before make sees it, giving make the full resolved flag list.
+      # ─────────────────────────────────────────────────────────────────────
+
+      - name: Build Wayland agent
+        working-directory: impl-wayland/backends/wayland
+        run: |
+          make \
+            CFLAGS="-O2 -flto \
+              -ffunction-sections -fdata-sections \
+              -fomit-frame-pointer -funroll-loops \
+              -fno-plt -pipe -fno-semantic-interposition \
+              -fno-asynchronous-unwind-tables -fno-unwind-tables \
+              -fmerge-all-constants -fipa-pta -fno-ident \
+              -DNDEBUG \
+              -Wall -Wextra -Wno-unused-parameter" \
+            LDFLAGS="-static $(pkg-config --libs --static wayland-client) \
+              -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none \
+              -flto -s"
+
+      - name: Build XWayland agent
+        working-directory: impl-wayland/backends/xwayland
+        run: |
+          make \
+            CFLAGS="-O2 -flto \
+              -ffunction-sections -fdata-sections \
+              -fomit-frame-pointer -funroll-loops \
+              -fno-plt -pipe -fno-semantic-interposition \
+              -fno-strict-aliasing \
+              -fno-asynchronous-unwind-tables -fno-unwind-tables \
+              -fmerge-all-constants -fipa-pta -fno-ident \
+              -DNDEBUG \
+              -Wall -Wextra -Wno-unused-parameter" \
+            LDFLAGS="-static $(pkg-config --libs --static x11 xfixes) \
+              -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none \
+              -flto -s"
+
+      - name: Build X11 agent
+        working-directory: impl-x11/backends/x11
+        run: |
+          make \
+            CFLAGS="-O2 -flto \
+              -ffunction-sections -fdata-sections \
+              -fomit-frame-pointer -funroll-loops \
+              -fno-plt -pipe -fno-semantic-interposition \
+              -fno-strict-aliasing \
+              -fno-asynchronous-unwind-tables -fno-unwind-tables \
+              -fmerge-all-constants -fipa-pta -fno-ident \
+              -DNDEBUG \
+              -Wall -Wextra -Wno-unused-parameter" \
+            LDFLAGS="-static $(pkg-config --libs --static x11 xfixes) \
+              -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none \
+              -flto -s"
+
+      # The WSL Makefile builds two targets:
+      #   zes-wsl-selection-agent      — Linux ELF, compiled with CC/CFLAGS
+      #   zes-wsl-clipboard-helper.exe — Windows PE, compiled with MINGW_CC
+      #
+      # The ELF agent is statically linked against musl only (no X11/Wayland).
+      # The .exe is a Windows PE cross-compiled by mingw-w64-gcc — it links
+      # against the Windows CRT, not musl, so -static and musl do not apply
+      # to it. MINGW_CFLAGS is left at the Makefile default.
+      - name: Build WSL agents (Linux ELF + Windows .exe)
+        working-directory: impl-wsl/backends/wsl
+        run: |
+          make \
+            CFLAGS="-O2 -flto \
+              -ffunction-sections -fdata-sections \
+              -fomit-frame-pointer -funroll-loops \
+              -fno-plt -pipe -fno-semantic-interposition \
+              -fno-strict-aliasing \
+              -fno-asynchronous-unwind-tables -fno-unwind-tables \
+              -fmerge-all-constants -fipa-pta -fno-ident \
+              -DNDEBUG \
+              -Wall -Wextra -Wno-unused-parameter" \
+            LDFLAGS="-static -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none \
+              -flto -s"
+
+      # The WSL XWayland agent is distinct from the generic XWayland agent:
+      # it adds --monitor-clipboard for WSLg clipboard bridging.
+      - name: Build WSL XWayland agent
+        working-directory: impl-wsl/tailored-variants/impl-wayland-wsl/backends-wsl/xwayland
+        run: |
+          make \
+            CFLAGS="-O2 -flto \
+              -ffunction-sections -fdata-sections \
+              -fomit-frame-pointer -funroll-loops \
+              -fno-plt -pipe -fno-semantic-interposition \
+              -fno-strict-aliasing \
+              -fno-asynchronous-unwind-tables -fno-unwind-tables \
+              -fmerge-all-constants -fipa-pta -fno-ident \
+              -DNDEBUG \
+              -Wall -Wextra -Wno-unused-parameter" \
+            LDFLAGS="-static $(pkg-config --libs --static x11 xfixes) \
+              -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none \
+              -flto -s"
+
+      - name: Collect binaries
+        run: |
+          mkdir -p dist
+          cp impl-wayland/backends/wayland/zes-wl-selection-agent  dist/
+          cp impl-wayland/backends/xwayland/zes-xwayland-agent      dist/
+          cp impl-x11/backends/x11/zes-x11-selection-agent          dist/
+          cp impl-wsl/backends/wsl/zes-wsl-selection-agent          dist/
+          cp impl-wsl/backends/wsl/zes-wsl-clipboard-helper.exe     dist/
+          cp impl-wsl/tailored-variants/impl-wayland-wsl/backends-wsl/xwayland/zes-xwayland-agent \
+             dist/zes-wsl-xwayland-agent
+
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: linux-x86_64
+          path: dist/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2 — Linux aarch64
+  # Runner    : ubuntu-22.04-arm — native GitHub ARM64 machine, no QEMU
+  # Container : Alpine 3.21 via explicit docker run — NOT a job-level container.
+  #
+  # WHY no job-level container here:
+  #   GitHub Actions JavaScript actions (actions/checkout, actions/upload-artifact)
+  #   cannot run inside Alpine containers on ARM64 runners — only x86_64 is
+  #   supported. The x86_64 job works around checkout with a manual git clone,
+  #   but there is no equivalent workaround for upload-artifact.
+  #   Solution: run the job natively on ubuntu-22.04-arm, invoke docker run
+  #   manually for the build steps only (mounting the workspace), then let
+  #   actions/upload-artifact run natively on the ubuntu runner where JS actions
+  #   are fully supported.
+  #
+  # Builds    : Wayland agent, XWayland agent, X11 agent
+  # NOT built : WSL agents — WSL only runs on x86_64 Windows, never ARM64
+  # Binaries get an -aarch64 suffix to coexist in the same release alongside
+  # the x86_64 binaries (which carry no suffix).
+  # ───────────────────────────────────────────────────────────────────────────
+  build-linux-aarch64:
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Build in Alpine container
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            alpine:3.21 sh -exc '
+              apk add --no-cache \
+                bash gcc make musl-dev pkgconf \
+                wayland-dev wayland-static wayland-protocols \
+                libx11-dev libx11-static libxcb-dev libxcb-static libxau-dev libxdmcp-dev \
+                libxfixes-dev \
+                libffi-dev
+
+              CFLAGS_WAYLAND="-O2 -flto -ffunction-sections -fdata-sections -fomit-frame-pointer -funroll-loops -fno-plt -pipe -fno-semantic-interposition -fno-asynchronous-unwind-tables -fno-unwind-tables -fmerge-all-constants -fipa-pta -fno-ident -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+              LDFLAGS_WAYLAND="-static $(pkg-config --libs --static wayland-client) -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none -flto -s"
+
+              CFLAGS_X11="-O2 -flto -ffunction-sections -fdata-sections -fomit-frame-pointer -funroll-loops -fno-plt -pipe -fno-semantic-interposition -fno-strict-aliasing -fno-asynchronous-unwind-tables -fno-unwind-tables -fmerge-all-constants -fipa-pta -fno-ident -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+              LDFLAGS_X11="-static $(pkg-config --libs --static x11 xfixes) -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none -flto -s"
+
+              make -C impl-wayland/backends/wayland  CFLAGS="$CFLAGS_WAYLAND" LDFLAGS="$LDFLAGS_WAYLAND"
+              make -C impl-wayland/backends/xwayland CFLAGS="$CFLAGS_X11"     LDFLAGS="$LDFLAGS_X11"
+              make -C impl-x11/backends/x11          CFLAGS="$CFLAGS_X11"     LDFLAGS="$LDFLAGS_X11"
+
+              mkdir -p dist
+              cp impl-wayland/backends/wayland/zes-wl-selection-agent  dist/zes-wl-selection-agent-aarch64
+              cp impl-wayland/backends/xwayland/zes-xwayland-agent      dist/zes-xwayland-agent-aarch64
+              cp impl-x11/backends/x11/zes-x11-selection-agent          dist/zes-x11-selection-agent-aarch64
+            '
+
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: linux-aarch64
+          path: dist/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 3 — macOS universal binary
+  # Runner  : macos-latest (GitHub provides real macOS machines)
+  # Strategy: compile x86_64 and arm64 separately, merge with lipo into one
+  #           fat binary that runs natively on both Intel Macs and Apple Silicon
+  #
+  # Alpine/musl does not apply here — macOS uses the Apple toolchain (clang)
+  # and links against system frameworks, which is both required and correct.
+  #
+  # -arch is passed via CFLAGS. The Makefile compiles and links in a single
+  # clang invocation, so clang's driver propagates -arch to both phases.
+  # LDFLAGS is not overridden — it carries the required -framework flags.
+  # The Makefile already calls strip during the build rule; the explicit strip
+  # below applies to the lipo-merged output, which inherits no strip pass.
+  # ───────────────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Build for Intel (x86_64)
+        working-directory: impl-macos/backends/macos
+        run: |
+          make TARGET=zes-macos-clipboard-agent-x86_64 \
+               CFLAGS="-Os -fobjc-arc \
+                 -ffunction-sections -fdata-sections \
+                 -fomit-frame-pointer -fno-ident \
+                 -arch x86_64 \
+                 -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+
+      - name: Build for Apple Silicon (arm64)
+        working-directory: impl-macos/backends/macos
+        run: |
+          make TARGET=zes-macos-clipboard-agent-arm64 \
+               CFLAGS="-Os -fobjc-arc \
+                 -ffunction-sections -fdata-sections \
+                 -fomit-frame-pointer -fno-ident \
+                 -arch arm64 \
+                 -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+
+      - name: Merge into universal binary with lipo
+        working-directory: impl-macos/backends/macos
+        run: |
+          lipo -create \
+            zes-macos-clipboard-agent-x86_64 \
+            zes-macos-clipboard-agent-arm64 \
+            -output zes-macos-clipboard-agent
+          strip zes-macos-clipboard-agent
+
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: macos
+          path: impl-macos/backends/macos/zes-macos-clipboard-agent
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Final job — publish GitHub Release
+  # Waits for all three build jobs, then:
+  #   1. Generates a SHA256SUMS.txt for every binary
+  #   2. Creates a GitHub Release at:
+  #      github.com/Michael-Matta1/zsh-edit-select/releases/tag/<tag>
+  #   3. Attaches all binaries + SHA256SUMS.txt as release assets
+  #
+  # fetch-agents.zsh uses these assets to download the correct binary for
+  # the user's OS/arch and verifies its integrity against SHA256SUMS.txt
+  # before marking it executable.
+  # ───────────────────────────────────────────────────────────────────────────
+  release:
+    needs: [build-linux-x86_64, build-linux-aarch64, build-macos]
+    runs-on: ubuntu-latest
+    # Only publish a GitHub Release when the workflow was triggered by an
+    # actual version tag push.  This lets workflow_dispatch be used safely
+    # to verify that all three build jobs compile without accidentally
+    # publishing a release with no tag (which would fail or produce a release
+    # named after the branch, e.g. "refs/heads/main").
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4.2.0
+
+      - name: Generate SHA256 checksums
+        run: |
+          sha256sum \
+            linux-x86_64/zes-wl-selection-agent \
+            linux-x86_64/zes-xwayland-agent \
+            linux-x86_64/zes-x11-selection-agent \
+            linux-x86_64/zes-wsl-selection-agent \
+            linux-x86_64/zes-wsl-clipboard-helper.exe \
+            linux-x86_64/zes-wsl-xwayland-agent \
+            linux-aarch64/zes-wl-selection-agent-aarch64 \
+            linux-aarch64/zes-xwayland-agent-aarch64 \
+            linux-aarch64/zes-x11-selection-agent-aarch64 \
+            macos/zes-macos-clipboard-agent \
+            > SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            linux-x86_64/zes-wl-selection-agent
+            linux-x86_64/zes-xwayland-agent
+            linux-x86_64/zes-x11-selection-agent
+            linux-x86_64/zes-wsl-selection-agent
+            linux-x86_64/zes-wsl-clipboard-helper.exe
+            linux-x86_64/zes-wsl-xwayland-agent
+            linux-aarch64/zes-wl-selection-agent-aarch64
+            linux-aarch64/zes-xwayland-agent-aarch64
+            linux-aarch64/zes-x11-selection-agent-aarch64
+            macos/zes-macos-clipboard-agent
+            SHA256SUMS.txt

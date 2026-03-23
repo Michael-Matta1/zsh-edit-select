@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.3
+# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # macOS pasteboard backend for zsh-edit-select.
@@ -42,7 +42,7 @@ function _zes_request_ax_permission() {
 # Start the macOS clipboard daemon and wait for its readiness signal.
 #
 # READINESS SIGNAL: The daemon writes an empty seq file BEFORE posix_spawn().
-# We poll for the seq file's existence (up to 40×25ms = 1s).
+# Poll for the seq file's existence (up to 40×25ms = 1s).
 #
 # TMUX BOOTSTRAP NAMESPACE FIX:
 # Inside tmux, the shell may be in tmux's bootstrap namespace without

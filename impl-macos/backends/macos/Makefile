@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.3
+# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Makefile for zsh-edit-select macOS pasteboard agent.
@@ -28,7 +28,7 @@ CC      ?= clang
 #   -fomit-frame-pointer Saves one register in the hot path (event callback and AX read).
 #   -fno-ident           Suppresses compiler ident string in object file.
 #   -DNDEBUG             Disables assert() calls.
-#   NOTE: No -Wno-deprecated-declarations needed because we do NOT use daemon(3).
+#   NOTE: No -Wno-deprecated-declarations needed because daemon(3) is NOT used.
 CFLAGS  ?= -Os \
             -fobjc-arc \
             -ffunction-sections \
