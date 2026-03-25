@@ -17,6 +17,15 @@
 # Absolute path to the compiled macOS clipboard agent binary.
 typeset -g _EDIT_SELECT_MONITOR_BIN="${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent"
 
+# SSH mode flag — detected once at load time for zero per-call overhead.
+# 1 = SSH session detected and OSC 52 clipboard passthrough is active.
+# 0 = native clipboard backend in use (local session or user opt-out).
+# ZES_SSH_CLIPBOARD=0 in ~/.zshrc before plugin load disables SSH mode.
+typeset -gi _ZES_SSH_MODE=0
+[[ "${ZES_SSH_CLIPBOARD:-1}" != "0" ]] && \
+    [[ -n "${SSH_CLIENT:-}" || -n "${SSH_TTY:-}" || -n "${SSH_CONNECTION:-}" ]] && \
+    _ZES_SSH_MODE=1
+
 # ─────────────────────────────────────────────────────────────────────
 # _zes_check_ax_permission
 # Returns 0 if Accessibility permission has been granted, 1 if not.
@@ -146,8 +155,10 @@ function _zes_get_primary() {
 # synchronization with external clipboard tools.
 #
 # FALLBACK: pbpaste if daemon is not running.
+# In SSH mode (_ZES_SSH_MODE=1), returns 1 — paste via terminal native keybinding.
 # ─────────────────────────────────────────────────────────────────────
 function _zes_get_clipboard() {
+    ((_ZES_SSH_MODE)) && return 1
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         "$_EDIT_SELECT_MONITOR_BIN" --get-clipboard 2>/dev/null
     else
@@ -162,9 +173,26 @@ function _zes_get_clipboard() {
 # The agent is called asynchronously via background job { ... & }.
 # This offloads the write delay so that the terminal immediately
 # regains responsiveness at the Zsh prompt after a Ctrl+C/Ctrl+X command.
+# In SSH mode (_ZES_SSH_MODE=1), uses OSC 52 to tunnel the write to the local terminal.
 # ─────────────────────────────────────────────────────────────────────
 function _zes_copy_to_clipboard() {
     [[ -z "$1" ]] && return 1
+    if ((_ZES_SSH_MODE)); then
+        local _zes_encoded
+        # -b 0: suppress macOS base64 line-wrapping (macOS flag; Linux equivalent is -w 0).
+        # Embedded newlines in the encoded output would corrupt the OSC 52 sequence.
+        _zes_encoded=$(printf '%s' "$1" | base64 -b 0)
+        if [[ -n "${TMUX:-}" ]]; then
+            # tmux requires DCS passthrough wrapping with doubled inner ESC.
+            printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded"
+        elif [[ -n "${STY:-}" ]]; then
+            # GNU Screen requires DCS passthrough wrapping.
+            printf '\033P\033]52;c;%s\a\033\\' "$_zes_encoded"
+        else
+            printf '\033]52;c;%s\a' "$_zes_encoded"
+        fi
+        return 0
+    fi
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         # &! = background + disown: no subshell fork, no job table entry,
         # no completion notifications. Zsh-specific operator.

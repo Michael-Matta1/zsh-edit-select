@@ -104,16 +104,18 @@ function _zes_sync_after_paste() {
 #                       the user intends to modify.
 function _zes_detect_mouse_selection() {
     ((!EDIT_SELECT_MOUSE_REPLACEMENT)) && return 1
-    [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && return 0
 
-    if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && ((!_EDIT_SELECT_NEW_SELECTION_EVENT)); then
-        if [[ -n "$_EDIT_SELECT_LAST_PRIMARY" ]] && [[ "$_EDIT_SELECT_LAST_PRIMARY" == "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
-            if [[ "$BUFFER" == *"$_EDIT_SELECT_ACTIVE_SELECTION"* ]]; then
+    if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
+        if ((!_EDIT_SELECT_NEW_SELECTION_EVENT)); then
+            if [[ -n "$_EDIT_SELECT_LAST_PRIMARY" ]] && \
+               [[ "$_EDIT_SELECT_LAST_PRIMARY" == "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && \
+               [[ "$BUFFER" == *"$_EDIT_SELECT_ACTIVE_SELECTION"* ]]; then
                 return 0
             fi
+            _EDIT_SELECT_ACTIVE_SELECTION=""
+            return 1
         fi
-        _EDIT_SELECT_ACTIVE_SELECTION=""
-        return 1
+        return 0
     fi
 
     local mouse_sel

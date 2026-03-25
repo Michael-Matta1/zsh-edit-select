@@ -23,6 +23,15 @@ else
     typeset -g _ZES_MONITOR_TYPE=""
 fi
 
+# SSH mode flag — detected once at load time for zero per-call overhead.
+# 1 = SSH session detected and OSC 52 clipboard passthrough is active.
+# 0 = native clipboard backend in use (local session or user opt-out).
+# ZES_SSH_CLIPBOARD=0 in ~/.zshrc before plugin load disables SSH mode.
+typeset -gi _ZES_SSH_MODE=0
+[[ "${ZES_SSH_CLIPBOARD:-1}" != "0" ]] && \
+    [[ -n "${SSH_CLIENT:-}" || -n "${SSH_TTY:-}" || -n "${SSH_CONNECTION:-}" ]] && \
+    _ZES_SSH_MODE=1
+
 # Start the background selection agent and wait until it signals readiness.
 # The agent writes an initial seq file immediately after daemonising; waiting
 # for that file avoids a fixed sleep and verifies the agent is live.
@@ -112,7 +121,9 @@ function _zes_get_primary() {
 }
 
 # Return the current clipboard (CLIPBOARD selection) text to stdout.
+# In SSH mode (_ZES_SSH_MODE=1), returns 1 — paste via terminal native keybinding.
 function _zes_get_clipboard() {
+    ((_ZES_SSH_MODE)) && return 1
     if [[ -n "$_ZES_MONITOR_BINARY" ]] && [[ -x "$_ZES_MONITOR_BINARY" ]]; then
         "$_ZES_MONITOR_BINARY" --get-clipboard 2>/dev/null
     else
@@ -123,8 +134,25 @@ function _zes_get_clipboard() {
 # Place $1 into the clipboard.  The agent forks a background child that serves
 # paste requests until another application takes ownership, returning immediately
 # so the shell is never blocked waiting for a paste to occur.
+# In SSH mode (_ZES_SSH_MODE=1), uses OSC 52 to tunnel the write to the local terminal.
 function _zes_copy_to_clipboard() {
     [[ -z "$1" ]] && return 1
+    if ((_ZES_SSH_MODE)); then
+        local _zes_encoded
+        # -w 0: suppress GNU base64 line-wrapping (default is 76 chars).
+        # Embedded newlines in the encoded output would corrupt the OSC 52 sequence.
+        _zes_encoded=$(printf '%s' "$1" | base64 -w 0)
+        if [[ -n "${TMUX:-}" ]]; then
+            # tmux requires DCS passthrough wrapping with doubled inner ESC.
+            printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded"
+        elif [[ -n "${STY:-}" ]]; then
+            # GNU Screen requires DCS passthrough wrapping.
+            printf '\033P\033]52;c;%s\a\033\\' "$_zes_encoded"
+        else
+            printf '\033]52;c;%s\a' "$_zes_encoded"
+        fi
+        return 0
+    fi
     if [[ -n "$_ZES_MONITOR_BINARY" ]] && [[ -x "$_ZES_MONITOR_BINARY" ]]; then
         printf '%s' "$1" | "$_ZES_MONITOR_BINARY" --copy-clipboard 2>/dev/null
     else

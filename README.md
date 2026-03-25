@@ -1427,7 +1427,7 @@ Then add in `~/.zshrc`:
 stty intr ^]
 ```
 
-Save `settings.json`, restart the profile, and `Ctrl+Shift+C` will send `0x1D` (`Ctrl+]`), which `stty`
+Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shift+C` will send `0x1D` (`Ctrl+]`), which `stty`
 treats as interrupt.
 
 </details>
@@ -2396,64 +2396,125 @@ A pre-built portable binary is downloaded automatically on first load. If you pr
 
 ## SSH Support (Headless Linux Box)
 
-If you are SSH-ing into a headless Linux box, the plugin can be configured to work with your local clipboard using **OSC 52** — a terminal escape sequence that allows the remote machine to write directly to your local clipboard through the SSH tunnel, without needing any additional tools.
+If you are SSH-ing into a headless Linux box, the plugin **automatically detects the SSH environment** and switches clipboard operations to use **OSC 52** — a terminal escape sequence that tunnels clipboard writes back to your local terminal through the SSH connection, without needing any additional tools or manual configuration.
 
 ---
 
-### Step 1 — Configure the plugin on the Linux box
+### How It Works
 
-Install the plugin on the remote Linux machine as you normally would, then run the following command to add the required clipboard functions to your `~/.zshrc`:
-```bash
-cat >> ~/.zshrc << 'EOF'
+When `$SSH_CLIENT`, `$SSH_TTY`, or `$SSH_CONNECTION` is set (standard variables present in any SSH session), the plugin replaces its native clipboard backend with an OSC 52 write. This means:
 
-# OSC 52 clipboard override for SSH → clipboard passthrough
-function _zes_copy_to_clipboard() {
-    [[ -z "$1" ]] && return 1
-    local encoded
-    encoded=$(printf '%s' "$1" | base64)
-    printf '\033]52;c;%s\a' "$encoded"
-}
+- **Copy / Cut** — text is written directly to your local clipboard via OSC 52.
+- **Paste** — must be triggered using your terminal's native paste keybinding (e.g. Cmd+V in iTerm2/Ghostty, Ctrl+V in Windows Terminal). The plugin cannot read the clipboard back over SSH.
+- **Text selection** (Shift+Arrow etc.) — works identically to a local session.
+- **Mouse selection** — the background daemon will not start (no display server on a headless box); mouse selection is disabled automatically.
 
-function _zes_get_clipboard() {
-    return 1
-}
-EOF
-source ~/.zshrc
+No `~/.zshrc` changes are needed on the Linux box. Just install the plugin normally.
+
+---
+
+### Opt Out
+
+If you do not want the automatic SSH behaviour (e.g. you are SSH-ing between Linux machines and have `xclip` available via X11 forwarding), add this to your `~/.zshrc` on the remote machine **before** the plugin loads:
+
+```zsh
+ZES_SSH_CLIPBOARD=0
 ```
 
 ---
 
-### Step 2 — Configure your terminal
+### Terminal Requirements
 
-The key requirement is that your terminal must support OSC 52 and have clipboard access enabled, along with a paste keybinding configured at the terminal level.
+Your terminal must support OSC 52 clipboard writes and have clipboard access enabled. Most modern terminals support this out of the box.
 
-> If your terminal already has a paste keybinding preconfigured, you can use it directly without any additional setup. For example, Windows Terminal has `Ctrl+V` bound to paste out of the box.
+| Terminal | OSC 52 write | Notes |
+|---|---|---|
+| iTerm2 | ✅ | Enable "Applications in terminal may access clipboard" in Settings → General → Selection |
+| Ghostty | ✅ | Add `clipboard-write = allow` to `~/.config/ghostty/config` |
+| Kitty | ✅ | Works out of the box |
+| WezTerm | ✅ | Works out of the box |
+| Alacritty | ✅ | Works out of the box |
+| Windows Terminal | ✅ | Works out of the box; `Ctrl+V` pastes natively |
+| Terminal.app | ✅ | Works out of the box |
 
-If your terminal does not have a paste keybinding preconfigured, you will need to add one manually. The syntax varies by terminal — for example:
-- **Kitty:** `map ctrl+v paste_from_clipboard`
-- **Ghostty:** `keybind = ctrl+v=paste_from_clipboard`
+**tmux / GNU Screen:** If you are using tmux or GNU Screen inside your SSH session, the plugin automatically wraps OSC 52 writes in the correct DCS passthrough sequence — no extra configuration needed. For tmux versions older than 3.3a, you may also need to add `set -g allow-passthrough on` to your `~/.tmux.conf`.
 
-Refer to your terminal's documentation for the exact syntax.
+A paste keybinding must be configured at the terminal level so that your local clipboard content can be inserted into the SSH session. If your terminal already has one (e.g. Windows Terminal's `Ctrl+V`, or macOS terminals' `Cmd+V`), no additional setup is needed.
+
+If you need to add one manually:
+
+- **Kitty:** add `map ctrl+v paste_from_clipboard` to `~/.config/kitty/kitty.conf`
+- **Ghostty:** add `keybind = ctrl+v=paste_from_clipboard` to `~/.config/ghostty/config`
 
 ---
 
-#### iTerm2
+### Windows Terminal — Enable Ctrl+C Copy
 
-1. Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applications in terminal may access clipboard"** is checked, and set **"Allow sending of clipboard contents?"** to **Always**.
-2. In **iTerm2 → Settings → Keys**, add a key binding for your preferred paste shortcut (e.g. `⌘V`) and set the action to **Paste...**. Make sure **Bracketed paste mode** is enabled in the paste options.
+If you are SSH-ing from Windows Terminal, the Linux TTY intercepts `Ctrl+C` as an interrupt signal (`SIGINT`) by default, preventing the plugin from copying text. 
+
+To enable `Ctrl+C` copying, run this one-liner to append the necessary bindings to your **remote** `~/.zshrc`:
+
+```bash
+cat >> ~/.zshrc << 'EOF'
+
+# zsh-edit-select: Enable Ctrl+C copy over SSH from Windows Terminal
+stty intr ^]
+bindkey -M emacs '^C' edit-select::copy-region
+bindkey -M edit-select '^C' edit-select::copy-region
+EOF
+
+source ~/.zshrc
+```
+
+> **Warning:** This tells the Linux box to use `Ctrl+]` for interrupts instead of `Ctrl+C`. `Ctrl+C` will now *always* copy text. You can no longer use `Ctrl+C` to stop runaway programs or clear the current prompt — **you must press `Ctrl+]` to interrupt programs.**
+
+<details>
+<summary><b>Make Ctrl+Shift+C send Interrupt</b></summary>
+
+To use `Ctrl+Shift+C` for interrupt (`SIGINT`), add one entry to `"actions"` and one to `"keybindings"` in the Windows Terminal `settings.json`:
+
+```json
+"actions": [
+  ...existing actions...,
+  {
+    "command": {
+      "action": "sendInput",
+      "input": "\u001d"
+    },
+    "id": "User.sendIntr"
+  }
+],
+"keybindings": [
+  ...existing keybindings...,
+  {
+    "id": "User.sendIntr",
+    "keys": "ctrl+shift+c"
+  }
+]
+```
+
+Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shift+C` will send `0x1D` (`Ctrl+]`), which `stty` treats as interrupt.
+
+</details>
 
 ---
 
-#### Ghostty
+**Ghostty terminfo on the remote Linux box:** If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), commands like `clear` may fail and backspace may not work correctly. Fix it by running this on the remote server:
 
-Ghostty may require one extra step on the Linux side if your distro does not ship with Ghostty's terminfo entry. Run this on the server:
 ```bash
 echo '[[ "$TERM" == "xterm-ghostty" ]] && export TERM=xterm-256color' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-> Your experience may differ depending on your Linux distro.
+This was tested on Ubuntu Server 24.04. Your experience may differ depending on your Linux distro.
 
+---
+
+**iTerm2 — Clipboard Access**
+
+Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applications in terminal may access clipboard"** is checked, and set **"Allow sending of clipboard contents?"** to **Always**.
+
+---
 ---
 
 ## Default Key Bindings Reference
