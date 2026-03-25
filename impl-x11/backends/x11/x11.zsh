@@ -123,12 +123,12 @@ function _zes_copy_to_clipboard() {
         _zes_encoded=$(printf '%s' "$1" | base64 -w 0)
         if [[ -n "${TMUX:-}" ]]; then
             # tmux requires DCS passthrough wrapping with doubled inner ESC.
-            printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded"
+            printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded" > /dev/tty
         elif [[ -n "${STY:-}" ]]; then
             # GNU Screen requires DCS passthrough wrapping.
-            printf '\033P\033]52;c;%s\a\033\\' "$_zes_encoded"
+            printf '\033P\033]52;c;%s\a\033\\' "$_zes_encoded" > /dev/tty
         else
-            printf '\033]52;c;%s\a' "$_zes_encoded"
+            printf '\033]52;c;%s\a' "$_zes_encoded" > /dev/tty
         fi
         return 0
     fi

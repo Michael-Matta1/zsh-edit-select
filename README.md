@@ -161,7 +161,6 @@ Installation consists of two straightforward steps:
 
 Each documented with exact commands and copy-paste configurations.
 
-- Completing all three steps should take no longer than **8 minutes** on a first install.
 - All instructions are organized in collapsed sections so you can expand only what applies to your specific
   setup and platform.
 
@@ -1635,19 +1634,14 @@ For terminals without Accessibility support (which use custom GPU renderers), mo
 The macOS version of `zsh-edit-select` relies on the **Kitty Keyboard Protocol (CSI-u)** to support native `Cmd` key combinations.
 
 **Critically, almost all macOS terminal emulators intercept Cmd keys by default.**
-Because macOS heavily relies on `Cmd+C`, `Cmd+V`, and other `Cmd` combinations for GUI menus and built-in clipboard actions, terminals like Kitty, WezTerm, Ghostty, Alacritty, and iTerm2 do *not* forward these keystrokes to the shell out of the box.
 
-To use macOS-native `Cmd` shortcuts for command-line editing, you MUST manually map each shortcut in your terminal's configuration file to send the correct CSI-u escape sequence (e.g., `\x1b[99;9u` for Cmd+C).
+To use macOS-native `Cmd` shortcuts for command-line editing, you need to manually map each shortcut in your terminal's configuration file to send the correct CSI-u escape sequence (e.g., `\x1b[99;9u` for Cmd+C).
 
 If you cannot or do not want to modify your terminal's bindings, you can use the interactive
 configuration wizard (`edit-select config`) to set Ctrl fallback presets for **Cut** (`Ctrl+X`),
 **Paste** (`Ctrl+V`), **Undo** (`Ctrl+Z`), and **Select All** (`Ctrl+A`) — these work without
 any terminal configuration.
 
-**Note: there is no zero-config fallback for Copy.** Binding Copy to `Ctrl+C` conflicts
-with SIGINT — the wizard's "Ctrl+C" option sends the CSI-u sequence `\x1b[67;6u`, which still
-requires your terminal to be configured to forward it. Terminal.app users will need to bind Copy
-to a custom key via the wizard.
 
 See the terminal-specific configuration sections below for exact copy-paste snippets.
 
@@ -1657,7 +1651,6 @@ See the terminal-specific configuration sections below for exact copy-paste snip
 <summary><b>Terminal Configuration for iTerm2</b></summary>
 <a id="terminal-configuration-for-iterm2"></a>
 
-> **Note:** iTerm2 intercepts `Cmd` key combinations for its own menus. To use macOS shortcuts (Cmd+C, Cmd+V, etc.) in the command line, you must explicitly map them to send the required CSI-u escape sequences.
 
 ### Step 1 — Open iTerm2 Keys Configuration
 
@@ -1669,13 +1662,7 @@ See the terminal-specific configuration sections below for exact copy-paste snip
 
 ---
 
-### Step 2 — Remove Existing Conflicts
-
-Scroll through the list and delete any existing entries for the shortcuts we are about to add (e.g., existing `Cmd+C` or `Cmd+V` mappings). Select the entry and click the **–** button at the bottom left.
-
----
-
-### Step 3 — Add the macOS Cmd Shortcuts
+### Step 2 — Add the macOS Cmd Shortcuts
 
 For each shortcut below, click the **+** button, press the Keyboard Shortcut, set the Action to **"Send Escape Sequence"**, and paste the value exactly as shown:
 
@@ -1692,18 +1679,11 @@ For each shortcut below, click the **+** button, press the Keyboard Shortcut, se
 
 ---
 
-### Step 4 — Optional: Using Ctrl+C for Copy (CSI-u approach)
+### Optional: Using Ctrl+C for Copy (CSI-u approach)
 
-If you want to use **Ctrl+C** for copy instead of Cmd+C, the recommended approach is to configure iTerm2 to send the CSI-u escape sequence `\x1b[67;6u` for Ctrl+C. This way the plugin distinguishes it from a raw interrupt signal and no SIGINT conflict exists at the shell level.
+If you want to use **Ctrl+C** for copy instead of Cmd+C, the recommended approach is to configure iTerm2 to send the CSI-u escape sequence `\x1b[67;6u` for Ctrl+C. And remap the interrupt signal SIGINT to something else like Ctrl+Shift+C .
 
-> **Important:** The plugin expects the sequence `^[[67;6u` (`\x1b[67;6u`) for its copy binding. A bare `Ctrl+C` (`\x03`) will NOT trigger copy and will interrupt running programs instead.
 
-> **Note:** Unlike the global shortcuts in Steps 1–3, the Ctrl+C CSI-u mapping below is placed
-> in **Profiles → Keys** (per-profile) rather than the global Keys tab. This is intentional:
-> placing it per-profile avoids globally suppressing Ctrl+C interrupt in all contexts and lets
-> you control which profiles have the remapping active. If you want it to apply globally to all
-> sessions, you can instead add it at **Settings → Keys → Key Bindings** (the same location as
-> Steps 1–3) — it will work either way.
 
 **In iTerm2 → Preferences → Profiles → Keys → Key Mappings:**
 
@@ -2361,9 +2341,6 @@ To find the ZLE sequence for any key, run `cat` in your terminal and press the d
 
 ---
 
-A few notes worth being aware of when applying these configs:
-
-**Losing native clipboard copy:** Remapping Cmd+C to send `\x1b[99;9u` means the terminal's built-in clipboard copy action is no longer triggered by Cmd+C. The plugin receives the sequence and handles the copy operation itself via its clipboard agent. If you ever need to copy something that the plugin doesn't select (e.g. scrollback history), you'll need a separate terminal-level binding for that, or use the mouse + a right-click context menu.
 
 **iTerm2** is already covered in the [Terminal Configuration for iTerm2](#terminal-configuration-for-iterm2) section of the macOS Support guide above. Its `Send Escape Sequence` mechanism uses the exact same CSI-u values shown here — `[97;9u` for Cmd+A, `[99;9u` for Cmd+C, etc.
 
@@ -2448,9 +2425,19 @@ If you need to add one manually:
 
 ---
 
+### macOS to Linux — Cmd/Option Key Auto-Remapping
+
+If you are SSH-ing from a macOS terminal (iTerm2, Ghostty, Kitty, WezTerm, Alacritty), the plugin **automatically maps your macOS Cmd/Option key sequences** to the corresponding Linux actions. No extra configuration is needed on the remote Linux box — Cmd+C copies, Cmd+X cuts, Cmd+A selects all, Cmd+Z undoes, Option+Arrow moves by word, etc.
+
+**Prerequisite:** Your macOS terminal must be configured to forward Cmd key sequences as CSI-u escape codes (e.g., `Cmd+C` → `\e[99;9u`). If you already configured your terminal for the plugin locally on macOS (following the **macOS Keybindings** section above), those same settings will work transparently over SSH.
+
+> **Note:** `Cmd+V` (Paste) is handled by your macOS terminal natively — it pastes directly into the SSH session. The plugin does not intercept it.
+
+---
+
 ### Windows Terminal — Enable Ctrl+C Copy
 
-If you are SSH-ing from Windows Terminal, the Linux TTY intercepts `Ctrl+C` as an interrupt signal (`SIGINT`) by default, preventing the plugin from copying text. 
+If you are SSH-ing from Windows Terminal, the Linux TTY intercepts `Ctrl+C` as an interrupt signal (`SIGINT`) by default, preventing the plugin from copying text.
 
 To enable `Ctrl+C` copying, run this one-liner to append the necessary bindings to your **remote** `~/.zshrc`:
 
@@ -2498,6 +2485,7 @@ Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shif
 </details>
 
 ---
+
 
 **Ghostty terminfo on the remote Linux box:** If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), commands like `clear` may fail and backspace may not work correctly. Fix it by running this on the remote server:
 

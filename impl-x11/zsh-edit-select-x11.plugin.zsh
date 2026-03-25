@@ -780,6 +780,38 @@ if [[ -n "$EDIT_SELECT_KEY_REDO" ]]; then
     bindkey "$EDIT_SELECT_KEY_REDO" redo
 fi
 
+# ── macOS SSH key remapping ──────────────────────────────────────────
+# When SSH mode is active, also bind macOS Cmd/Option CSI-u sequences
+# to the Linux widgets. This allows macOS terminal users (iTerm2,
+# Ghostty, Kitty, WezTerm) to SSH into this Linux box and have their
+# Cmd+C, Cmd+X, Option+Arrow, etc. work transparently — provided
+# the terminal is configured to forward Cmd sequences as CSI-u.
+# These are additive bindings — they do not overwrite any existing keys.
+# The ((_ZES_SSH_MODE)) guard ensures zero overhead on non-SSH sessions.
+if ((_ZES_SSH_MODE)); then
+    # Clipboard operations (Cmd = modifier 9 in CSI-u)
+    bindkey -M emacs       '^[[99;9u'  edit-select::copy-region     # Cmd+C
+    bindkey -M edit-select '^[[99;9u'  edit-select::copy-region
+    bindkey -M emacs       '^[[120;9u' edit-select::cut-region      # Cmd+X
+    bindkey -M edit-select '^[[120;9u' edit-select::cut-region
+    bindkey -M emacs       '^[[97;9u'  edit-select::select-all      # Cmd+A
+    bindkey -M edit-select '^[[97;9u'  edit-select::select-all
+    # Undo/Redo (Cmd+Z = modifier 9, Cmd+Shift+Z = modifier 10)
+    bindkey -M emacs       '^[[122;9u'  undo                        # Cmd+Z
+    bindkey                '^[[122;9u'  undo
+    bindkey -M emacs       '^[[122;10u' redo                        # Cmd+Shift+Z
+    bindkey                '^[[122;10u' redo
+    # Word navigation (Option = modifier 3)
+    bindkey -M emacs       '^[[1;3D' backward-word                  # Option+Left
+    bindkey -M emacs       '^[[1;3C' forward-word                   # Option+Right
+    # Word selection (Option+Shift = modifier 4)
+    bindkey -M edit-select '^[[1;4D' backward-word                  # Option+Shift+Left
+    bindkey -M edit-select '^[[1;4C' forward-word                   # Option+Shift+Right
+    # Buffer start/end selection (Cmd+Shift = modifier 10)
+    bindkey -M edit-select '^[[1;10A' beginning-of-buffer-or-history # Cmd+Shift+Up
+    bindkey -M edit-select '^[[1;10B' end-of-buffer-or-history       # Cmd+Shift+Down
+fi
+
 # Normalise any residual string value that may still be in the live env.
 case $EDIT_SELECT_MOUSE_REPLACEMENT in
 enabled | 1) EDIT_SELECT_MOUSE_REPLACEMENT=1 ;;
