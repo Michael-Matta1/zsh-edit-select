@@ -55,8 +55,8 @@ support.
 - ✅ **Paste-to-replace** — Paste clipboard content over selections
 - ✅ **Mouse integration** — Works with text selected by mouse
 - ✅ **Clipboard integration** — Works natively with X11, Wayland, WSL, and macOS
-- ✅ **Standard shortcuts** — Ctrl+A (select all), Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste), Ctrl+Z (undo),
-  Ctrl+Shift+Z (redo)
+- ✅ **Standard shortcuts** — Ctrl+A (Cmd+A on macOS), Ctrl+C (Cmd+C), Ctrl+X (Cmd+X), Ctrl+V (Cmd+V), Ctrl+Z (Cmd+Z),
+  Ctrl+Shift+Z (Cmd+Shift+Z)
 
 > **Customization:** The plugin works after installation with editor-like defaults. Use the command
 > `edit-select config` to customize mouse behavior and keybindings.
@@ -69,14 +69,14 @@ support.
 
 Select text using familiar keyboard shortcuts:
 
-| Shortcut                    | Action                                          |
-| --------------------------- | ----------------------------------------------- |
-| **Shift + ←/→**             | Select character by character                   |
-| **Shift + ↑/↓**             | Select line by line                             |
-| **Shift + Home/End**        | Select to line start/end                        |
-| **Shift + Ctrl + ←/→**      | Select word by word                             |
-| **Shift + Ctrl + Home/End** | Select to buffer start/end                      |
-| **Ctrl + A**                | Select all text (including multi-line commands) |
+| Shortcut                                         | Action                                          |
+| ------------------------------------------------ | ----------------------------------------------- |
+| **Shift + ←/→**                                  | Select character by character                   |
+| **Shift + ↑/↓**                                  | Select line by line                             |
+| **Shift + Home/End (Cmd + Shift + ←/→ on macOS)**| Select to line start/end                        |
+| **Shift + Ctrl + ←/→ (Option + Shift + ←/→)**    | Select word by word                             |
+| **Shift + Ctrl + Home/End (Cmd + Shift + ↑/↓)**  | Select to buffer start/end                      |
+| **Ctrl + A (Cmd + A on macOS)**                  | Select all text (including multi-line commands) |
 
 ### Mouse Selection Integration
 
@@ -84,15 +84,15 @@ The plugin intelligently integrates mouse selections:
 
 **When Mouse Replacement is Enabled (default):**
 
-- ✅ Copy mouse selections with Ctrl+C (or Ctrl+Shift+C if configured)
-- ✅ Cut mouse selections with Ctrl+X
+- ✅ Copy mouse selections with Ctrl+C (or Ctrl+Shift+C if configured, Cmd+C on macOS)
+- ✅ Cut mouse selections with Ctrl+X (Cmd+X on macOS)
 - ✅ Type to replace mouse selections
 - ✅ Delete mouse selections with Backspace/Delete
-- ✅ Paste over mouse selections with Ctrl+V
+- ✅ Paste over mouse selections with Ctrl+V (Cmd+V on macOS)
 
 **When Mouse Replacement is Disabled:**
 
-- ✅ Copy mouse selections with Ctrl+C (or Ctrl+Shift+C if configured)
+- ✅ Copy mouse selections with Ctrl+C (or Ctrl+Shift+C if configured, Cmd+C on macOS)
 - ✅ Replacement/Deletion work with keyboard selections
 
 > **Note:** Configure mouse behavior with the command `edit-select config` → Option 1
@@ -109,9 +109,9 @@ Works with both keyboard and mouse selections (when mouse replacement is enabled
 
 Standard editing shortcuts:
 
-- **Ctrl + C** (or Ctrl+Shift+C if configured): Copy selected text
-- **Ctrl + X**: Cut selected text
-- **Ctrl + V**: Paste (replaces selection if any)
+- **Ctrl + C** (or Ctrl+Shift+C if configured) (Cmd+C on macOS): Copy selected text
+- **Ctrl + X** (Cmd+X on macOS): Cut selected text
+- **Ctrl + V** (Cmd+V on macOS): Paste (replaces selection if any)
 
 > **Clipboard Managers Compatibility Note:** The plugin is fully compatible with clipboard history managers
 > like **CopyQ**, **GPaste**, **Maccy**, and others. If you use a clipboard manager (like CopyQ, GPaste, Maccy, etc.), the plugin will integrate with it automatically since it uses standard clipboard protocols on X11, Wayland, and macOS.
@@ -120,14 +120,14 @@ Standard editing shortcuts:
 
 Navigate through your command line editing history:
 
-- **Ctrl + Z**: Undo last edit
-- **Ctrl + Shift + Z**: Redo last undone edit
+- **Ctrl + Z** (Cmd+Z on macOS): Undo last edit
+- **Ctrl + Shift + Z** (Cmd+Shift+Z on macOS): Redo last undone edit
 
 > **Note:** The Ctrl+Z keybinding works seamlessly alongside the traditional suspend process functionality
 > (Ctrl+Z suspends a running foreground process to background). The plugin intelligently handles undo
 > operations for command line editing while preserving the ability to suspend processes when needed.
 
-> **Note:** The Copy and the Redo keybinding (Ctrl+Shift+Z) requires terminal configuration to send the
+> **Note:** The Copy and the Redo keybinding (Ctrl+Shift+Z / Cmd+Shift+Z) requires terminal configuration to send the
 > correct escape sequence. See [Famous Terminals Configurations](#famous-terminals-configurations) for manual configuration instructions, or use
 > the [Auto Installation](#auto-installation) script to configure this automatically.
 
@@ -151,6 +151,8 @@ giving you instant clipboard response.
 > **Recommendation:** If you are comfortable editing dotfiles and prefer full control over your system
 > configuration, [Manual Installation](#manual-installation) is the recommended approach.
 
+**macOS users:** For macOS with Oh My Zsh, go directly to [macOS Support](#macos-support)
+> macOS auto installation will be available soon.
 
 Installation consists of two straightforward steps:
 
@@ -406,7 +408,7 @@ source ~/.zshrc
 The plugin works immediately with sensible defaults, but you can customize:
 
 - Mouse replacement behavior
-- Keybindings (Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+Shift+Z)
+- Keybindings (Ctrl/Cmd+A, Ctrl/Cmd+V, Ctrl/Cmd+X, Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z)
 
 Run the interactive configuration wizard:
 
@@ -487,14 +489,14 @@ edit-select config  # → Option 2: Key Bindings
 
 **Default bindings:**
 
-- **Ctrl + A** — Select all
-- **Ctrl + V** — Paste
-- **Ctrl + X** — Cut
-- **Ctrl + Shift + C** — Copy
-- **Ctrl + Z** — Undo
-- **Ctrl + Shift + Z** — Redo
-- **Ctrl + ←** — Word left
-- **Ctrl + →** — Word right
+- **Ctrl + A** (Cmd+A on macOS) — Select all
+- **Ctrl + V** (Cmd+V on macOS) — Paste
+- **Ctrl + X** (Cmd+X on macOS) — Cut
+- **Ctrl + Shift + C** (Cmd+C on macOS) — Copy
+- **Ctrl + Z** (Cmd+Z on macOS) — Undo
+- **Ctrl + Shift + Z** (Cmd+Shift+Z on macOS) — Redo
+- **Ctrl + ←** (Option+Left on macOS) — Word left
+- **Ctrl + →** (Option+Right on macOS) — Word right
 
 </details>
 
@@ -615,7 +617,7 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 > For WSL users on Windows Terminal, follow the dedicated manual at [WSL Support](#wsl-support)
 > then return here only if you need additional terminal mappings.
 
-> For macOS, go to [macOS Support](#macos-support) for iTerm2 & mouse integration support.
+> For macOS, go to [macOS Support](#macos-support) .
 
 <details>
 <summary><b>How to Find Escape Sequences (Optional: For Manual Customization)</b></summary>
@@ -1352,7 +1354,7 @@ WSL is fully supported, including mouse selection integration, custom tracking m
 
 
 <details>
-<summary><b>Installation and Terminal Configuration (WSL Quick Path)</b></summary>
+<summary><b>Installation and Terminal Configuration</b></summary>
 
 1. Install the plugin using [Manual Installation](#manual-installation).
 2. Configure terminal behavior using the Windows Terminal steps below.
@@ -1534,9 +1536,6 @@ macOS is fully supported with a native Objective-C clipboard agent that provides
 <details>
 <summary><b>Installation</b></summary>
 
-<details>
-<summary><b>Manual Installation</b></summary>
-
 1. **Install the plugin:**
    If you are using **Oh My Zsh**, clone the repository:
    ```bash
@@ -1554,7 +1553,6 @@ macOS is fully supported with a native Objective-C clipboard agent that provides
 3. (Recommended) Enable mouse selection — see below.
 </details>
 
-</details>
 
 <details>
 <summary><b>Mouse Selection (PRIMARY Selection) — Accessibility Setup</b></summary>
@@ -1630,88 +1628,744 @@ For terminals without Accessibility support (which use custom GPU renderers), mo
 </details>
 
 
-<details>
-<summary><b>Terminal Configuration for iTerm2</b></summary>
+<details open>
+<summary><b>macOS Terminal Setup Requirements</b></summary>
 
-> **Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see [Famous Terminals Configurations](#famous-terminals-configurations)
+<a id="macos-terminal-setup-requirements"></a>
+The macOS version of `zsh-edit-select` relies on the **Kitty Keyboard Protocol (CSI-u)** to support native `Cmd` key combinations.
 
-By default, Ctrl+C sends the SIGINT interrupt signal. This guide remaps things so that:
-- **Ctrl+C** → sends the escape sequence `[67;6u` which the plugin uses for copy
-- **Ctrl+Shift+C** → sends SIGINT (`0x03`), the traditional interrupt signal
+**Critically, almost all macOS terminal emulators intercept Cmd keys by default.**
+Because macOS heavily relies on `Cmd+C`, `Cmd+V`, and other `Cmd` combinations for GUI menus and built-in clipboard actions, terminals like Kitty, WezTerm, Ghostty, Alacritty, and iTerm2 do *not* forward these keystrokes to the shell out of the box.
 
----
+To use macOS-native `Cmd` shortcuts for command-line editing, you MUST manually map each shortcut in your terminal's configuration file to send the correct CSI-u escape sequence (e.g., `\x1b[99;9u` for Cmd+C).
 
-### Step 1 — Open iTerm2 Settings
+If you cannot or do not want to modify your terminal's bindings, you can use the interactive
+configuration wizard (`edit-select config`) to set Ctrl fallback presets for **Cut** (`Ctrl+X`),
+**Paste** (`Ctrl+V`), **Undo** (`Ctrl+Z`), and **Select All** (`Ctrl+A`) — these work without
+any terminal configuration.
 
-Press **Settings** to open Settings, then click the **Keys** tab at the top.
+**Note: there is no zero-config fallback for Copy.** Binding Copy to `Ctrl+C` conflicts
+with SIGINT — the wizard's "Ctrl+C" option sends the CSI-u sequence `\x1b[67;6u`, which still
+requires your terminal to be configured to forward it. Terminal.app users will need to bind Copy
+to a custom key via the wizard.
 
-Make sure you're on the **Key Bindings** sub-tab (not Navigation Shortcuts, Hotkey, etc.).
-
-> ⚠️ Use the top-level **Keys** tab, NOT Profiles → Keys. This makes the bindings apply to all sessions globally.
-
----
-
-### Step 2 — Remove any existing Ctrl+C and Ctrl+Shift+C bindings
-
-Scroll through the list and look for any existing entries that have `^c` or `^⇧c` on the right side. Select each one and click the **–** button at the bottom left to delete them.
-
----
-
-### Step 3 — Add Ctrl+C → Escape Sequence
-
-1. Click the **+** button at the bottom left
-2. Click in the **Keyboard Shortcut** field and press **Ctrl+C** — it should show `^c`
-3. Set **Action** to **"Send Escape Sequence"**
-4. In the text field enter:
-   ```
-   [67;6u
-   ```
-   *(iTerm2 prepends `ESC` automatically, so this sends `\x1b[67;6u`)*
-5. Set the dropdown to **"Apply to all sessions"**
-6. Click **OK**
-
----
-
-### Step 4 — Add Ctrl+Shift+C → SIGINT
-
-1. Click the **+** button again
-2. Click in the **Keyboard Shortcut** field and press **Ctrl+Shift+C** — it should show `^⇧c`
-3. Set **Action** to **"Send Hex Code"**
-4. In the text field enter:
-   ```
-   0x03
-   ```
-5. Set the dropdown to **"Apply to all sessions"**
-6. Click **OK**
-
----
-
-### Result
-
-You should now see two entries in the list like in the screenshot:
-
-| Action | Shortcut |
-|---|---|
-| In all sessions, Send Hex Codes: `0x03` | `^⇧c` |
-| In all sessions, Send `^[ [67;6u` | `^c` |
-
----
-
-### Step 5 — Configure Undo/Redo (Ctrl+Shift+Z)
-
-1. Click the **+** button again
-2. Press **Ctrl+Shift+Z** in the Keyboard Shortcut field
-3. Set **Action** to **"Send Escape Sequence"**
-4. Enter: `[90;6u`
-5. Click **OK**
-
----
-
-### Shift Selection Keys
-
-iTerm2 passes Shift+Arrow keys through to the terminal natively — no additional configuration is needed for Shift selection.
+See the terminal-specific configuration sections below for exact copy-paste snippets.
 
 </details>
+
+<details>
+<summary><b>Terminal Configuration for iTerm2</b></summary>
+<a id="terminal-configuration-for-iterm2"></a>
+
+> **Note:** iTerm2 intercepts `Cmd` key combinations for its own menus. To use macOS shortcuts (Cmd+C, Cmd+V, etc.) in the command line, you must explicitly map them to send the required CSI-u escape sequences.
+
+### Step 1 — Open iTerm2 Keys Configuration
+
+1. Open iTerm2 **Settings** (Cmd+,)
+2. Go to the **Keys** tab at the top
+3. Select the **Key Bindings** sub-tab
+
+>Use the top-level **Keys** tab, NOT Profiles → Keys. This makes the bindings apply to all sessions globally.
+
+---
+
+### Step 2 — Remove Existing Conflicts
+
+Scroll through the list and delete any existing entries for the shortcuts we are about to add (e.g., existing `Cmd+C` or `Cmd+V` mappings). Select the entry and click the **–** button at the bottom left.
+
+---
+
+### Step 3 — Add the macOS Cmd Shortcuts
+
+For each shortcut below, click the **+** button, press the Keyboard Shortcut, set the Action to **"Send Escape Sequence"**, and paste the value exactly as shown:
+
+| Keyboard Shortcut | Action | Value | Description |
+|-------------------|--------|-------|-------------|
+| **Cmd + A** | Send Escape Sequence | `[97;9u` | Select All |
+| **Cmd + C** | Send Escape Sequence | `[99;9u` | Copy |
+| **Cmd + V** | Send Escape Sequence | `[118;9u` | Paste |
+| **Cmd + X** | Send Escape Sequence | `[120;9u` | Cut |
+| **Cmd + Z** | Send Escape Sequence | `[122;9u` | Undo |
+| **Cmd + Shift + Z** | Send Escape Sequence | `[122;10u` | Redo |
+
+*(iTerm2 prepends `ESC` automatically, so `[99;9u` correctly outputs `\x1b[99;9u`)*
+
+---
+
+### Step 4 — Optional: Using Ctrl+C for Copy (CSI-u approach)
+
+If you want to use **Ctrl+C** for copy instead of Cmd+C, the recommended approach is to configure iTerm2 to send the CSI-u escape sequence `\x1b[67;6u` for Ctrl+C. This way the plugin distinguishes it from a raw interrupt signal and no SIGINT conflict exists at the shell level.
+
+> **Important:** The plugin expects the sequence `^[[67;6u` (`\x1b[67;6u`) for its copy binding. A bare `Ctrl+C` (`\x03`) will NOT trigger copy and will interrupt running programs instead.
+
+> **Note:** Unlike the global shortcuts in Steps 1–3, the Ctrl+C CSI-u mapping below is placed
+> in **Profiles → Keys** (per-profile) rather than the global Keys tab. This is intentional:
+> placing it per-profile avoids globally suppressing Ctrl+C interrupt in all contexts and lets
+> you control which profiles have the remapping active. If you want it to apply globally to all
+> sessions, you can instead add it at **Settings → Keys → Key Bindings** (the same location as
+> Steps 1–3) — it will work either way.
+
+**In iTerm2 → Preferences → Profiles → Keys → Key Mappings:**
+
+1. Click **+** to add a new mapping
+2. Press **Ctrl+C** in the **Keyboard Shortcut** field
+3. Set **Action** to **"Send Escape Sequence"**
+4. Enter `[67;6u` in the value field *(iTerm2 prepends `ESC` automatically → `\x1b[67;6u`)*
+5. Click **OK**
+
+Then in the plugin wizard (`edit-select config` → Key Bindings → Copy), choose **"Ctrl+C via CSI-u"**.
+
+**Restoring interrupt (Ctrl+Shift+C → SIGINT):**
+
+If you want `Ctrl+Shift+C` to send the interrupt signal after remapping `Ctrl+C`:
+
+1. Click **+**; in **Keyboard Shortcut** press **Ctrl+Shift+C** (shows `^⇧C`)
+2. Set **Action** to **"Send Hex Code"**; enter `0x03`; click **OK**
+
+---
+
+
+iTerm2 passes `Shift+Arrow` keys through to the terminal natively — **no additional configuration is needed** for text selection.
+
+</details>
+
+<details>
+<summary><b>Terminal.app</b></summary>
+
+Terminal.app does not support CSI-u or custom escape sequence remapping for Cmd keys.
+The following applies:
+
+- **Cmd shortcuts (Copy, Cut, Paste, Undo, Redo, Select All):** Cannot be forwarded.
+  Use `edit-select config` → Key Bindings to set Ctrl fallbacks for Cut (`Ctrl+X`),
+  Paste (`Ctrl+V`), Undo (`Ctrl+Z`), and Select All (`Ctrl+A`). For Copy, use the
+  manual `~/.zshrc` binding described in the "Without Terminal Remapping" section.
+
+- **Option+Left / Option+Right (word navigation):** Works automatically.
+  If "Use Option as Meta Key" is enabled (Preferences → Profiles → Keyboard),
+  Terminal.app sends `\eb` / `\ef`. The plugin binds both this form and the standard
+  `\x1b[1;3D` / `\x1b[1;3C` form — no configuration needed.
+
+- **Shift+Arrow (selection):** Passes through to the shell natively — no configuration
+  needed.
+
+- **Cmd+Shift+Up/Down (Buffer Start/End):** Not available without CSI-u support.
+  Use `edit-select config` to bind Buffer Start/End to a custom key sequence.
+</details>
+
+### macOS: Configure Cmd Shortcuts (Copy, Cut, Paste, Undo, Redo, Select All)
+
+> **CRITICAL:** These mappings replace each terminal's built-in Cmd+C and Cmd+V clipboard actions. The plugin's clipboard agent takes over those operations via the escape sequences below. Remove or comment out any existing conflicting Cmd+C, Cmd+V, Cmd+A entries in your terminal config before adding these.
+
+<details>
+<summary><b>Kitty</b></summary>
+
+Kitty intercepts `cmd+c` and `cmd+v` by default for its own clipboard. The mappings below override those and send CSI-u sequences to the shell instead.
+
+Add to `kitty.conf`:
+
+```conf
+# ── macOS Cmd editing shortcuts ──────────────────────────────────────────
+# Override Kitty's built-in clipboard actions so the plugin receives them.
+map cmd+a send_text all \x1b[97;9u
+map cmd+c send_text all \x1b[99;9u
+map cmd+v send_text all \x1b[118;9u
+map cmd+x send_text all \x1b[120;9u
+map cmd+z send_text all \x1b[122;9u
+map cmd+shift+z send_text all \x1b[122;10u
+```
+
+</details>
+
+<details>
+<summary><b>WezTerm</b></summary>
+
+WezTerm intercepts `CMD+c` (`CopyTo`) and `CMD+v` (`PasteFrom`) by default. Adding entries for those keys in `config.keys` automatically replaces the defaults.
+
+Add to `wezterm.lua`:
+
+```lua
+local wezterm = require 'wezterm'
+return {
+  keys = {
+    -- ── macOS Cmd editing shortcuts ──────────────────────────────────────
+    -- These replace WezTerm's built-in CopyTo/PasteFrom clipboard actions.
+    { key = 'a', mods = 'CMD',       action = wezterm.action.SendString '\x1b[97;9u'  },
+    { key = 'c', mods = 'CMD',       action = wezterm.action.SendString '\x1b[99;9u'  },
+    { key = 'v', mods = 'CMD',       action = wezterm.action.SendString '\x1b[118;9u' },
+    { key = 'x', mods = 'CMD',       action = wezterm.action.SendString '\x1b[120;9u' },
+    { key = 'z', mods = 'CMD',       action = wezterm.action.SendString '\x1b[122;9u' },
+    { key = 'Z', mods = 'CMD|SHIFT', action = wezterm.action.SendString '\x1b[122;10u'},
+  },
+}
+```
+
+> **Note on key case in WezTerm:** Use lowercase for unshifted keys (`key = 'c'` with `mods = 'CMD'`) and uppercase for shifted variants (`key = 'Z'` with `mods = 'CMD|SHIFT'`). Using uppercase with only `CMD` is treated as `CMD|SHIFT` by WezTerm's key mapper.
+
+</details>
+
+<details>
+<summary><b>Ghostty</b></summary>
+
+Ghostty intercepts `cmd+c`, `cmd+v`, and `cmd+a` by default for its own clipboard and selection actions.
+
+Add to `~/.config/ghostty/config`:
+
+```
+# ── macOS Cmd editing shortcuts ──────────────────────────────────────────
+# Override Ghostty's built-in clipboard actions (cmd+c, cmd+v, cmd+a).
+keybind = cmd+a=csi:97;9u
+keybind = cmd+c=csi:99;9u
+keybind = cmd+v=csi:118;9u
+keybind = cmd+x=csi:120;9u
+keybind = cmd+z=csi:122;9u
+keybind = cmd+shift+z=csi:122;10u
+```
+
+</details>
+
+<details>
+<summary><b>Alacritty</b></summary>
+
+On macOS, Alacritty intercepts `Command+C` and `Command+V` for its built-in clipboard actions. The bindings below override them. Note that Alacritty's TOML format requires `\u001b` (not `\x1b`) for the ESC character.
+
+Add to `alacritty.toml`:
+
+```toml
+# ── macOS Cmd editing shortcuts ──────────────────────────────────────────
+# Override Alacritty's built-in Command+C/V clipboard actions.
+
+[[keyboard.bindings]]
+key = "A"
+mods = "Command"
+chars = "\u001b[97;9u"
+
+[[keyboard.bindings]]
+key = "C"
+mods = "Command"
+chars = "\u001b[99;9u"
+
+[[keyboard.bindings]]
+key = "V"
+mods = "Command"
+chars = "\u001b[118;9u"
+
+[[keyboard.bindings]]
+key = "X"
+mods = "Command"
+chars = "\u001b[120;9u"
+
+[[keyboard.bindings]]
+key = "Z"
+mods = "Command"
+chars = "\u001b[122;9u"
+
+[[keyboard.bindings]]
+key = "Z"
+mods = "Command|Shift"
+chars = "\u001b[122;10u"
+```
+
+</details>
+
+<details>
+<summary><b>VS Code Terminal</b></summary>
+
+VS Code intercepts `Cmd+C`, `Cmd+V`, and `Cmd+A` for its own editor clipboard and selection actions. Add the following to `keybindings.json` (open via **⇧⌘P** → "Preferences: Open Keyboard Shortcuts (JSON)"):
+
+```json
+[
+  {
+    "key": "cmd+a",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[97;9u" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+c",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[99;9u" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+v",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[118;9u" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+x",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[120;9u" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+z",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[122;9u" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+shift+z",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[122;10u" },
+    "when": "terminalFocus && isMac"
+  }
+]
+```
+
+> **Note:** `sendSequence` requires `\u0000`-format Unicode escapes — `\x1b` is not valid in this context.
+
+</details>
+
+---
+
+### macOS: Configure Navigation Keys (Cmd+Arrow, Option+Arrow)
+
+The plugin binds these sequences for non-selecting cursor movement. Without explicit mappings, these keys are either not forwarded or send the wrong sequences on macOS.
+
+| Key | Sends | Plugin action |
+|---|---|---|
+| Cmd+← | `\x1b[1;9D` | Move to line start |
+| Cmd+→ | `\x1b[1;9C` | Move to line end |
+| Option+← | `\x1b[1;3D` | Move one word left |
+| Option+→ | `\x1b[1;3C` | Move one word right |
+
+<details>
+<summary><b>Kitty</b></summary>
+
+Add to `kitty.conf`:
+
+```conf
+# ── macOS navigation (non-selecting) ─────────────────────────────────────
+map cmd+left  send_text all \x1b[1;9D
+map cmd+right send_text all \x1b[1;9C
+map opt+left  send_text all \x1b[1;3D
+map opt+right send_text all \x1b[1;3C
+```
+
+</details>
+
+<details>
+<summary><b>WezTerm</b></summary>
+
+Add to `wezterm.lua` (inside the `keys` table):
+
+```lua
+    -- ── macOS navigation (non-selecting) ──────────────────────────────────
+    { key = 'LeftArrow',  mods = 'CMD', action = wezterm.action.SendString '\x1b[1;9D' },
+    { key = 'RightArrow', mods = 'CMD', action = wezterm.action.SendString '\x1b[1;9C' },
+    { key = 'LeftArrow',  mods = 'OPT', action = wezterm.action.SendString '\x1b[1;3D' },
+    { key = 'RightArrow', mods = 'OPT', action = wezterm.action.SendString '\x1b[1;3C' },
+```
+
+</details>
+
+<details>
+<summary><b>Ghostty</b></summary>
+
+Add to `~/.config/ghostty/config`:
+
+```
+# ── macOS navigation (non-selecting) ─────────────────────────────────────
+keybind = cmd+left=text:\x1b[1;9D
+keybind = cmd+right=text:\x1b[1;9C
+keybind = opt+left=text:\x1b[1;3D
+keybind = opt+right=text:\x1b[1;3C
+```
+
+</details>
+
+<details>
+<summary><b>Alacritty</b></summary>
+
+Add to `alacritty.toml`:
+
+```toml
+# ── macOS navigation (non-selecting) ─────────────────────────────────────
+
+[[keyboard.bindings]]
+key = "Left"
+mods = "Command"
+chars = "\u001b[1;9D"
+
+[[keyboard.bindings]]
+key = "Right"
+mods = "Command"
+chars = "\u001b[1;9C"
+
+[[keyboard.bindings]]
+key = "Left"
+mods = "Alt"
+chars = "\u001b[1;3D"
+
+[[keyboard.bindings]]
+key = "Right"
+mods = "Alt"
+chars = "\u001b[1;3C"
+```
+
+</details>
+
+<details>
+<summary><b>VS Code Terminal</b></summary>
+
+Add to `keybindings.json`:
+
+```json
+[
+  {
+    "key": "cmd+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;9D" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;9C" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "alt+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;3D" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "alt+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;3C" },
+    "when": "terminalFocus && isMac"
+  }
+]
+```
+
+> **Note:** VS Code uses `alt` for the Option key in keybindings — `opt` is not a valid modifier.
+
+</details>
+
+---
+
+### macOS: Configure Shift Selection Keys
+
+Basic `Shift+Arrow` keys (`↑ ↓ ← →`) pass through natively on most terminals below (Kitty, WezTerm, Ghostty, Alacritty) — no config needed for character-by-character and line-by-line selection.
+
+The keys below require explicit mapping. The modifier encoding follows the xterm standard: modifier value = sum of modifier bits + 1, where Cmd = 8 and Option = 2. So Cmd+Shift = 8+1+1 = **10** and Option+Shift = 2+1+1 = **4**.
+
+| Key | Sends | Plugin action |
+|---|---|---|
+| Cmd+Shift+← | `\x1b[1;10D` | Select to line start |
+| Cmd+Shift+→ | `\x1b[1;10C` | Select to line end |
+| Option+Shift+← | `\x1b[1;4D` | Select to word start |
+| Option+Shift+→ | `\x1b[1;4C` | Select to word end |
+| Cmd+Shift+↑ | `\x1b[1;10A` | Select to buffer start |
+| Cmd+Shift+↓ | `\x1b[1;10B` | Select to buffer end |
+
+<details>
+<summary><b>Kitty</b></summary>
+
+Add to `kitty.conf`:
+
+```conf
+# ── macOS Shift selection keys ────────────────────────────────────────────
+# Cmd+Shift+Left/Right: select to line start/end
+map cmd+shift+left  send_text all \x1b[1;10D
+map cmd+shift+right send_text all \x1b[1;10C
+
+# Option+Shift+Left/Right: select word by word
+map opt+shift+left  send_text all \x1b[1;4D
+map opt+shift+right send_text all \x1b[1;4C
+
+# Cmd+Shift+Up/Down: select to buffer start/end
+map cmd+shift+up   send_text all \x1b[1;10A
+map cmd+shift+down send_text all \x1b[1;10B
+```
+
+> **Note:** Kitty maps `cmd+up` / `cmd+down` (without Shift) to scroll by default. The `cmd+shift+up` / `cmd+shift+down` mappings above do not conflict with those.
+
+</details>
+
+<details>
+<summary><b>WezTerm</b></summary>
+
+> **Note:** WezTerm does not have default assignments for `CMD|SHIFT` + arrow keys, so no `DisableDefaultAssignment` is needed here.
+
+Add to `wezterm.lua` (inside the `keys` table):
+
+```lua
+    -- ── macOS Shift selection keys ──────────────────────────────────────────
+    -- Cmd+Shift+Left/Right: select to line start/end
+    { key = 'LeftArrow',  mods = 'CMD|SHIFT', action = wezterm.action.SendString '\x1b[1;10D' },
+    { key = 'RightArrow', mods = 'CMD|SHIFT', action = wezterm.action.SendString '\x1b[1;10C' },
+
+    -- Option+Shift+Left/Right: select word by word
+    { key = 'LeftArrow',  mods = 'OPT|SHIFT', action = wezterm.action.SendString '\x1b[1;4D' },
+    { key = 'RightArrow', mods = 'OPT|SHIFT', action = wezterm.action.SendString '\x1b[1;4C' },
+
+    -- Cmd+Shift+Up/Down: select to buffer start/end
+    { key = 'UpArrow',   mods = 'CMD|SHIFT', action = wezterm.action.SendString '\x1b[1;10A' },
+    { key = 'DownArrow', mods = 'CMD|SHIFT', action = wezterm.action.SendString '\x1b[1;10B' },
+```
+
+</details>
+
+<details>
+<summary><b>Ghostty</b></summary>
+
+Ghostty passes basic `Shift+Arrow` keys through natively. Add the macOS-specific combinations below.
+
+Add to `~/.config/ghostty/config`:
+
+```
+# ── macOS Shift selection keys ────────────────────────────────────────────
+# Cmd+Shift+Left/Right: select to line start/end
+keybind = cmd+shift+left=csi:1;10D
+keybind = cmd+shift+right=csi:1;10C
+
+# Option+Shift+Left/Right: select word by word
+keybind = opt+shift+left=csi:1;4D
+keybind = opt+shift+right=csi:1;4C
+
+# Cmd+Shift+Up/Down: select to buffer start/end
+keybind = cmd+shift+up=csi:1;10A
+keybind = cmd+shift+down=csi:1;10B
+```
+
+</details>
+
+<details>
+<summary><b>VS Code Terminal</b></summary>
+
+Add to `keybindings.json`:
+
+```json
+[
+  {
+    "key": "shift+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;2D" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "shift+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;2C" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "shift+up",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;2A" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "shift+down",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;2B" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+shift+up",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;10A" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+shift+down",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;10B" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "alt+shift+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;4D" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "alt+shift+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;4C" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+shift+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;10D" },
+    "when": "terminalFocus && isMac"
+  },
+  {
+    "key": "cmd+shift+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;10C" },
+    "when": "terminalFocus && isMac"
+  }
+]
+```
+
+</details>
+
+<details>
+<summary><b>Alacritty</b></summary>
+
+Add to `alacritty.toml`:
+
+```toml
+# ── macOS Shift selection keys ────────────────────────────────────────────
+
+# Cmd+Shift+Left/Right: select to line start/end
+[[keyboard.bindings]]
+key = "Left"
+mods = "Command|Shift"
+chars = "\u001b[1;10D"
+
+[[keyboard.bindings]]
+key = "Right"
+mods = "Command|Shift"
+chars = "\u001b[1;10C"
+
+# Option+Shift+Left/Right: select word by word
+[[keyboard.bindings]]
+key = "Left"
+mods = "Alt|Shift"
+chars = "\u001b[1;4D"
+
+[[keyboard.bindings]]
+key = "Right"
+mods = "Alt|Shift"
+chars = "\u001b[1;4C"
+
+# Cmd+Shift+Up/Down: select to buffer start/end
+[[keyboard.bindings]]
+key = "Up"
+mods = "Command|Shift"
+chars = "\u001b[1;10A"
+
+[[keyboard.bindings]]
+key = "Down"
+mods = "Command|Shift"
+chars = "\u001b[1;10B"
+```
+
+</details>
+
+---
+
+### macOS: Ctrl Fallback for Undo/Redo
+
+If you cannot use `Cmd+Z` / `Cmd+Shift+Z` (e.g. on Terminal.app), the configuration wizard offers Ctrl fallbacks. You can select these via `edit-select config` → Key Bindings → Undo / Redo.
+
+- **Undo fallback:** `Ctrl+Z` — sends the raw `^Z` byte. This requires **no terminal configuration** and works everywhere.
+- **Redo fallback:** `Ctrl+Shift+Z` — sends `\x1b[90;6u`. This **requires** your terminal to forward the sequence, as shown below.
+
+> **Note:** If you already configured your terminal for the Copy section above, merge the entries shown here into the same config rather than creating duplicates.
+
+<details>
+<summary><b>Kitty</b></summary>
+
+Add to `kitty.conf`:
+
+```conf
+map ctrl+shift+z send_text all \x1b[90;6u
+```
+
+</details>
+
+<details>
+<summary><b>WezTerm</b></summary>
+
+Add to `wezterm.lua` (inside the `keys` table):
+
+```lua
+    {
+      key = 'Z',
+      mods = 'CTRL|SHIFT',
+      action = wezterm.action.SendString '\x1b[90;6u',
+    },
+```
+
+</details>
+
+<details>
+<summary><b>Ghostty</b></summary>
+
+Add to `~/.config/ghostty/config`:
+
+```
+keybind = ctrl+shift+z=csi:90;6u
+```
+
+</details>
+
+<details>
+<summary><b>Alacritty</b></summary>
+
+Add to `alacritty.toml`:
+
+```toml
+[[keyboard.bindings]]
+key = "Z"
+mods = "Control|Shift"
+chars = "\u001b[90;6u"
+```
+
+</details>
+
+<details>
+<summary><b>VS Code Terminal</b></summary>
+
+Add to `keybindings.json`:
+
+```json
+[
+  {
+    "key": "ctrl+shift+z",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[90;6u" },
+    "when": "terminalFocus && isMac"
+  }
+]
+```
+
+</details>
+
+---
+
+### macOS: Alternative — Without Terminal Remapping
+
+If your terminal does not support key remapping (e.g. Terminal.app), you can bind Copy directly in your `~/.zshrc` using a key combination that does not conflict with any system shortcuts. The example below uses **Ctrl+/** (`^_` in ZLE notation):
+
+```sh
+# Fallback copy widget — bind to any available key (example: Ctrl+/)
+x-copy-selection() {
+  if [[ $MARK -ne $CURSOR ]]; then
+    local start=$(( MARK < CURSOR ? MARK : CURSOR ))
+    local length=$(( MARK > CURSOR ? MARK - CURSOR : CURSOR - MARK ))
+    printf '%s' "${BUFFER:$start:$length}" | pbcopy
+  fi
+}
+zle -N x-copy-selection
+bindkey '^_' x-copy-selection  # Ctrl+/
+```
+
+You can change the binding to any key you prefer. For example, to use **Ctrl+K**:
+
+```sh
+bindkey '^K' x-copy-selection
+```
+
+To find the ZLE sequence for any key, run `cat` in your terminal and press the desired key combination.
+
+> **Note:** `^_` represents Ctrl+/ and `^K` represents Ctrl+K. If no text is selected when the widget fires, nothing is copied.
+
+
+---
+
+A few notes worth being aware of when applying these configs:
+
+**Losing native clipboard copy:** Remapping Cmd+C to send `\x1b[99;9u` means the terminal's built-in clipboard copy action is no longer triggered by Cmd+C. The plugin receives the sequence and handles the copy operation itself via its clipboard agent. If you ever need to copy something that the plugin doesn't select (e.g. scrollback history), you'll need a separate terminal-level binding for that, or use the mouse + a right-click context menu.
+
+**iTerm2** is already covered in the [Terminal Configuration for iTerm2](#terminal-configuration-for-iterm2) section of the macOS Support guide above. Its `Send Escape Sequence` mechanism uses the exact same CSI-u values shown here — `[97;9u` for Cmd+A, `[99;9u` for Cmd+C, etc.
 
 <details>
 <summary><b>tmux on macOS</b></summary>
@@ -1806,38 +2460,40 @@ source ~/.zshrc
 
 ### Navigation Keys
 
-| Key Combination | Action                     |
-| --------------- | -------------------------- |
-| **Ctrl + ←**    | Move cursor one word left  |
-| **Ctrl + →**    | Move cursor one word right |
+| Key Combination                          | Action                     |
+| ---------------------------------------- | -------------------------- |
+| **Ctrl + ←** (Option + ← on macOS)       | Move cursor one word left  |
+| **Ctrl + →** (Option + → on macOS)       | Move cursor one word right |
+| **Cmd + ←** (macOS only)                 | Move to line start         |
+| **Cmd + →** (macOS only)                 | Move to line end           |
 
 ### Selection Keys
 
-| Key Combination         | Action                     |
-| ----------------------- | -------------------------- |
-| **Shift + ←**           | Select one character left  |
-| **Shift + →**           | Select one character right |
-| **Shift + ↑**           | Select one line up         |
-| **Shift + ↓**           | Select one line down       |
-| **Shift + Home**        | Select to line start       |
-| **Shift + End**         | Select to line end         |
-| **Shift + Ctrl + ←**    | Select to word start       |
-| **Shift + Ctrl + →**    | Select to word end         |
-| **Shift + Ctrl + Home** | Select to buffer start     |
-| **Shift + Ctrl + End**  | Select to buffer end       |
-| **Ctrl + A**            | Select all text            |
+| Key Combination                                     | Action                     |
+| --------------------------------------------------- | -------------------------- |
+| **Shift + ←**                                       | Select one character left  |
+| **Shift + →**                                       | Select one character right |
+| **Shift + ↑**                                       | Select one line up         |
+| **Shift + ↓**                                       | Select one line down       |
+| **Shift + Home** (Cmd + Shift + ← on macOS)         | Select to line start       |
+| **Shift + End** (Cmd + Shift + → on macOS)          | Select to line end         |
+| **Shift + Ctrl + ←** (Option + Shift + ← on macOS)  | Select to word start       |
+| **Shift + Ctrl + →** (Option + Shift + → on macOS)  | Select to word end         |
+| **Shift + Ctrl + Home** (Cmd + Shift + ↑ on macOS)  | Select to buffer start     |
+| **Shift + Ctrl + End** (Cmd + Shift + ↓ on macOS)   | Select to buffer end       |
+| **Ctrl + A** (Cmd + A on macOS)                     | Select all text            |
 
 ### Editing Keys
 
-| Key Combination      | Action                            |
-| -------------------- | --------------------------------- |
-| **Ctrl + C**         | Copy selected text                |
-| **Ctrl + X**         | Cut selected text                 |
-| **Ctrl + V**         | Paste (replaces selection if any) |
-| **Ctrl + Z**         | Undo last edit                    |
-| **Ctrl + Shift + Z** | Redo last undone edit             |
-| **Delete/Backspace** | Delete selected text              |
-| **Any character**    | Replace selected text if any      |
+| Key Combination                               | Action                            |
+| --------------------------------------------- | --------------------------------- |
+| **Ctrl + C** (Cmd + C on macOS)               | Copy selected text                |
+| **Ctrl + X** (Cmd + X on macOS)               | Cut selected text                 |
+| **Ctrl + V** (Cmd + V on macOS)               | Paste (replaces selection if any) |
+| **Ctrl + Z** (Cmd + Z on macOS)               | Undo last edit                    |
+| **Ctrl + Shift + Z** (Cmd + Shift + Z on macOS) | Redo last undone edit             |
+| **Delete/Backspace**                          | Delete selected text              |
+| **Any character**                             | Replace selected text if any      |
 
 ---
 
@@ -1879,13 +2535,14 @@ PRIMARY selection. See [Performance-Optimized Architecture](#performance-optimiz
 </details>
 
 <details>
-<summary><b>Ctrl+C doesn't copy</b></summary>
+<summary><b>Ctrl+C / Cmd+C doesn't copy</b></summary>
 
-**Solution:** Configure your terminal to remap Ctrl+C. See
+**Solution:** On Windows/Linux, configure your terminal to remap Ctrl+C. See
 [Configure Copy Shortcut](#configure-copy-shortcut) at the [Famous Terminals Configurations](#famous-terminals-configurations)
 section.
+On macOS, verify you have enabled CSI-u / kitty keyboard protocol support in your terminal to use Cmd+C. See [macOS Terminal Setup Requirements](#macos-terminal-setup-requirements).
 
-**Alternative:** Use Ctrl+Shift+C for copying, or configure a custom keybinding with `edit-select config`, or
+**Alternative:** Use Ctrl+Shift+C for copying (or configuring a fallback via `edit-select config` for macOS Terminal.app), or configure a custom keybinding with `edit-select config`, or
 use the 'Without Terminal Remapping' method if your terminal doesn't support key remapping.
 
 </details>
@@ -1898,14 +2555,18 @@ use the 'Without Terminal Remapping' method if your terminal doesn't support key
 **Solution:**
 
 1. Check the plugin was installed correctly
-2. Verify the wizard file exists in the plugin directory (`edit-select-wizard-x11.zsh` on X11, or
-   `edit-select-wizard-wayland.zsh` on Wayland)
+2. Verify the wizard file exists in the plugin directory:
+   - X11: `edit-select-wizard-x11.zsh`
+   - Wayland: `edit-select-wizard-wayland.zsh`
+   - macOS: `edit-select-wizard-macos.zsh`
 3. Ensure the file has read permissions:
    ```bash
    # X11:
    chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-x11/edit-select-wizard-x11.zsh
    # Wayland:
    chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wayland/edit-select-wizard-wayland.zsh
+   # macOS:
+   chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-macos/edit-select-wizard-macos.zsh
    ```
 4. Try sourcing your `.zshrc` again: `source ~/.zshrc`
 5. Fully close and reopen your terminal
@@ -1996,7 +2657,7 @@ operations use the cached results directly.
 
 ### Platform & Feature Coverage
 
-These features work universally on X11, Wayland, XWayland, WSL, and macOS:
+These features work universally on X11, Wayland, XWayland, and WSL:
 
 - ✅ Shift+Arrow keys for text selection
 - ✅ Ctrl+A to select all
@@ -2008,6 +2669,11 @@ These features work universally on X11, Wayland, XWayland, WSL, and macOS:
 - ✅ Delete/Backspace to remove keyboard selection
 - ✅ Type or paste to replace keyboard selection
 - ✅ Mouse selection replacement (where PRIMARY selection is available)
+
+On **macOS**, the same features are available via the Cmd equivalents
+(`Cmd+A`, `Cmd+C`, `Cmd+X`, `Cmd+V`, `Cmd+Z`, `Cmd+Shift+Z`) after
+[terminal configuration](#macos-terminal-setup-requirements), or via
+Ctrl fallbacks set through `edit-select config`.
 
 > **Note on WSL:** All keyboard selection features listed above work identically on WSL. Mouse selection replacement also works on WSL with Windows Terminal when using the tailored tracking modes. See [WSL Support](#wsl-support) for Windows Terminal configuration details.
 

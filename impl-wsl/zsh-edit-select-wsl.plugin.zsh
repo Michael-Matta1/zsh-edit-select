@@ -493,11 +493,20 @@ function edit-select::zle-line-pre-redraw() {
     fi
 }
 
+# Re-enable DECSET 1004 on every new prompt so focus events are captured
+# by the bound ZLE widgets.  Persistent (not one-shot) because
+# _zes_disable_focus_reporting suppresses it before every command.
 function _zes_enable_focus_reporting() {
-    printf '\e[?1004h' >/dev/tty 2>/dev/null
-    add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
+    print -n '\e[?1004h' >$TTY
 }
 zle -N _zes_enable_focus_reporting
+
+# Disable DECSET 1004 before command execution so focus-in/out
+# escape sequences (\e[I / \e[O) are not printed as raw text
+# while a foreground process is running.
+function _zes_disable_focus_reporting() {
+    print -n '\e[?1004l' >$TTY
+}
 
 function edit-select::apply-mouse-replacement-config() {
     autoload -Uz add-zle-hook-widget
@@ -517,6 +526,8 @@ function edit-select::apply-mouse-replacement-config() {
         # terminal's immediate CSI I reply is consumed by the already-bound
         # widgets instead of printing as raw ^[[I on VTE-based terminals.
         add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
+        autoload -Uz add-zsh-hook
+        add-zsh-hook preexec _zes_disable_focus_reporting
         bindkey -M emacs '\e[I' _zes_terminal_focus_in
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
@@ -532,7 +543,9 @@ function edit-select::apply-mouse-replacement-config() {
         fi
         add-zle-hook-widget -d line-pre-redraw edit-select::zle-line-pre-redraw 2>/dev/null
         add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
-        printf '\e[?1004l' >/dev/tty 2>/dev/null
+        autoload -Uz add-zsh-hook
+        add-zsh-hook -d preexec _zes_disable_focus_reporting 2>/dev/null
+        print -n '\e[?1004l' >$TTY
         bindkey -M emacs -r '\e[I' 2>/dev/null
         bindkey -M emacs -r '\e[O' 2>/dev/null
         bindkey -r '\e[I' 2>/dev/null

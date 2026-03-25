@@ -39,19 +39,31 @@ typeset -g _EDIT_SELECT_SEQ_FILE="$_EDIT_SELECT_CACHE_DIR/seq"
 typeset -g _EDIT_SELECT_PRIMARY_FILE="$_EDIT_SELECT_CACHE_DIR/primary"
 typeset -g _EDIT_SELECT_PID_FILE="$_EDIT_SELECT_CACHE_DIR/agent.pid"
 
-# ── Default key sequences (read-only) ────────────────────────
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SELECT_ALL='^A'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_PASTE+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_PASTE='^V'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_CUT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_CUT='^X'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_COPY+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_COPY='^[[67;6u'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_UNDO+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_UNDO='^Z'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_REDO+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_REDO='^[[90;6u'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_LEFT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_LEFT='^[[1;5D'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT='^[[1;5C'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT+x} ]]  && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT='^[[1;6D'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT='^[[1;6C'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_START+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_START='^[[1;6H'
-[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;6F'
+# ── Default key sequences (macOS-native) ─────────────────────────────
+# Clipboard: Cmd key via CSI-u / kitty keyboard protocol.
+# Requires a terminal that forwards Cmd sequences (iTerm2 with CSI-u enabled,
+# WezTerm, Ghostty, Kitty). Terminal.app intercepts Cmd at the OS level and
+# cannot forward these sequences — use 'edit-select config' to set fallbacks.
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SELECT_ALL='^[[97;9u'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_PASTE+x} ]]       && typeset -gr _EDIT_SELECT_DEFAULT_KEY_PASTE='^[[118;9u'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_CUT+x} ]]         && typeset -gr _EDIT_SELECT_DEFAULT_KEY_CUT='^[[120;9u'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_COPY+x} ]]        && typeset -gr _EDIT_SELECT_DEFAULT_KEY_COPY='^[[99;9u'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_UNDO+x} ]]        && typeset -gr _EDIT_SELECT_DEFAULT_KEY_UNDO='^[[122;9u'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_REDO+x} ]]        && typeset -gr _EDIT_SELECT_DEFAULT_KEY_REDO='^[[122;10u'
+
+# Word navigation: Option+Left / Option+Right (xterm modifier form, modifier 3 = Alt/Option).
+# Terminal.app users who have "Use Option as Meta Key" enabled receive \eb / \ef instead.
+# Both forms are bound — see the secondary alias registration in the anonymous keybinding function.
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_LEFT+x} ]]      && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_LEFT='^[[1;3D'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT+x} ]]     && typeset -gr _EDIT_SELECT_DEFAULT_KEY_WORD_RIGHT='^[[1;3C'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT+x} ]]  && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_LEFT='^[[1;4D'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_SEL_WORD_RIGHT='^[[1;4C'
+
+# Buffer navigation: Cmd+Shift+Up / Cmd+Shift+Down selects to start/end of buffer.
+# This replaces the non-native Shift+Ctrl+Home / Shift+Ctrl+End used on Linux.
+# Modifier 10 = Super(8) + Shift(1) + 1 in xterm encoding.
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_START+x} ]] && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_START='^[[1;10A'
+[[ -z ${_EDIT_SELECT_DEFAULT_KEY_BUFFER_END+x} ]]   && typeset -gr _EDIT_SELECT_DEFAULT_KEY_BUFFER_END='^[[1;10B'
 
 # ─────────────────────────────────────────────────────────────────────
 # edit-select::apply-key-defaults
@@ -155,18 +167,18 @@ function _zes_sync_selection_state() {
 # ─────────────────────────────────────────────────────────────────────
 function _zes_detect_mouse_selection() {
     ((!EDIT_SELECT_MOUSE_REPLACEMENT)) && return 1
-    [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && return 0
 
-    if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && \
-       ((!_EDIT_SELECT_NEW_SELECTION_EVENT)); then
-        if [[ -n "$_EDIT_SELECT_LAST_PRIMARY" ]] && \
-           [[ "$_EDIT_SELECT_LAST_PRIMARY" == "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
-            if [[ "$BUFFER" == *"$_EDIT_SELECT_ACTIVE_SELECTION"* ]]; then
+    if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
+        if ((!_EDIT_SELECT_NEW_SELECTION_EVENT)); then
+            if [[ -n "$_EDIT_SELECT_LAST_PRIMARY" ]] && \
+               [[ "$_EDIT_SELECT_LAST_PRIMARY" == "$_EDIT_SELECT_ACTIVE_SELECTION" ]] && \
+               [[ "$BUFFER" == *"$_EDIT_SELECT_ACTIVE_SELECTION"* ]]; then
                 return 0
             fi
+            _EDIT_SELECT_ACTIVE_SELECTION=""
+            return 1
         fi
-        _EDIT_SELECT_ACTIVE_SELECTION=""
-        return 1
+        return 0
     fi
 
     local mouse_sel
@@ -613,7 +625,6 @@ if [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]]; then
         _zes_cfg_changed=1
     fi
 
-
     if [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_SELECT_ALL="^[[65;5u"'* ]] || \
        [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_PASTE="^[[86;5u"'* ]]   || \
        [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_CUT="^[[88;5u"'* ]]; then
@@ -629,6 +640,8 @@ if [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]]; then
     if ((_zes_keys_changed)); then
         unset EDIT_SELECT_KEY_SELECT_ALL EDIT_SELECT_KEY_PASTE EDIT_SELECT_KEY_CUT
     fi
+
+
 fi
 
 # Read user config
@@ -637,7 +650,8 @@ edit-select::load-config
 # Establish keymap. NOTE: Requires edit-select::load-config to have run first.
 function { emulate -L zsh
     bindkey -N edit-select
-    bindkey -M edit-select -R '^@'-'^?' edit-select::deselect-and-input
+    bindkey -M edit-select -R '^@'-'^Z' edit-select::deselect-and-input
+    bindkey -M edit-select -R '^\'-'^?' edit-select::deselect-and-input
     bindkey -M edit-select -R ' '-'~'   edit-select::replace-selection
 
     local -a nav_bind=(
@@ -647,6 +661,8 @@ function { emulate -L zsh
         'kind' '^[[1;2B' 'down-line'
         'kHOM' '^[[1;2H' 'beginning-of-line'
         'kEND' '^[[1;2F' 'end-of-line'
+        ''     '^[[1;10D' 'beginning-of-line'
+        ''     '^[[1;10C' 'end-of-line'
         ''     "$EDIT_SELECT_KEY_BUFFER_START" 'beginning-of-buffer'
         ''     "$EDIT_SELECT_KEY_BUFFER_END"   'end-of-buffer'
         ''     "$EDIT_SELECT_KEY_SEL_WORD_LEFT" 'backward-word'
@@ -664,6 +680,17 @@ function { emulate -L zsh
         bindkey -M emacs       "$seq" "edit-select::${wid}"
         bindkey -M edit-select "$seq" "edit-select::${wid}"
     done
+
+    # Standard macOS movement bindings (non-selecting): Cmd+Left/Right moves to line start/end.
+    bindkey -M emacs       '^[[1;9D' beginning-of-line
+    bindkey -M emacs       '^[[1;9C' end-of-line
+    bindkey -M edit-select '^[[1;9D' beginning-of-line
+    bindkey -M edit-select '^[[1;9C' end-of-line
+
+    # Secondary Option+Left / Option+Right aliases for Terminal.app "Use Option as Meta Key" mode.
+    # Intentionally hardcoded (not user-configurable) — Terminal.app-specific alternate encoding.
+    bindkey -M emacs '\eb' backward-word
+    bindkey -M emacs '\ef' forward-word
 
     local -a dest_bind=(
         'kdch1' '^[[3~' 'edit-select::kill-region'
@@ -721,11 +748,20 @@ if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
 fi
 
 # Apply config
+# Re-enable DECSET 1004 on every new prompt so focus events are captured
+# by the bound ZLE widgets.  Must be persistent (not one-shot) because
+# _zes_disable_focus_reporting suppresses it before every command.
 function _zes_enable_focus_reporting() {
-    printf '\e[?1004h' >/dev/tty 2>/dev/null
-    add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
+    print -n '\e[?1004h' >$TTY
 }
 zle -N _zes_enable_focus_reporting
+
+# Disable DECSET 1004 before command execution so focus-in/out
+# escape sequences (\e[I / \e[O) are not printed as raw text
+# while a foreground process is running.
+function _zes_disable_focus_reporting() {
+    print -n '\e[?1004l' >$TTY
+}
 
 function edit-select::apply-mouse-replacement-config() {
     autoload -Uz add-zle-hook-widget
@@ -747,6 +783,8 @@ function edit-select::apply-mouse-replacement-config() {
         # terminal's immediate CSI I reply is consumed by the already-bound
         # widgets instead of printing as raw ^[[I on VTE-based terminals.
         add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
+        autoload -Uz add-zsh-hook
+        add-zsh-hook preexec _zes_disable_focus_reporting
         bindkey -M emacs '\e[I' _zes_terminal_focus_in
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
@@ -763,7 +801,9 @@ function edit-select::apply-mouse-replacement-config() {
         add-zle-hook-widget -d line-pre-redraw \
             edit-select::zle-line-pre-redraw 2>/dev/null
         add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
-        printf '\e[?1004l' >/dev/tty 2>/dev/null
+        autoload -Uz add-zsh-hook
+        add-zsh-hook -d preexec _zes_disable_focus_reporting 2>/dev/null
+        print -n '\e[?1004l' >$TTY
         bindkey -M emacs -r '\e[I' 2>/dev/null
         bindkey -M emacs -r '\e[O' 2>/dev/null
         bindkey -r '\e[I' 2>/dev/null
