@@ -34,12 +34,14 @@ support.
 - [Wayland Support](#wayland-support)
 - [WSL Support](#wsl-support)
 - [macOS Support](#macos-support)
+- [SSH Support (Headless Linux Box)](#ssh-support-headless-linux-box)
 >
 >---
 >
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
 - [Manual Agents Build (optional)](#manual-agents-build-optional)
+
 
 
 ---
@@ -101,30 +103,7 @@ Type or paste while text is selected to replace it automatically.
 
 Works with both keyboard and mouse selections (when mouse replacement is enabled).
 
-<details>
-<summary><b>Mouse Replacement Feature Note (Safeguard Prompt)</b></summary>
 
-If you see the message **"Duplicate text: place cursor inside the occurrence you want to modify"**, the plugin has detected multiple identical occurrences of the selected text within your command buffer.
-
-**When does this appear?** This message only appears in a rare edge case when **all three** of the following conditions are met simultaneously:
-
-- The selection was made with the mouse, **AND**
-- The exact same text appears more than once in the buffer, **AND**
-- You attempt to replace the selected text by typing or pasting
-
-This is a protective safeguard: when text is selected via mouse and the plugin cannot reliably distinguish between multiple identical occurrences, so it prompts you and prevents accidental edits.
-
-When prompted, place the cursor inside the specific occurrence you want to edit, then
-retry the operation (select it and type or paste to replace).
-
-**Note:** This safeguard applies only to mouse selections. Using `Shift+Arrow keys` to select text avoids this ambiguity entirely and works without any extra prompting.
-
-
-**Under development:** A custom mouse-tracking path is planned that will resolve the exact selected range and eliminate the safeguard prompt altogether. This is already implemented in the WSL version of the plugin and will be integrated across all versions once it has matured sufficiently.
-
----
-
-</details>
 
 ### Copy, Cut, and Paste
 
@@ -159,7 +138,7 @@ The plugin includes purpose-built clipboard agents that replace external tools e
 **Clipboard Integration Agents:** Small compiled programs built specifically for this plugin to handle all
 clipboard and selection operations:
 
-The agents handle copy, paste, and clipboard operations directly through native protocols. 
+The agents handle copy, paste, and clipboard operations directly through native protocols.
 No external tools are needed. The plugin is designed to be fully self-contained. The agents communicate with the plugin through a fast in-memory cache,
 giving you instant clipboard response.
 
@@ -286,23 +265,16 @@ required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
 ## Manual Installation
 
+**macOS users:** For macOS with Oh My Zsh, go directly to [macOS Support](#macos-support)
 
-Manual installation is the recommended approach if you are comfortable with dotfiles and want complete
-visibility and control over every change made to your system. The process consists of two steps:
-
-**macOS users:** For macOS, go directly to [macOS Support](#macos-support)
-
+The process consists of two steps:
 
 1. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
 2. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
 
-> **Pre-built Agents:** The plugin comes with portable binaries produced by GitHub workflows, which are downloaded automatically on first load. For manual build and optimal experience tailored to your specific hardware (e.g. `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
+> **Pre-built Agents:** The plugin comes with portable binaries produced by GitHub workflows, which are downloaded automatically on first load which is why the first load may take few seconds and you may need to restart your terminal. For manual build and optimal experience tailored to your specific hardware (e.g. `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
 
-All steps are fully documented with exact commands and copy-paste configuration snippets. The instructions are
-organized in collapsed sections labeled by distribution and terminal — expand only what applies to your setup.
-
-> If you prefer an automated setup, the [Auto Installation](#auto-installation) script can handle all of these
-> steps for you. If you run into any difficulty at any step, please
+> If you run into any difficulty at any step, please
 > [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) and it will be addressed.
 
 
@@ -310,13 +282,10 @@ organized in collapsed sections labeled by distribution and terminal — expand 
 
 ### 1. Install the Plugin
 
-> You may use the [Auto Installation](#auto-installation) script to perform this step automatically, or
-> [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you run into any difficulty.
+Expand your plugin manager:
 
 <details>
 <summary><b>Oh My Zsh</b></summary>
-
-Expand your plugin manager:
 
 ```bash
 git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
@@ -418,10 +387,10 @@ details.
 
 **WSL users:** For WSL, go directly to [WSL Support](#wsl-support)
 
-**macOS users:** For macOS, go to [macOS Support](#macos-support) for iTerm2 & Terminal.app and mouse integration support.
+**macOS users:** For macOS, go to [macOS Support](#macos-support) for iTerm2 & mouse integration support.
 
 
-### 4. Restart Your Shell
+### 3. Restart Your Shell
 
 ```bash
 source ~/.zshrc
@@ -432,7 +401,7 @@ source ~/.zshrc
 
 **You're ready!** Try selecting text with Shift + Arrow keys.
 
-### 5. (Optional) Customize Settings
+### 4. (Optional) Customize Settings
 
 The plugin works immediately with sensible defaults, but you can customize:
 
@@ -463,7 +432,25 @@ The wizard provides:
 4. **Reset to Defaults** — Restore factory settings
 5. **Exit Wizard** — Close the wizard
 
-All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions.
+All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions. You can also view or edit this file manually at any time.
+
+<details>
+<summary><b>Mouse Replacement Safeguard</b></summary>
+
+The plugin includes a smart safety feature to prevent accidental edits when using the mouse. If you select text with your mouse and the plugin detects multiple identical occurrences of that text in your command buffer, it will pause and show the message:
+
+**"Duplicate text: place cursor inside the occurrence you want to modify"**
+
+**Why is this a feature?**
+When text is selected via mouse, terminal emulators don't report the exact screen coordinates to the shell. If the same word appears twice, this protective safeguard ensures you don't accidentally replace the wrong occurrence.
+
+When prompted, simply place your cursor inside the specific occurrence you want to edit, then select and replace it.
+
+- **Keyboard selection bypass:** This safeguard is only needed for mouse selections. Using `Shift+Arrow keys` provides exact cursor positions, avoiding this ambiguity entirely.
+- **Under development:** A custom mouse-tracking path is already implemented in the WSL version to resolve the exact selected range without prompting. This will be integrated across all platforms as it matures.
+- **Reporting & Options:** If you encounter any unexpected behavior with mouse replacement, please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues). You can also disable mouse replacement entirely in the Configuration Wizard below if you prefer strict keyboard-only editing.
+
+</details>
 
 <details>
 <summary><b> Mouse Replacement Modes </b></summary>
@@ -622,17 +609,16 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ## Famous Terminals Configurations
 
-> The [Auto Installation](#auto-installation) script can configure supported terminals (Kitty, WezTerm,
-> Alacritty, Foot, VS Code) automatically.
-> If you prefer to configure manually follow the steps below.
 > [Open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you need help with a terminal
 > that is not covered.
 
->For WSL users on Windows Terminal, follow the dedicated manual at [WSL Support](#wsl-support)
+> For WSL users on Windows Terminal, follow the dedicated manual at [WSL Support](#wsl-support)
 > then return here only if you need additional terminal mappings.
 
+> For macOS, go to [macOS Support](#macos-support) for iTerm2 & mouse integration support.
+
 <details>
-<summary><b>How to Find Escape Sequences</b></summary>
+<summary><b>How to Find Escape Sequences (Optional: For Manual Customization)</b></summary>
 
 **To find the escape sequence for any key combination:**
 
@@ -645,9 +631,9 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ### Configure Copy Shortcut
 
-> **⚠️ CRITICAL:** Before adding these mappings, you **MUST** remove or comment out any existing
+> **CRITICAL:** While adding these mappings, please remove or comment out any existing conflicts like any existing
 > `ctrl+shift+c` mappings in your terminal config (such as `map ctrl+shift+c copy_to_clipboard` in Kitty).
-> These will conflict and prevent the plugin from working correctly.
+
 
 <details>
 <summary><b>Kitty</b></summary>
@@ -884,6 +870,30 @@ bindkey '^K' x-copy-selection
 
 </details>
 
+<details>
+<summary><b>Ghostty</b></summary>
+
+### Using Ctrl+Shift+C (Default)
+
+Add to your Ghostty config file (`~/.config/ghostty/config`):
+
+```
+# Ctrl+Shift+C = copy
+keybind = ctrl+shift+c=csi:67;6u
+```
+
+### Using Ctrl+C for Copying (Reversed)
+
+If you prefer to use Ctrl+C for copying and Ctrl+Shift+C for interrupt:
+
+```
+# Ctrl+C = copy, Ctrl+Shift+C = interrupt
+keybind = ctrl+c=csi:67;6u
+keybind = ctrl+shift+c=text:\x03
+```
+
+</details>
+
 ---
 
 ### Configure Undo and Redo Shortcut
@@ -986,6 +996,18 @@ prompt-prev=none
 
 > **Note:** If you already configured Foot for Step 1 (Copy), merge these entries into the existing
 > `[key-bindings]` and `[text-bindings]` sections rather than creating duplicates.
+
+</details>
+
+<details>
+<summary><b>Ghostty</b></summary>
+
+Add to your Ghostty config file (`~/.config/ghostty/config`):
+
+```
+# Undo/Redo
+keybind = ctrl+shift+z=csi:90;6u
+```
 
 </details>
 
@@ -1158,6 +1180,26 @@ Shift selection.
 
 </details>
 
+<details>
+<summary><b>Ghostty</b></summary>
+
+Ghostty passes Shift+Arrow keys through to the terminal natively — no additional configuration is needed for
+Shift selection.
+
+Add to your Ghostty config file (`~/.config/ghostty/config`) to pass through word and line selection keys:
+
+```
+# Pass through Ctrl+Shift+Left/Right for word selection
+keybind = ctrl+shift+left=unbind
+keybind = ctrl+shift+right=unbind
+
+# Pass through Ctrl+Shift+Home/End for line selection
+keybind = ctrl+shift+home=unbind
+keybind = ctrl+shift+end=unbind
+```
+
+</details>
+
 > **Configurations in practice:** The [dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles)
 > repository includes working setups for **Kitty** (`kitty.conf`) and **VS Code** (`keybindings.json`) that
 > demonstrate that this plugin can be seamlessly integrated alongside other tools and configurations.
@@ -1165,10 +1207,6 @@ Shift selection.
 ---
 
 ## Wayland Support
-
-> The [Auto Installation](#auto-installation) script automatically detects your display server and selects the
-> correct agent. For manual setup, follow the Wayland-specific instructions in
-> [Manual Installation](#manual-installation).
 
 Wayland is fully supported with native protocol implementation. The plugin automatically detects your Wayland
 setup and uses the optimal clipboard agent:
@@ -1316,7 +1354,7 @@ WSL is fully supported, including mouse selection integration, custom tracking m
 <details>
 <summary><b>Installation and Terminal Configuration (WSL Quick Path)</b></summary>
 
-1. Install the plugin using [Auto Installation](#auto-installation) or [Manual Installation](#manual-installation).
+1. Install the plugin using [Manual Installation](#manual-installation).
 2. Configure terminal behavior using the Windows Terminal steps below.
 3. Reload your shell and run `edit-select config` for optional keybinding and mouse behavior customization.
 
@@ -1496,7 +1534,6 @@ macOS is fully supported with a native Objective-C clipboard agent that provides
 <details>
 <summary><b>Installation</b></summary>
 
-You can try using the [Auto Installation](#auto-installation) script but manual installation described below is recommended.
 <details>
 <summary><b>Manual Installation</b></summary>
 
@@ -1571,9 +1608,9 @@ You may need to restart the OS for the changes to take effect.
 
 For unsupported terminals (which use custom GPU renderers), mouse highlights produce no event. Keyboard selection with Shift+Arrow keys, all copy/cut/paste/undo/redo operations work on all terminals.
 
-**Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see  [Terminal Setup](#terminal-setup)
+**Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see [Famous Terminals Configurations](#famous-terminals-configurations)
 
-> **iTerm2 recommended setting:** iTerm2 has a built-in setting **"Copy to pasteboard on selection"** (Settings → General → Selection) that is **enabled by default**. When enabled, every mouse drag in iTerm2 automatically copies the selected text to the clipboard. This does not affect the AX-only implementation's correctness — our daemon does not monitor the clipboard, so no spurious events occur. However, it does mean every mouse drag overwrites your clipboard, even if you only intend to highlight to replace with a keystroke. For zero clipboard pollution on mouse highlights, disable this setting: **Settings → General → Selection → uncheck "Copy to pasteboard on selection" (or "Copy to clipboard on selection")**. With it disabled, mouse highlights are handled exclusively by the plugin's Accessibility path and never touch the clipboard. Explicit copies (`Cmd+C`, `Cmd+Shift+C`) still work normally.
+> **iTerm2 recommended setting:** iTerm2 has a built-in setting **"Copy to pasteboard on selection"** (Settings → General → Selection) that is **enabled by default**. When enabled, every mouse drag in iTerm2 automatically copies the selected text to the clipboard. This does not affect the AX-only implementation's correctness — our daemon does not monitor the clipboard, so no spurious events occur. However, it does mean every mouse drag overwrites your clipboard, even if you only intend to highlight to replace with a keystroke. For zero clipboard pollution on mouse highlights, disable this setting: **Settings → General → Selection → uncheck "Copy to pasteboard on selection" (or "Copy to clipboard on selection")**. With it disabled, mouse highlights are handled exclusively by the plugin's Accessibility path and never touch the clipboard. Explicit copies (`Ctrl+C`, `Ctrl+Shift+C`) still work normally.
 
 </details>
 
@@ -1594,19 +1631,19 @@ For terminals without Accessibility support (which use custom GPU renderers), mo
 
 
 <details>
-<summary><b>Remapping Cmd+C and Cmd+Shift+C in iTerm2</b></summary>
+<summary><b>Terminal Configuration for iTerm2</b></summary>
 
-> **Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see  [Terminal Setup](#terminal-setup)
+> **Note:** For terminals other than iTerm2, you may need extra steps to enable full keyboard selection support. Please see [Famous Terminals Configurations](#famous-terminals-configurations)
 
-By default, Cmd+C sends the SIGINT interrupt signal. This guide remaps things so that:
-- **Cmd+C** → sends the escape sequence `[67;6u` which the plugin uses for copy
-- **Cmd+Shift+C** → sends SIGINT (`0x03`), the traditional interrupt signal
+By default, Ctrl+C sends the SIGINT interrupt signal. This guide remaps things so that:
+- **Ctrl+C** → sends the escape sequence `[67;6u` which the plugin uses for copy
+- **Ctrl+Shift+C** → sends SIGINT (`0x03`), the traditional interrupt signal
 
 ---
 
 ### Step 1 — Open iTerm2 Settings
 
-Press **⌘,** (Cmd + comma) to open Settings, then click the **Keys** tab at the top.
+Press **Settings** to open Settings, then click the **Keys** tab at the top.
 
 Make sure you're on the **Key Bindings** sub-tab (not Navigation Shortcuts, Hotkey, etc.).
 
@@ -1614,16 +1651,16 @@ Make sure you're on the **Key Bindings** sub-tab (not Navigation Shortcuts, Hotk
 
 ---
 
-### Step 2 — Remove any existing Cmd+C and Cmd+Shift+C bindings
+### Step 2 — Remove any existing Ctrl+C and Ctrl+Shift+C bindings
 
 Scroll through the list and look for any existing entries that have `^c` or `^⇧c` on the right side. Select each one and click the **–** button at the bottom left to delete them.
 
 ---
 
-### Step 3 — Add Cmd+C → Escape Sequence
+### Step 3 — Add Ctrl+C → Escape Sequence
 
 1. Click the **+** button at the bottom left
-2. Click in the **Keyboard Shortcut** field and press **Cmd+C** — it should show `^c`
+2. Click in the **Keyboard Shortcut** field and press **Ctrl+C** — it should show `^c`
 3. Set **Action** to **"Send Escape Sequence"**
 4. In the text field enter:
    ```
@@ -1635,10 +1672,10 @@ Scroll through the list and look for any existing entries that have `^c` or `^�
 
 ---
 
-### Step 4 — Add Cmd+Shift+C → SIGINT
+### Step 4 — Add Ctrl+Shift+C → SIGINT
 
 1. Click the **+** button again
-2. Click in the **Keyboard Shortcut** field and press **Cmd+Shift+C** — it should show `^⇧c`
+2. Click in the **Keyboard Shortcut** field and press **Ctrl+Shift+C** — it should show `^⇧c`
 3. Set **Action** to **"Send Hex Code"**
 4. In the text field enter:
    ```
@@ -1658,6 +1695,22 @@ You should now see two entries in the list like in the screenshot:
 | In all sessions, Send Hex Codes: `0x03` | `^⇧c` |
 | In all sessions, Send `^[ [67;6u` | `^c` |
 
+---
+
+### Step 5 — Configure Undo/Redo (Ctrl+Shift+Z)
+
+1. Click the **+** button again
+2. Press **Ctrl+Shift+Z** in the Keyboard Shortcut field
+3. Set **Action** to **"Send Escape Sequence"**
+4. Enter: `[90;6u`
+5. Click **OK**
+
+---
+
+### Shift Selection Keys
+
+iTerm2 passes Shift+Arrow keys through to the terminal natively — no additional configuration is needed for Shift selection.
+
 </details>
 
 <details>
@@ -1675,33 +1728,77 @@ The plugin detects tmux automatically (via `$TMUX`) and wraps the agent launch w
 </details>
 
 <details>
-<summary><b>Build Details and Requirements</b></summary>
+<summary><b>Build Details</b></summary>
 
-The macOS agent (`zes-macos-clipboard-agent`) is an Objective-C binary. Requirements:
+The macOS agent (`zes-macos-clipboard-agent`) is a native Objective-C binary that links only against system frameworks (`AppKit`, `Foundation`, `CoreFoundation`, `ApplicationServices`, `CoreGraphics`).
 
-- **Apple Command Line Tools**: `xcode-select --install`
-- **macOS 10.15+** (Catalina or later)
-- **No third-party dependencies** — links only against system frameworks (`AppKit`, `Foundation`, `CoreFoundation`, `ApplicationServices`, `CoreGraphics`)
-
-Build manually:
-
-```bash
-# Replace with your actual plugin directory path
-# Common locations:
-#   Oh My Zsh:  ~/.oh-my-zsh/custom/plugins/zsh-edit-select
-#   Zinit:      ~/.local/share/zinit/plugins/Michael-Matta1---zsh-edit-select
-#   Manual:     wherever you ran: git clone ...
-PLUGIN_DIR=~/.oh-my-zsh/custom/plugins/zsh-edit-select  # ← change this
-
-cd "$PLUGIN_DIR/impl-macos/backends/macos"
-make clean && make
-```
-
-The agent compiles and installs automatically on first shell load if the binary is absent.
+A pre-built portable binary is downloaded automatically on first load. If you prefer to build it manually from source, see [Manual Agents Build (optional)](#manual-agents-build-optional).
 
 > **After rebuilding**: If you rebuild the agent binary, macOS may require you to re-grant Accessibility permission. In System Settings → Privacy & Security → Accessibility, toggle the permission off and back on for your terminal application.
 
 </details>
+
+
+
+## SSH Support (Headless Linux Box)
+
+If you are SSH-ing into a headless Linux box, the plugin can be configured to work with your local clipboard using **OSC 52** — a terminal escape sequence that allows the remote machine to write directly to your local clipboard through the SSH tunnel, without needing any additional tools.
+
+---
+
+### Step 1 — Configure the plugin on the Linux box
+
+Install the plugin on the remote Linux machine as you normally would, then run the following command to add the required clipboard functions to your `~/.zshrc`:
+```bash
+cat >> ~/.zshrc << 'EOF'
+
+# OSC 52 clipboard override for SSH → clipboard passthrough
+function _zes_copy_to_clipboard() {
+    [[ -z "$1" ]] && return 1
+    local encoded
+    encoded=$(printf '%s' "$1" | base64)
+    printf '\033]52;c;%s\a' "$encoded"
+}
+
+function _zes_get_clipboard() {
+    return 1
+}
+EOF
+source ~/.zshrc
+```
+
+---
+
+### Step 2 — Configure your terminal
+
+The key requirement is that your terminal must support OSC 52 and have clipboard access enabled, along with a paste keybinding configured at the terminal level.
+
+> If your terminal already has a paste keybinding preconfigured, you can use it directly without any additional setup. For example, Windows Terminal has `Ctrl+V` bound to paste out of the box.
+
+If your terminal does not have a paste keybinding preconfigured, you will need to add one manually. The syntax varies by terminal — for example:
+- **Kitty:** `map ctrl+v paste_from_clipboard`
+- **Ghostty:** `keybind = ctrl+v=paste_from_clipboard`
+
+Refer to your terminal's documentation for the exact syntax.
+
+---
+
+#### iTerm2
+
+1. Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applications in terminal may access clipboard"** is checked, and set **"Allow sending of clipboard contents?"** to **Always**.
+2. In **iTerm2 → Settings → Keys**, add a key binding for your preferred paste shortcut (e.g. `⌘V`) and set the action to **Paste...**. Make sure **Bracketed paste mode** is enabled in the paste options.
+
+---
+
+#### Ghostty
+
+Ghostty may require one extra step on the Linux side if your distro does not ship with Ghostty's terminfo entry. Run this on the server:
+```bash
+echo '[[ "$TERM" == "xterm-ghostty" ]] && export TERM=xterm-256color' >> ~/.zshrc
+source ~/.zshrc
+```
+
+> Your experience may differ depending on your Linux distro.
 
 ---
 
@@ -1777,7 +1874,7 @@ The agent compiles and installs automatically on first shell load if the binary 
 3. Try selecting text with your mouse, then typing—it should replace the selection
 
 If this does not work for you, it is often due to platform limitations or compatibility issues with the
-PRIMARY selection. See [Platform Compatibility](#platform-compatibility) for more details.
+PRIMARY selection. See [Performance-Optimized Architecture](#performance-optimized-architecture) for more details.
 
 </details>
 
@@ -1868,227 +1965,36 @@ preventing cross-pane mouse selection issues.
 </details>
 
 <details>
-<summary><b>WSL Helper Binaries Not Building</b></summary>
+<summary><b>WSL Helper Binaries Missing</b></summary>
 
 **Symptoms:** Plugin loads but clipboard operations fail or `edit-select config` shows errors about missing helpers
 
 **Solution:** The WSL helper binaries (`zes-wsl-clipboard-helper.exe` and `zes-wsl-selection-agent`) are
-compiled automatically on first use. If they fail to build:
+downloaded automatically on first use. If they fail to download or execute:
 
-1. **Check your build tools:**
-   ```bash
-   # Ensure you have the build toolchain (gcc, make, mingw32 for Windows helper)
-   apt update && apt install -y build-essential mingw-w64
-   ```
+1. **Check your network connection** during the first plugin load.
+2. **Download or build manually:** You can compile the binaries yourself. See the [Manual Agents Build (optional)](#manual-agents-build-optional) section.
 
-2. **Rebuild the helpers manually:**
-   ```bash
-   # Replace with your actual plugin directory path
-   cd ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wsl/backends/wsl/
-   make clean
-   make
-   ```
-
-3. **Verify the binaries are executable:**
-   ```bash
-   ls -la ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wsl/backends/wsl/
-   # Should show: zes-wsl-clipboard-helper.exe and zes-wsl-selection-agent
-   ```
-
-4. **If build still fails:** Check the full build output for error messages naming missing dependencies, then
-   install those packages and retry.
-
-**Fallback:** If helpers cannot be built, the plugin falls back to `powershell.exe Get-Clipboard` for clipboard
+**Fallback:** If helpers cannot be loaded, the plugin falls back to `powershell.exe Get-Clipboard` for clipboard
 operations, which works but is slower. Keyboard selection features are unaffected.
 
 </details>
 
-<details>
-<summary><b>Manual Build (Optional)</b></summary>
 
-The plugin compiles agents automatically on first use. To manually build them, first locate your plugin
-directory — this depends on your plugin manager:
-
-```bash
-# Common locations (adjust to wherever you installed the plugin):
-#   Oh My Zsh:  ~/.oh-my-zsh/custom/plugins/zsh-edit-select
-#   Zinit:      ~/.local/share/zinit/plugins/Michael-Matta1---zsh-edit-select
-#   Sheldon:    ~/.local/share/sheldon/repos/github.com/Michael-Matta1/zsh-edit-select
-#   Manual:     wherever you ran: git clone https://github.com/Michael-Matta1/zsh-edit-select
-PLUGIN_DIR=~/.oh-my-zsh/custom/plugins/zsh-edit-select  # ← change this to your path
-```
-
-**X11 Agent:**
-
-```bash
-cd "$PLUGIN_DIR/impl-x11/backends/x11"
-make
-```
-
-**Wayland Agent:**
-
-```bash
-cd "$PLUGIN_DIR/impl-wayland/backends/wayland"
-make
-```
-
-**XWayland Agent:**
-
-```bash
-cd "$PLUGIN_DIR/impl-wayland/backends/xwayland"
-make
-```
-
-To clean/rebuild:
-
-```bash
-make clean && make
-```
-
-> **Note:** The plugin will automatically detect your display server and compile the appropriate agent on
-> first shell startup. The Makefiles require:
->
-> - **X11 builds:** `libX11` and `libXfixes` development headers/libraries
-> - **Wayland builds:** `wayland-client` development headers, `wayland-scanner`, and `wayland-protocols`
->
-> If compilation fails, the plugin will fall back to using external clipboard tools (`xclip` for X11,
-> `wl-clipboard` for Wayland).
-
-**Build Optimization:**
-
-The default Makefiles compile with aggressive optimization flags for maximum runtime performance:
-
-| Flag                                  | Purpose                                              |
-| ------------------------------------- | ---------------------------------------------------- |
-| `-O3`                                 | Maximum compiler optimization level                  |
-| `-march=native`                       | CPU-specific instruction set (SSE, AVX, etc.)        |
-| `-mtune=native`                       | CPU-specific scheduling optimizations                |
-| `-flto`                               | Link-time optimization across compilation units      |
-| `-ffunction-sections -fdata-sections` | Granular dead code elimination                       |
-| `-Wl,--gc-sections`                   | Remove unused functions/data at link time            |
-| `-Wl,--as-needed`                     | Skip linking unused shared libraries                 |
-| `-Wl,-z,now`                          | Resolve all symbols at load time (security + perf)   |
-| `-Wl,-z,relro`                        | Read-only relocations after startup                  |
-| `-Wl,-z,noexecstack`                  | Mark stack non-executable (security hardening)       |
-| `-Wl,-O1`                             | Linker-level optimization pass                       |
-| `-Wl,--hash-style=gnu`                | Faster symbol lookup with GNU hash tables            |
-| `-Wl,--build-id=none`                 | Omit build-id section for smaller binaries           |
-| `-fomit-frame-pointer`                | Free up a register for better performance            |
-| `-fno-plt`                            | Eliminate PLT indirection for faster library calls   |
-| `-fno-semantic-interposition`         | Enable inlining across translation units             |
-| `-fno-strict-aliasing`                | Permit type-punning casts in X11 agents (X11 only)   |
-| `-fno-asynchronous-unwind-tables`     | Omit async unwind info not needed by signal handlers |
-| `-fno-unwind-tables`                  | Omit synchronous unwind tables (no C++ exceptions)   |
-| `-fmerge-all-constants`               | Deduplicate identical constants across units         |
-| `-fipa-pta`                           | Interprocedural pointer analysis for better inlining |
-| `-fno-ident`                          | Omit compiler identification string from binary      |
-| `-fno-stack-protector`                | Remove stack-canary overhead (local-only agents)     |
-| `-DNDEBUG`                            | Disable assertions in release builds                 |
-| `-funroll-loops`                      | Unroll small loops for throughput                    |
-| `-s`                                  | Strip symbols for smaller production binaries        |
-
-> **Important:** `-march=native` produces binaries optimized for the CPU you're building on. These binaries
-> may not run correctly on different CPU architectures. For distributed builds, replace
-> `-march=native -mtune=native` with a portable baseline like `-march=x86-64-v2`.
-
-</details>
 
 
 ---
 
-## Platform Compatibility
+---
 
-<details>
-<summary><b>Mouse Selection Replacement Feature</b></summary>
+## Performance-Optimized Architecture
 
-The **Mouse Selection Replacement** feature (automatically detecting and replacing mouse-selected text) has
-comprehensive support across platforms via our custom agent implementations:
+The plugin architecture is built around compiled native C agents that run as persistent background processes.
+Each agent tracks selection changes via display server events, writes updates to a RAM-backed cache.
+Backend detection, agent startup, and configuration loading occur once at plugin load; all subsequent
+operations use the cached results directly.
 
-### ✅ Fully Supported
-
-**macOS:**
-
-- **Native macOS Support** - True PRIMARY selection detection via Accessibility API (AXUIElement)
-- **Zero clipboard contamination** - Mouse highlights never overwrite the system clipboard
-
-**X11 & XWayland:**
-
-- **X11** - Complete PRIMARY selection support via XFixes extension
-- **XWayland bridge** - Full compatibility layer for mixed environments
-
-**Native Wayland (Direct Protocol Implementation):**
-
-- **wlroots-based compositors** — Sway, Hyprland, River, Wayfire with `zwp_primary_selection_unstable_v1`
-- **KDE Plasma Wayland** - Full PRIMARY selection support via native protocols
-- **GNOME Wayland (Mutter)** - Native Wayland implementation provides PRIMARY selection support where
-  available
-- **Other Wayland compositors** - Full support for any compositor implementing PRIMARY selection protocols
-
-### Performance on Wayland
-
-The native Wayland agent (`zes-wl-selection-agent`) provides:
-
-- ✅ Direct protocol access (no `wl-copy`/`wl-paste` subprocess overhead)
-- ✅ Zero typing lag with instant selection detection
-- ✅ Event-driven architecture
-- ✅ Superior responsiveness compared to standard clipboard tools
-
-### If Selection Replacement Doesn't Work
-
-1. Verify native Wayland or XWayland support is available
-2. Check that your compositor supports PRIMARY selection protocols
-3. Disable mouse replacement if needed: `edit-select config` → Option 1
-4. Report issues with your compositor on [GitHub](https://github.com/Michael-Matta1/zsh-edit-select/issues)
-
-</details>
-
-<details>
-<summary><b>WSL (Windows Subsystem for Linux)</b></summary>
-
-### ✅ Fully Supported
-
-**Both WSL1 and WSL2** are fully supported with comprehensive mouse selection integration:
-
-- **Windows Terminal** — Full mouse selection replacement support with custom tracking modes
-- **Clipboard operations** — Seamless access to Windows clipboard from the Linux shell
-- **Custom tracking modes** — Out-of-the-box support for command-buffer aware mouse selection (`tracking` mode)
-  and native terminal selection (`terminal` mode)
-- **Auto mode** — Automatic mode selection derived from Windows Terminal `copyOnSelect` setting
-
-### Performance on WSL
-
-The WSL implementation includes:
-
-- ✅ Fast in-memory clipboard cache (uses `/dev/shm` tmpfs on WSL2)
-- ✅ Seamless clipboard bridge to Windows via compiled helper binaries
-- ✅ Zero-lag mouse selection detection
-- ✅ Unified behavior across both WSL versions
-
-### WSL Specifics
-
-- **WSL1 and WSL2** — Both are detected via `WSL_DISTRO_NAME` or `WSL_INTEROP` environment variables
-- **Windows Terminal** — Recommended; use the dedicated [WSL Support](#wsl-support) section for configuration
-- **Other terminals on WSL** — Keyboard selection features work universally; mouse selection replacement requires
-  PRIMARY selection support (available in most modern terminals)
-
-For detailed setup instructions, see [WSL Support](#wsl-support).
-
-</details>
-
-<details>
-<summary><b>Testing Coverage</b></summary>
-
-This plugin has been thoroughly and heavily tested on **Kitty Terminal** and briefly on other popular
-terminals.
-
-If you encounter issues on other terminals or platforms, please
-[open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with your terminal name, OS, and
-display server.
-
-</details>
-
-<details>
-<summary><b>Core Features (Universal)</b></summary>
+### Platform & Feature Coverage
 
 These features work universally on X11, Wayland, XWayland, WSL, and macOS:
 
@@ -2101,23 +2007,26 @@ These features work universally on X11, Wayland, XWayland, WSL, and macOS:
 - ✅ Ctrl+Shift+Z to redo
 - ✅ Delete/Backspace to remove keyboard selection
 - ✅ Type or paste to replace keyboard selection
-- ✅ Mouse selection replacement (where PRIMARY selection available)
+- ✅ Mouse selection replacement (where PRIMARY selection is available)
 
 > **Note on WSL:** All keyboard selection features listed above work identically on WSL. Mouse selection replacement also works on WSL with Windows Terminal when using the tailored tracking modes. See [WSL Support](#wsl-support) for Windows Terminal configuration details.
 
+**Mouse Selection Replacement** is supported across all platforms:
 
-</details>
+- **macOS** — True PRIMARY selection via Accessibility API (`AXUIElement`); zero clipboard contamination
+- **X11 / XWayland** — Complete PRIMARY selection support via XFixes extension; XWayland bridge for mixed environments
+- **Native Wayland** — Direct protocol support on wlroots compositors (Sway, Hyprland, River, Wayfire), KDE Plasma, and GNOME/Mutter
+- **WSL** — Full mouse selection replacement with custom tracking modes on Windows Terminal
 
----
+If mouse selection replacement doesn't work:
+1. Verify native Wayland or XWayland support is available
+2. Check that your compositor supports PRIMARY selection protocols
+3. Disable mouse replacement if needed: `edit-select config` → Option 1
+4. Report issues on [GitHub](https://github.com/Michael-Matta1/zsh-edit-select/issues)
 
-## Performance-Optimized Architecture
+This plugin has been thoroughly tested on **Kitty Terminal** and briefly on other popular terminals. If you encounter issues, please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with your terminal name, OS, and display server.
 
-The plugin architecture is built around compiled native C agents that run as persistent background processes.
-Each agent tracks selection changes via display server events, writes updates to a RAM-backed cache.
-Backend detection, agent startup, and configuration loading occur once at plugin load; all subsequent
-operations use the cached results directly.
-
-Core architectural properties:
+### Core Architectural Properties
 
 - **Single-pass initialization** — Backend detection, agent startup, and configuration loading occur at plugin
   load time. The results are cached in shell variables and reused for the entire session.
@@ -2702,7 +2611,27 @@ sudo dnf install gcc make libX11-devel libXfixes-devel wayland-devel wayland-pro
 
 </details>
 
-After installing dependencies, the plugin will automatically compile the agents on the next shell load, or you can run `make` inside the respective implementation directory manually.
+After installing dependencies, you can run `make` inside the respective implementation directory manually.
+
+```bash
+# Replace with your actual plugin directory path
+# Common locations:
+#   Oh My Zsh:  ~/.oh-my-zsh/custom/plugins/zsh-edit-select
+#   Zinit:      ~/.local/share/zinit/plugins/Michael-Matta1---zsh-edit-select
+PLUGIN_DIR=~/.oh-my-zsh/custom/plugins/zsh-edit-select  # ← change this
+
+# For X11
+cd "$PLUGIN_DIR/impl-x11/backends/x11" && make
+
+# For Wayland
+cd "$PLUGIN_DIR/impl-wayland/backends/wayland" && make
+
+# For macOS
+cd "$PLUGIN_DIR/impl-macos/backends/macos" && make
+
+# For WSL
+cd "$PLUGIN_DIR/impl-wsl/backends/wsl" && make
+```
 
 ---
 
