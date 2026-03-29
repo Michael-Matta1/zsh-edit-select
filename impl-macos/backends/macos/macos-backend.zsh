@@ -1,15 +1,16 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # macOS pasteboard backend for zsh-edit-select.
 # Provides the 6 required backend functions and _EDIT_SELECT_MONITOR_BIN.
 #
-# AX-ONLY DESIGN: This backend has NO self-write suppression variable
-# (_ZES_SELF_WRITE_CONTENT). It is not needed because the daemon only
-# watches for mouse button releases (CGEventTap) and never monitors
-# NSPasteboard changes. Plugin copy/cut operations write to NSPasteboard
-# but produce zero daemon events — no spurious selection detection occurs.
+# Selection capture uses two paths:
+#   Path A (AX): read kAXSelectedTextAttribute in Terminal.app, iTerm2, and AppKit apps.
+#   Path B (Cmd+C): inject Cmd+C with a reactive changeCount watcher for Kitty, WezTerm,
+#                   Alacritty, Ghostty, and other GPU-accelerated terminals.
+# This backend does not implement self-write suppression (_ZES_SELF_WRITE_CONTENT) because
+# the daemon watches only mouse button releases (CGEventTap) and never polls
+# NSPasteboard. Plugin copy/cut writes to NSPasteboard produce no daemon events.
 #
 # Sourced by zsh-edit-select-macos.plugin.zsh AFTER _EDIT_SELECT_PLUGIN_DIR
 # has been set (${0:A:h} of the plugin file = impl-macos/).
@@ -131,8 +132,9 @@ function _zes_stop_monitor() {
 # _zes_get_primary
 # Return primary cache text (= AX-selected text) to stdout.
 #
-# HOT PATH (daemon active): reads from the in-memory cache file via
+# HOT PATH (daemon active): reads from the primary cache file via
 # zsh built-in redirection — zero forks, zero subprocess overhead.
+# Content may come from Path A (AX) or Path B (reactive Cmd+C).
 # FALLBACK: pbpaste — always present on macOS.
 # ─────────────────────────────────────────────────────────────────────
 function _zes_get_primary() {
@@ -219,6 +221,10 @@ function _zes_clear_primary() {
     if [[ -w "$_EDIT_SELECT_SEQ_FILE" ]]; then
         local current_seq=0
         [[ -r "$_EDIT_SELECT_SEQ_FILE" ]] && current_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+        # Strip any non-numeric bytes before arithmetic (guards against encoding
+        # edge cases where the seq file contains unexpected characters).
+        current_seq="${current_seq//[^0-9]/}"
+        [[ -z "$current_seq" ]] && current_seq=0
         ((current_seq++))
         printf '%d\n' "$current_seq" > "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null
     fi

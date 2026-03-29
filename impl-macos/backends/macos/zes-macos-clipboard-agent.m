@@ -1,832 +1,906 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.6.4
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // macOS clipboard integration agent for zsh-edit-select.
 //
-// PRIMARY SELECTION ARCHITECTURE (AX-ONLY):
-// This agent implements true X11-PRIMARY-equivalent semantics on macOS.
-// There is ONE and only ONE channel by which mouse selections are detected:
+// ── ARCHITECTURE ─────────────────────────────────────────────────────
 //
-//   kCGEventLeftMouseUp (CGEventTap) → kAXSelectedTextAttribute (AX API)
+//   CGEventTap (passive, listen-only):
+//     MouseDown → record position
+//               → on main queue: snapshot named-PB changeCounts
+//                                + take clipboard backup (g_mousedown_bk)
+//     MouseUp   → compute gesture → dispatch handle_mouse_up (0 ms)
 //
-// When the mouse button releases, selection is complete. Read the
-// selected text via kAXSelectedTextAttribute. If non-empty and changed,
-// write it to the primary cache. The clipboard (NSPasteboard) is
-// NEVER touched by a mouse drag. This is NOT Copy-on-Select.
+//   handle_mouse_up(click_count, drag_pixels):
 //
-// For terminals with custom GPU renderers (Kitty, Alacritty, WezTerm,
-// Ghostty), kAXSelectedTextAttribute returns kAXErrorAttributeUnsupported.
-// Silently skip — no fallback, no Copy-on-Select, no error.
+//     PATH A — Accessibility API:
+//       Read kAXSelectedTextAttribute.  Works: Terminal.app, iTerm2, AppKit.
+//       Fails: GPU terminals → kAXErrorAttributeUnsupported.
+//       No clipboard involvement.
 //
-// DAEMONIZATION: fork()+setsid() — NOT daemon(3).
-//   daemon(3) moves the process to the root bootstrap namespace, breaking
-//   NSPasteboard access. fork()+setsid() preserves user bootstrap namespace.
+//     UNIFIED ESCALATION (no terminal-specific routing):
+//       1. Named PB instant check — captures immediately if terminal
+//          already wrote (e.g. Ghostty with copy-on-select=true).
+//       2. Start unified watcher:
+//          Phase 1 (ticks 0–4): check named PBs only (non-invasive).
+//          Phase 2 (tick 5):    inject Cmd+C (escalation).
+//          Phase 2+ (ticks 5+): check BOTH named PBs AND clipboard.
+//          React to FIRST change detected (action-driven).
+//       This covers all terminals without bundleIdentifier checks.
 //
-// SIGNAL HANDLING: GCD dispatch sources on main queue — NOT signal().
-//   CFRunLoopRun() is not async-signal-safe. GCD signal dispatch sources
-//   run their handlers on the specified queue (main queue here), which is
-//   safe to call CFRunLoopStop() from.
+//     NON-DEFINITE CLICK PROTECTION:
+//       Single clicks (no drag, click_count < 2) where the clipboard
+//       changed since mousedown get the clipboard restored.  Prevents
+//       terminals that copy on any mouse release from polluting the
+//       clipboard.
 //
-// COCOA INIT: [NSApplication sharedApplication] + setActivationPolicy:
-//   NSApplicationActivationPolicyAccessory called in main() BEFORE fork(),
-//   so the child inherits the established pboard Mach port.
-//   setActivationPolicy:Accessory is required for CGEventTapCreate to
-//   succeed on macOS 15 Sequoia.
-//   NSApplicationLoad() is deprecated since macOS 10.15 — NOT used.
+// ── CRITICAL INVARIANT: SEQ IS WRITTEN LAST ──────────────────────────
+//   seq mtime is the ZLE change-detection signal.  We write seq AFTER
+//   restoring the clipboard so ZLE never reads a stale clipboard.
+//   Order: write primary content → restore clipboard → write seq.
 //
-// Operation modes (first matching flag wins):
-//   (default)           Daemon: CGEventTap for AX mouse selection.
-//   [cache_dir]         Daemon with explicit cache directory.
-//   --oneshot           Print current clipboard text and exit.
-//   --get-clipboard     Alias for --oneshot.
-//   --copy-clipboard    Read stdin, write to NSPasteboard, exit.
-//   --clear-primary     Clear local cache files only (NOT NSPasteboard).
-//   --check-ax          Exit 0 if Accessibility granted, 1 if not.
-//   --request-ax        Prompt for Accessibility permission; exit 0 if granted.
-//   --help / -h         Print usage to stderr and exit 0.
+// ── MOUSEDOWN BACKUP ─────────────────────────────────────────────────
+//   g_mousedown_bk captures the clipboard state at MouseDown time,
+//   BEFORE any terminal copy-on-select or our own inject.  All paths
+//   use this as the restore target.  Unconditional clearContents when
+//   backup is empty prevents the "selection copied to clipboard" bug.
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <dispatch/dispatch.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <math.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char **environ;
-#include <errno.h>
-#include <fcntl.h>
-#include <stdatomic.h> /* _Atomic for g_seq_counter */
-#include <stdbool.h>
-#include <sys/stat.h>
-#include <time.h>
 
-/* ── Cache-directory filenames ───────────────────────────────────────── */
+/* ── Tunables ────────────────────────────────────────────────────────── */
+#define DRAG_PX        5.0
+#define POLL_NS        (1 * NSEC_PER_MSEC)
+#define MAX_POLL_TICKS 300            /* 300 ms safety cap */
+#define ESCALATION_TICK 75            /* Wait 75ms before invasive Cmd+C inject */
+#define MAX_SEL_SIZE   (4 * 1024 * 1024)
+#define MAX_CLIP_SIZE  (4 * 1024 * 1024)
+#define DEDUP_SIZE     4096
+
+/* ── Cache filenames ─────────────────────────────────────────────────── */
 #define PRIMARY_FILE "primary"
-#define SEQ_FILE "seq"
-#define PID_FILE "agent.pid"
-#define MAX_CLIPBOARD_SIZE (4 * 1024 * 1024)
+#define SEQ_FILE     "seq"
+#define PID_FILE     "agent.pid"
 
-/* AX deduplication cache. Selections larger than this are written
-   without deduplication (large selections are rare in terminals). */
-#define AX_DEDUP_CACHE_SIZE 4096
-
-/* ── Global path strings ─────────────────────────────────────────────── */
+/* ── Path globals ────────────────────────────────────────────────────── */
 static char g_cache_dir[512];
 static char g_primary_path[560];
 static char g_seq_path[560];
 static char g_pid_path[560];
+static char g_pending_path[560];  /* exists while a watcher is active */
 
-/* ── Persistent file descriptors (hot path) ──────────────────────────── */
-/* Opened once after daemonization. Reused for all writes. -1 = not open. */
+/* ── Persistent fds ──────────────────────────────────────────────────── */
 static int g_fd_primary = -1;
-static int g_fd_seq = -1;
+static int g_fd_seq     = -1;
 
 /* ── Sequence counter ────────────────────────────────────────────────── */
-/* Seeded with time(NULL) at startup — monotonically larger than any prior
-   session, preventing false positives after daemon restart.
-   _Atomic: defensive correctness; with AX-only all writes happen on the
-   main queue (single thread), so no data race exists. _Atomic adds one
-   store-release barrier (~2ns on Apple Silicon) per increment — unmeasurable
-   given increments fire only on mouse button releases. */
-static _Atomic unsigned long g_seq_counter = 0;
+static _Atomic unsigned long g_seq = 0;
 
 /* ── Shutdown flag ───────────────────────────────────────────────────── */
-/* Set by GCD signal dispatch source handlers. Used as a fence for
-   conditional blocks inside the CGEventTap callback. */
 static volatile sig_atomic_t g_running = 1;
 
-/* ── CGEventTap state ────────────────────────────────────────────────── */
-static CFMachPortRef g_event_tap = NULL;
+/* ── Event tap ───────────────────────────────────────────────────────── */
+static CFMachPortRef      g_tap     = NULL;
 static CFRunLoopSourceRef g_tap_rls = NULL;
 
-/* ── AX deduplication cache ──────────────────────────────────────────── */
-/* g_last_ax_selection: last text written via AX path. Stack-allocated.
-   g_last_ax_selection_len: byte count of cached text. 0 = none cached.
-   Used to avoid writing identical content on repeat clicks to same location
-   and to detect "selection cleared" transitions (non-empty → empty). */
-static char g_last_ax_selection[AX_DEDUP_CACHE_SIZE];
-static size_t g_last_ax_selection_len = 0;
+/* ── Dedup cache ─────────────────────────────────────────────────────── */
+static char   g_last[DEDUP_SIZE];
+static size_t g_last_len = 0;
+
+/* ── Mouse-down position ─────────────────────────────────────────────── */
+static CGFloat g_down_x = 0.0;
+static CGFloat g_down_y = 0.0;
+
+/* ── MouseDown clipboard backup ──────────────────────────────────────── */
+/* Captured at MouseDown, BEFORE any terminal copy-on-select or our inject.
+   Used as the restore target in all capture paths. */
+static NSArray   *g_mousedown_bk = nil;  /* ARC managed */
+static NSInteger  g_mousedown_cc = -1;   /* changeCount at MouseDown */
+
+/* ── Named-PB snapshot ───────────────────────────────────────────────── */
+#define MAX_NAMED_PBS 4
+static NSPasteboard *g_named_pb[MAX_NAMED_PBS];
+static NSInteger     g_named_pb_cc[MAX_NAMED_PBS];
+static int           g_num_named_pb = 0;
+
+/* ── Watcher state ───────────────────────────────────────────────────── */
+static uint64_t          g_gen     = 0;
+static dispatch_source_t g_watcher = NULL;
 
 /* ─────────────────────────────────────────────────────────────────────
-   write_primary()
-   Write selection text and sequence counter to cache files.
+   write_primary_content()
+   Write ONLY the primary content file.  Does NOT update the seq file.
+   Updates the dedup cache and increments g_seq.
+   Returns the length written, or 0 if deduped (identical content).
+   ───────────────────────────────────────────────────────────────────── */
+static size_t write_primary_content(const char *utf8, size_t len) {
+    if (!utf8) utf8 = "";
+    if (len > MAX_SEL_SIZE) len = MAX_SEL_SIZE;
 
-   HOT PATH (persistent fds — after daemonization):
-     pwrite(fd_primary, data, len, 0)  — write from offset 0
-     ftruncate(fd_primary, len)        — MANDATORY: removes stale trailing
-                                         bytes when new content is shorter
-     pwrite(fd_seq, counter_str, n, 0) — update seq LAST
-     ftruncate(fd_seq, n)
-   WRITE ORDER INVARIANT: primary MUST be fully committed before seq is
-   touched. seq's mtime is the shell's ONLY change-detection signal.
-   Touching seq last guarantees primary is consistent when shell reads it.
+    /* Dedup check */
+    if (len == g_last_len && len < DEDUP_SIZE &&
+        (len == 0 || (g_last[0] != '\0' && memcmp(g_last, utf8, len) == 0))) return 0;
 
-   FALLBACK PATH (pre-daemonization / short-lived modes):
-     open/write/close per file. Correct but slower.
+    /* If previous was not empty and current is empty, return 1 to signal deselection */
+    if (len == 0 && g_last_len > 0) {
+        g_last[0] = '\0'; g_last_len = 0;
+        g_seq++;
+        /* Truncate the file so reading it yields nothing */
+        if (g_fd_primary >= 0) {
+            (void)ftruncate(g_fd_primary, 0);
+        } else {
+            int fd = open(g_primary_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
+            if (fd >= 0) close(fd);
+        }
+        return 1;
+    } else {
+        /* Update normal dedup cache */
+        if (len < DEDUP_SIZE) { memcpy(g_last, utf8, len); g_last[len] = '\0'; }
+        else                  { g_last[0] = '\0'; }
+        g_last_len = len;
+        g_seq++;
+    }
+
+    /* Write primary file (NOT seq yet) */
+    if (g_fd_primary >= 0) {
+        ssize_t r = pwrite(g_fd_primary, utf8, len, 0); (void)r;
+        (void)ftruncate(g_fd_primary, (off_t)len);
+    } else {
+        int fd = open(g_primary_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
+        if (fd >= 0) { ssize_t r = write(fd, utf8, len); (void)r; close(fd); }
+    }
+    return len > 0 ? len : 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   flush_seq()
+   Write ONLY the seq file, signalling ZLE that primary changed.
+   Called AFTER clipboard is restored so ZLE reads a clean clipboard.
+   ───────────────────────────────────────────────────────────────────── */
+static void flush_seq(void) {
+    unsigned long seq = g_seq;
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "%lu\n", seq);
+    if (g_fd_seq >= 0) {
+        ssize_t r = pwrite(g_fd_seq, buf, (size_t)n, 0); (void)r;
+        (void)ftruncate(g_fd_seq, (off_t)n);
+    } else {
+        int fd = open(g_seq_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
+        if (fd >= 0) { ssize_t r = write(fd, buf, (size_t)n); (void)r; close(fd); }
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   write_primary()  — used only by modes that don't need split write.
    ───────────────────────────────────────────────────────────────────── */
 static void write_primary(const char *data, size_t len, unsigned long seq) {
-  if (g_fd_primary >= 0 && g_fd_seq >= 0) {
-    /* Hot path: persistent fds. */
-    if (len > 0 && data) {
-      ssize_t r = pwrite(g_fd_primary, data, len, 0);
-      (void)r;
+    if (g_fd_primary >= 0 && g_fd_seq >= 0) {
+        if (len > 0 && data) { ssize_t r = pwrite(g_fd_primary, data, len, 0); (void)r; }
+        (void)ftruncate(g_fd_primary, (off_t)len);
+        char buf[32];
+        int n = snprintf(buf, sizeof(buf), "%lu\n", seq);
+        ssize_t r = pwrite(g_fd_seq, buf, (size_t)n, 0); (void)r;
+        (void)ftruncate(g_fd_seq, (off_t)n);
+        return;
     }
-    (void)ftruncate(g_fd_primary, (off_t)len);
-
-    char buf[32];
-    /* Alternate file size (add space for even seq) to guarantee Zsh
-       detects stat +size changes even within the same second. */
-    int n = snprintf(buf, sizeof(buf), "%lu%s\n", seq, (seq % 2 == 0) ? " " : "");
-    ssize_t r = pwrite(g_fd_seq, buf, (size_t)n, 0);
-    (void)r;
-    (void)ftruncate(g_fd_seq, (off_t)n);
-    return;
-  }
-
-  /* Fallback path. */
-  int fd = open(g_primary_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-  if (fd >= 0) {
-    if (len > 0 && data) {
-      ssize_t r = write(fd, data, len);
-      (void)r;
+    int fd = open(g_primary_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
+    if (fd >= 0) {
+        if (len > 0 && data) { ssize_t r = write(fd, data, len); (void)r; }
+        close(fd);
     }
-    close(fd);
-  }
-  fd = open(g_seq_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-  if (fd >= 0) {
-    char buf[32];
-    int n = snprintf(buf, sizeof(buf), "%lu%s\n", seq, (seq % 2 == 0) ? " " : "");
-    ssize_t r = write(fd, buf, (size_t)n);
-    (void)r;
-    close(fd);
-  }
+    fd = open(g_seq_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
+    if (fd >= 0) {
+        char buf[32];
+        int n = snprintf(buf, sizeof(buf), "%lu\n", seq);
+        ssize_t r = write(fd, buf, (size_t)n); (void)r;
+        close(fd);
+    }
 }
 
-/* ─────────────────────────────────────────────────────────────────────
-   ensure_cache_dir()
-   Resolve cache directory, populate path globals, create directory.
-
-   Priority: explicit argument > $TMPDIR > /tmp
-   Do NOT use XDG_RUNTIME_DIR (not set on macOS).
-   Do NOT use /dev/shm (does not exist on macOS).
-   Returns 0 on success, -1 on failure.
-   ───────────────────────────────────────────────────────────────────── */
+/* ensure_cache_dir()  Priority: explicit arg > $TMPDIR > /tmp */
 static int ensure_cache_dir(const char *dir) {
-  if (dir && dir[0]) {
-    snprintf(g_cache_dir, sizeof(g_cache_dir), "%s", dir);
-  } else {
-    const char *tmpdir = getenv("TMPDIR");
-    if (tmpdir && tmpdir[0]) {
-      snprintf(g_cache_dir, sizeof(g_cache_dir), "%s/zsh-edit-select-%d",
-               tmpdir, (int)getuid());
+    if (dir && dir[0]) {
+        snprintf(g_cache_dir, sizeof(g_cache_dir), "%s", dir);
     } else {
-      snprintf(g_cache_dir, sizeof(g_cache_dir), "/tmp/zsh-edit-select-%d",
-               (int)getuid());
+        const char *t = getenv("TMPDIR");
+        if (t && t[0])
+            snprintf(g_cache_dir, sizeof(g_cache_dir), "%s/zsh-edit-select-%d", t, (int)getuid());
+        else
+            snprintf(g_cache_dir, sizeof(g_cache_dir), "/tmp/zsh-edit-select-%d", (int)getuid());
     }
-  }
+    snprintf(g_primary_path,  sizeof(g_primary_path),  "%s/%s",      g_cache_dir, PRIMARY_FILE);
+    snprintf(g_seq_path,      sizeof(g_seq_path),      "%s/%s",      g_cache_dir, SEQ_FILE);
+    snprintf(g_pid_path,      sizeof(g_pid_path),      "%s/%s",      g_cache_dir, PID_FILE);
+    snprintf(g_pending_path,  sizeof(g_pending_path),  "%s/pending", g_cache_dir);
+    struct stat st;
+    if (stat(g_cache_dir, &st) == -1)
+        if (mkdir(g_cache_dir, 0700) == -1 && errno != EEXIST) return -1;
+    return 0;
+}
 
-  snprintf(g_primary_path, sizeof(g_primary_path), "%s/%s", g_cache_dir,
-           PRIMARY_FILE);
-  snprintf(g_seq_path, sizeof(g_seq_path), "%s/%s", g_cache_dir, SEQ_FILE);
-  snprintf(g_pid_path, sizeof(g_pid_path), "%s/%s", g_cache_dir, PID_FILE);
+/* clear_primary_cache() — AX reported empty selection. */
+static void clear_primary_cache(void) {
+    if (g_last_len > 0) {
+        g_last[0] = '\0'; g_last_len = 0;
+        g_seq++; write_primary("", 0, g_seq);
+    }
+}
 
-  struct stat st; /* MUST declare before stat() call */
-  if (stat(g_cache_dir, &st) == -1) {
-    if (mkdir(g_cache_dir, 0700) == -1 && errno != EEXIST)
-      return -1;
-  }
-  return 0;
+static void cancel_watcher(void) {
+    if (g_watcher) { dispatch_source_cancel(g_watcher); g_watcher = NULL; }
+}
+
+static void create_pending_marker(void) {
+    if (!g_pending_path[0]) return;
+    int fd = open(g_pending_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
+    if (fd >= 0) close(fd);
+}
+static void delete_pending_marker(void) {
+    if (g_pending_path[0]) unlink(g_pending_path);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   ax_read_and_write_selection()
-   Called on the main queue after every kCGEventLeftMouseUp event.
-
-   Reads kAXSelectedTextAttribute from the focused UI element.
-   If non-empty and different from the dedup cache: write to primary.
-   If empty and cached was non-empty: write empty primary (cleared signal).
-   If AX not supported (Kitty etc.): silently skip — NO Copy-on-Select.
-
-   DEDUPLICATION: kCGEventLeftMouseUp fires on every click, including
-   single clicks without a selection. Without dedup, every click would
-   produce a spurious seq mtime change. Cache the last selection in
-   g_last_ax_selection[4096] and skip writing if identical.
-
-   Adaptive Fast-Path (is_retry param):
-   Explicitly return false if kAXSelectedTextAttribute is empty but
-   running in the fast path. This allows the caller to schedule a
-   5ms retry to catch natively slow terminals (Terminal.app) that update
-   async, while preserving <1ms latency for fast terminals.
-
-   MUST be called from the main run loop thread (dispatch_get_main_queue()).
-   REQUIRES: AXIsProcessTrusted() == YES (caller ensures this).
+   clipboard_restore_to_mousedown()
+   Restore generalPasteboard to the state captured at MouseDown.
+   This undoes both terminal copy-on-select AND our own Cmd+C inject.
+   Uses TransientType so clipboard history managers ignore the write.
+   UNCONDITIONAL: always restores, even if backup is empty (in which
+   case it just clears the clipboard — correct, since it was empty).
    ───────────────────────────────────────────────────────────────────── */
-static void ax_read_and_write_selection(void) {
-  @autoreleasepool {
-    AXUIElementRef system_wide = AXUIElementCreateSystemWide();
-    if (!system_wide) return; // Handled
+static void clipboard_restore_to_mousedown(void) {
+    @autoreleasepool {
+        if (g_mousedown_bk == nil) return;
+        NSPasteboard *pb = [NSPasteboard generalPasteboard];
+        [pb clearContents];
+        if (g_mousedown_bk.count > 0) {
+            NSPasteboardItem *marker = [[NSPasteboardItem alloc] init];
+            [marker setString:@"" forType:@"org.nspasteboard.TransientType"];
+            NSMutableArray *all = [NSMutableArray arrayWithObject:marker];
+            [all addObjectsFromArray:g_mousedown_bk];
+            [pb writeObjects:all];
+        }
+        /* If count == 0: clipboard was empty at MouseDown → clearContents is correct. */
+    }
+}
 
-    /* Get the focused UI element (terminal text area with keyboard focus). */
-    AXUIElementRef focused = NULL;
-    AXError err = AXUIElementCopyAttributeValue(
-        system_wide, kAXFocusedUIElementAttribute, (CFTypeRef *)&focused);
-    CFRelease(system_wide);
-
-    if (err != kAXErrorSuccess || !focused) {
-      /* No focused element (e.g. focus on desktop) or terminal hasn't updated. */
-      if (g_last_ax_selection_len > 0) {
-        g_last_ax_selection[0] = '\0';
-        g_last_ax_selection_len = 0;
-        g_seq_counter++;
-        write_primary("", 0, g_seq_counter);
-      }
-      return; /* Handled */
+/* ─────────────────────────────────────────────────────────────────────
+   finalize_selection(utf8, len, delay_restore)
+   Central commit point used by ALL capture paths.
+   If delay_restore is true, wait 15ms before restoring clipboard & deleting
+   pending marker. This sweeps up asynchronous clipboard pollution from
+   terminals like Ghostty that copy-on-select to the system clipboard
+   *after* writing the named PB.
+   ───────────────────────────────────────────────────────────────────── */
+static void finalize_selection(const char *utf8, size_t len, bool delay_restore) {
+    size_t written = write_primary_content(utf8, len);
+    if (!written && len > 0) {
+        /* Dedup: same content as last time. */
+        if (delay_restore) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                clipboard_restore_to_mousedown();
+                delete_pending_marker();
+            });
+        } else {
+            clipboard_restore_to_mousedown();
+            delete_pending_marker();
+        }
+        return;
     }
 
-    /* Read the selected text from the focused element. */
-    CFTypeRef value = NULL;
-    err = AXUIElementCopyAttributeValue(focused, kAXSelectedTextAttribute,
-                                        &value);
-    CFRelease(focused);
-
-    if (err != kAXErrorSuccess || !value) {
-      /* Terminal does not support kAXSelectedTextAttribute (Kitty,
-         Alacritty, WezTerm, Ghostty) OR terminal hasn't updated model yet. */
-      if (g_last_ax_selection_len > 0) {
-        g_last_ax_selection[0] = '\0';
-        g_last_ax_selection_len = 0;
-        g_seq_counter++;
-        write_primary("", 0, g_seq_counter);
-      }
-      return; /* Handled */
-    }
-
-    NSString *str = (__bridge_transfer NSString *)value;
-    if (!str || str.length == 0) {
-      /* Empty selection: user clicked without selecting. */
-      if (g_last_ax_selection_len > 0) {
-        g_last_ax_selection[0] = '\0';
-        g_last_ax_selection_len = 0;
-        g_seq_counter++;
-        write_primary("", 0, g_seq_counter);
-      }
-      return; /* Handled */
-    }
-
-    const char *utf8 = [str UTF8String];
-    if (!utf8)
-      return;
-
-    size_t len = strlen(utf8);
-    if (len > MAX_CLIPBOARD_SIZE)
-      len = MAX_CLIPBOARD_SIZE;
-
-    /* Deduplication: skip write if identical to cached selection. */
-    if (len == g_last_ax_selection_len && len > 0 &&
-        len < AX_DEDUP_CACHE_SIZE && g_last_ax_selection[0] != '\0' &&
-        memcmp(g_last_ax_selection, utf8, len) == 0) {
-      return; /* Same selection — do not write (handled). */
-    }
-
-    /* Update deduplication cache. */
-    if (len < AX_DEDUP_CACHE_SIZE) {
-      memcpy(g_last_ax_selection, utf8, len);
-      g_last_ax_selection[len] = '\0';
+    /* If written is 0 but len is 0, it means it's a deselection (already empty).
+       We still want to flush seq and delete marker to be absolutely sure ZLE continues. */
+    if (delay_restore) {
+        flush_seq(); /* Primary & seq written, ZLE has text immediately */
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            clipboard_restore_to_mousedown();
+            delete_pending_marker();
+        });
     } else {
-      /* Too large to cache; disable dedup for this selection. */
-      g_last_ax_selection[0] = '\0';
+        clipboard_restore_to_mousedown();   /* restore BEFORE seq write */
+        flush_seq();                        /* signal ZLE — safe now */
+        delete_pending_marker();
     }
-    g_last_ax_selection_len = len;
+}
 
-    /* Write to primary cache. seq updated LAST (write order invariant). */
-    g_seq_counter++;
-    write_primary(utf8, len, g_seq_counter);
+/* ─────────────────────────────────────────────────────────────────────
+   PATH A — Accessibility API
+   Returns:
+      1  text captured.
+      0  AX-capable + empty selection → primary cleared.
+     -1  kAXErrorAttributeUnsupported: GPU terminal → try Path B/C.
+     -2  no focus / other error → do nothing.
+   ───────────────────────────────────────────────────────────────────── */
+static int ax_try(void) {
+    @autoreleasepool {
+        AXUIElementRef sw = AXUIElementCreateSystemWide();
+        if (!sw) return -2;
 
-    return; /* Handled */
-  }
+        AXUIElementRef focused = NULL;
+        AXError e = AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute,
+                                                  (CFTypeRef *)&focused);
+        CFRelease(sw);
+        if (e != kAXErrorSuccess || !focused) return -2;
+
+        CFTypeRef val = NULL;
+        e = AXUIElementCopyAttributeValue(focused, kAXSelectedTextAttribute, &val);
+        CFRelease(focused);
+
+        if (e == kAXErrorAttributeUnsupported || e == kAXErrorActionUnsupported)
+            return -1;   /* GPU terminal */
+        if (e != kAXErrorSuccess || !val) return -2;
+
+        NSString *s = (__bridge_transfer NSString *)val;
+        if (!s || s.length == 0) { clear_primary_cache(); return 0; }
+        const char *utf8 = [s UTF8String];
+        if (!utf8) return -2;
+        /* Path A: no clipboard involvement, no finalize_selection needed.
+           We can use commit_selection directly (no clipboard to restore). */
+        if (g_last_len == strlen(utf8) && strlen(utf8) < DEDUP_SIZE &&
+            g_last[0] != '\0' && memcmp(g_last, utf8, strlen(utf8)) == 0) {
+            return 1; /* dedup */
+        }
+        size_t len = strlen(utf8);
+        if (len < DEDUP_SIZE) { memcpy(g_last, utf8, len); g_last[len] = '\0'; }
+        else                  { g_last[0] = '\0'; }
+        g_last_len = len;
+        g_seq++;
+        write_primary(utf8, len, g_seq);
+        return 1;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   PATH B — Named Selection Pasteboard (Ghostty)
+   ───────────────────────────────────────────────────────────────────── */
+static void named_pb_init(void) {
+    @autoreleasepool {
+        static const char *names[] = {
+            "com.mitchellh.ghostty.selection",  /* index 0 */
+            "com.apple.Terminal.selection",     /* index 1 */
+            NULL
+        };
+        g_num_named_pb = 0;
+        for (int i = 0; names[i] && g_num_named_pb < MAX_NAMED_PBS; i++) {
+            NSPasteboard *pb = [NSPasteboard pasteboardWithName:@(names[i])];
+            if (pb) {
+                g_named_pb[g_num_named_pb]    = pb;
+                g_named_pb_cc[g_num_named_pb] = -1;
+                g_num_named_pb++;
+            }
+        }
+    }
+}
+
+static void named_pb_snapshot(void) {
+    @autoreleasepool {
+        for (int i = 0; i < g_num_named_pb; i++)
+            g_named_pb_cc[i] = g_named_pb[i].changeCount;
+    }
+}
+
+/* Try to capture from named PBs immediately.  Returns true if captured. */
+static bool named_pb_try(void) {
+    @autoreleasepool {
+        for (int i = 0; i < g_num_named_pb; i++) {
+            NSInteger cur = g_named_pb[i].changeCount;
+            if (g_named_pb_cc[i] >= 0 && cur == g_named_pb_cc[i]) continue;
+            NSString *str = [g_named_pb[i] stringForType:NSPasteboardTypeString];
+            /* Allow empty strings (deselection) to be finalized. */
+            if (!str) str = @"";
+            const char *utf8 = [str UTF8String];
+            if (!utf8) utf8 = "";
+            finalize_selection(utf8, strlen(utf8), true);
+            return true;
+        }
+        return false;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Cmd+C injection — used as escalation step in the unified watcher.
+   ───────────────────────────────────────────────────────────────────── */
+static void inject_cmd_c(void) {
+    CGEventRef dn = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)0x08, true);
+    CGEventRef up = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)0x08, false);
+    if (dn && up) {
+        CGEventSetFlags(dn, kCGEventFlagMaskCommand);
+        CGEventSetFlags(up, kCGEventFlagMaskCommand);
+        CGEventPost(kCGAnnotatedSessionEventTap, dn);
+        CGEventPost(kCGAnnotatedSessionEventTap, up);
+    }
+    if (dn) CFRelease(dn);
+    if (up) CFRelease(up);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   UNIFIED WATCHER — replaces start_named_pb_watcher + start_cmdc_watcher
+
+   Action-driven escalation strategy (no terminal-specific routing):
+     Phase 1 (ticks 0 to ESCALATION_TICK-1):
+       Check named PBs only.  Non-invasive — covers terminals that
+       write to a named PB on selection (e.g. Ghostty copy-on-select=true).
+     Phase 2 (tick == ESCALATION_TICK):
+       Inject Cmd+C.  Captures cc_inject_before for clipboard detection.
+     Phase 2+ (ticks > ESCALATION_TICK):
+       Check BOTH named PBs AND clipboard changeCount.
+       Covers all terminals that respond to Cmd+C.
+     Terminates on FIRST change detected (action-driven) or MAX_POLL_TICKS.
+   ───────────────────────────────────────────────────────────────────── */
+static void start_unified_watcher(uint64_t gen) {
+    __block int ticks = 0;
+    __block NSInteger cc_inject_before = -1;  /* set at escalation time */
+    __block bool injected = false;
+
+    dispatch_source_t w = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(w, DISPATCH_TIME_NOW, POLL_NS, 0);
+
+    dispatch_source_set_event_handler(w, ^{
+        @autoreleasepool {
+            if (!g_running || g_gen != gen) {
+                g_watcher = NULL;
+                dispatch_source_cancel(w);
+                delete_pending_marker();
+                return;
+            }
+
+            /* ── Check named PBs (all phases) ──────────────────────── */
+            for (int i = 0; i < g_num_named_pb; i++) {
+                NSInteger cur = g_named_pb[i].changeCount;
+                if (g_named_pb_cc[i] >= 0 && cur == g_named_pb_cc[i]) continue;
+                NSString *str = [g_named_pb[i] stringForType:NSPasteboardTypeString];
+                g_watcher = NULL;
+                dispatch_source_cancel(w);
+                /* Allow empty strings (deselection) to be finalized. */
+                const char *utf8 = (str && str.length > 0) ? [str UTF8String] : "";
+                if (!utf8) utf8 = "";
+                finalize_selection(utf8, strlen(utf8), true);
+                return;
+            }
+
+            /* ── Phase 1: Native Copy-On-Select (Instant clipboard catch) ── */
+            if (!injected) {
+                NSPasteboard *pb = [NSPasteboard generalPasteboard];
+                NSInteger cur = pb.changeCount;
+                if (g_mousedown_cc >= 0 && cur != g_mousedown_cc) {
+                    NSString *str = [pb stringForType:NSPasteboardTypeString];
+                    if (str && str.length > 0) {
+                        g_watcher = NULL;
+                        dispatch_source_cancel(w);
+                        const char *utf8 = [str UTF8String];
+                        finalize_selection(utf8, strlen(utf8), true);
+                        return;
+                    }
+                    /* Terminal bumped changeCount but hasn't provided text yet. Wait. */
+                }
+            }
+
+            /* ── Phase 2: Escalation — inject Cmd+C ────────────────── */
+            if (!injected && ticks >= ESCALATION_TICK) {
+                injected = true;
+                cc_inject_before = [[NSPasteboard generalPasteboard] changeCount];
+                inject_cmd_c();
+            }
+
+            /* ── Phase 2+: Check clipboard (after inject) ──────────── */
+            if (injected) {
+                NSPasteboard *pb = [NSPasteboard generalPasteboard];
+                NSInteger cur = pb.changeCount;
+                if (cur != cc_inject_before) {
+                    NSString *str = [pb stringForType:NSPasteboardTypeString];
+                    if (str && str.length > 0) {
+                        g_watcher = NULL;
+                        dispatch_source_cancel(w);
+                        const char *utf8 = [str UTF8String];
+                        finalize_selection(utf8, strlen(utf8), true);
+                        return;
+                    }
+                    /* Terminal bumped changeCount but hasn't provided text yet. Wait. */
+                }
+            }
+
+            /* ── Timeout ───────────────────────────────────────────── */
+            if (++ticks >= MAX_POLL_TICKS) {
+                g_watcher = NULL;
+                dispatch_source_cancel(w);
+                clipboard_restore_to_mousedown();
+                delete_pending_marker();
+
+                /* DESELECTION FALLBACK:
+                   If the watcher timed out, it means the terminal natively chose
+                   NOT to copy any text to the clipboard (e.g., user dragged slightly
+                   or double-clicked an empty space). We MUST clear the stale cache
+                   preventing ZSH from hallucinating a phantom selection. */
+                clear_primary_cache();
+            }
+        }
+    });
+    g_watcher = w;
+    dispatch_resume(w);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   handle_mouse_up()
+   Unified, terminal-agnostic handling.  No bundleIdentifier checks.
+   ───────────────────────────────────────────────────────────────────── */
+static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
+    if (!g_running) return;
+    cancel_watcher();
+    g_gen++;
+
+    /* Path A — Accessibility API */
+    int ax = ax_try();
+    if (ax != -1) {
+        /* AX succeeded or terminal is AX-capable.  For non-definite
+           clicks that are AX-capable, no clipboard protection needed
+           (AX doesn't touch clipboard). */
+        return;
+    }
+
+    /* GPU terminal confirmed (AX returned -1). */
+    bool definite = (click_count >= 2) || (drag_pixels > DRAG_PX);
+
+    if (!definite) {
+        /* Non-definite click: restore clipboard if terminal's mouse-Up
+           handler copied to clipboard (copy-on-any-click protection).
+           Compares changeCount to detect unwanted clipboard writes. */
+        @autoreleasepool {
+            NSInteger cur = [[NSPasteboard generalPasteboard] changeCount];
+            if (g_mousedown_cc >= 0 && cur != g_mousedown_cc) {
+                clipboard_restore_to_mousedown();
+            }
+        }
+        /* DESELECTION FALLBACK: If a terminal is frontmost and no selection was found
+           via AX or Named PB, clear cache. This solves the Phantom Bug for GPU terms. */
+        @autoreleasepool {
+            NSRunningApplication *front = [[NSWorkspace sharedWorkspace] frontmostApplication];
+            if (front && front.active) {
+                 clear_primary_cache();
+            }
+        }
+        return;
+    }
+
+    uint64_t gen = g_gen;
+    create_pending_marker();
+
+    /* Try named PBs immediately (fast path — terminal already wrote). */
+    if (named_pb_try()) return;
+
+    /* Unified escalation: named PBs → Cmd+C inject → first-change wins. */
+    start_unified_watcher(gen);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
    event_tap_callback()
-   CGEventTap callback. Fires on kCGEventLeftMouseUp.
-
-   Dispatches AX read to main queue via dispatch_async. This ensures the
-   AX query runs on the main run loop thread as required, and also allows
-   the target application to finalize its text selection model before
-   queried (~1µs enqueue overhead, imperceptible to users).
-
-   kCGEventTapDisabledByTimeout / kCGEventTapDisabledByUserInput:
-   macOS disables taps that block the event stream. The tap is listen-only
-   and completes in ~1µs — it will not time out. Re-enable as a safety
-   measure in case the OS disables it anyway.
-
-   IMPORTANT: This callback NEVER modifies or consumes events.
-   It is purely a passive listener (kCGEventTapOptionListenOnly).
+   MouseDown: record position + (on main queue) snapshot + backup.
+   MouseUp:   compute gesture + dispatch handle_mouse_up.
    ───────────────────────────────────────────────────────────────────── */
-static CGEventRef event_tap_callback(CGEventTapProxy proxy, CGEventType type,
-                                     CGEventRef event, void *refcon) {
-  (void)proxy;
-  (void)refcon;
+static CGEventRef event_tap_callback(CGEventTapProxy proxy,
+                                     CGEventType type,
+                                     CGEventRef event,
+                                     void *refcon) {
+    (void)proxy; (void)refcon;
 
-  if (type == kCGEventTapDisabledByTimeout ||
-      type == kCGEventTapDisabledByUserInput) {
-    if (g_event_tap)
-      CGEventTapEnable(g_event_tap, true);
+    if (type == kCGEventTapDisabledByTimeout ||
+        type == kCGEventTapDisabledByUserInput) {
+        if (g_tap) CGEventTapEnable(g_tap, true);
+        return event;
+    }
+    if (!g_running) return event;
+
+    if (type == kCGEventLeftMouseDown) {
+        CGPoint p = CGEventGetLocation(event);
+        g_down_x = p.x; g_down_y = p.y;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @autoreleasepool {
+                /* Snapshot named-PBs AND take clipboard backup.
+                   Both must happen BEFORE any terminal write. */
+                named_pb_snapshot();
+                NSPasteboard *pb = [NSPasteboard generalPasteboard];
+                g_mousedown_cc = pb.changeCount;
+                NSArray<NSPasteboardItem *> *items = pb.pasteboardItems;
+                if (!items.count) {
+                    g_mousedown_bk = @[];
+                } else {
+                    NSMutableArray *bk = [NSMutableArray arrayWithCapacity:items.count];
+                    for (NSPasteboardItem *item in items) {
+                        NSPasteboardItem *copy = [[NSPasteboardItem alloc] init];
+                        for (NSString *t in item.types) {
+                            NSData *d = [item dataForType:t];
+                            if (d) [copy setData:[d copy] forType:t];
+                        }
+                        [bk addObject:copy];
+                    }
+                    g_mousedown_bk = [bk copy];
+                }
+            }
+        });
+    }
+    else if (type == kCGEventLeftMouseUp) {
+        CGPoint   p    = CGEventGetLocation(event);
+        CGFloat   drag = sqrt((p.x-g_down_x)*(p.x-g_down_x) +
+                              (p.y-g_down_y)*(p.y-g_down_y));
+        NSInteger cc   = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
+        CGFloat   d    = drag;
+        NSInteger c    = cc;
+        dispatch_async(dispatch_get_main_queue(), ^{ handle_mouse_up(c, d); });
+    }
     return event;
-  }
-
-  if (type == kCGEventLeftMouseUp && g_running) {
-    /* Dispatch AX read to main queue with a 5ms delay.
-       Terminal.app (and some other terminals) may update their AX text
-       model slightly after kCGEventLeftMouseUp, causing
-       kAXSelectedTextAttribute to return empty on immediate query.
-       The 5ms delay is imperceptible (human reaction time ~150ms),
-       but ensures the selection has settled. */
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_MSEC),
-                   dispatch_get_main_queue(), ^{
-                     if (g_running)
-                       ax_read_and_write_selection();
-                   });
-  }
-
-  return event;
 }
 
-/* ─────────────────────────────────────────────────────────────────────
-   get_clipboard_utf8()
-   Reads NSPasteboard as malloc'd UTF-8. Caller must free().
-   Returns NULL if empty or on error. Sets *out_len to byte count.
-   ───────────────────────────────────────────────────────────────────── */
+/* ── Utility functions ───────────────────────────────────────────────── */
 static char *get_clipboard_utf8(size_t *out_len) {
-  *out_len = 0;
-  NSPasteboard *pb = [NSPasteboard generalPasteboard];
-  NSString *str = [pb stringForType:NSPasteboardTypeString];
-  if (!str)
-    return NULL;
-
-  const char *utf8 = [str UTF8String];
-  if (!utf8)
-    return NULL;
-
-  size_t len = strlen(utf8);
-  if (len == 0)
-    return NULL;
-  if (len > MAX_CLIPBOARD_SIZE)
-    len = MAX_CLIPBOARD_SIZE;
-
-  char *buf = malloc(len + 1);
-  if (!buf)
-    return NULL;
-  memcpy(buf, utf8, len);
-  buf[len] = '\0';
-  *out_len = len;
-  return buf;
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   set_clipboard_utf8()
-   Writes UTF-8 string to NSPasteboard. Returns true on success.
-   The macOS pboard daemon owns clipboard storage — content persists
-   after this process exits. No clipboard server child needed.
-   ───────────────────────────────────────────────────────────────────── */
-static bool set_clipboard_utf8(const char *data, size_t len) {
-  if (!data || len == 0)
-    return false;
-
-  NSString *str = [[NSString alloc] initWithBytes:data
-                                           length:len
-                                         encoding:NSUTF8StringEncoding];
-  if (!str) {
-    str = [[NSString alloc] initWithBytes:data
-                                   length:len
-                                 encoding:NSISOLatin1StringEncoding];
-  }
-  if (!str)
-    return false;
-
-  NSPasteboard *pb = [NSPasteboard generalPasteboard];
-  [pb clearContents];
-  return [pb setString:str forType:NSPasteboardTypeString];
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   read_all_stdin()
-   Reads all stdin into malloc'd buffer. Caller must free().
-   ───────────────────────────────────────────────────────────────────── */
-static char *read_all_stdin(size_t *out_len) {
-  size_t capacity = 4096, total = 0;
-  char *buf = malloc(capacity);
-  if (!buf) {
     *out_len = 0;
-    return NULL;
-  }
-
-  while (1) {
-    if (total + 4096 > capacity) {
-      capacity *= 2;
-      if (capacity > MAX_CLIPBOARD_SIZE)
-        break;
-      char *nb = realloc(buf, capacity);
-      if (!nb) {
-        free(buf);
-        *out_len = 0;
-        return NULL;
-      }
-      buf = nb;
-    }
-    ssize_t n = read(STDIN_FILENO, buf + total, 4096);
-    if (n > 0)
-      total += (size_t)n;
-    else
-      break;
-  }
-  *out_len = total;
-  return buf;
+    NSPasteboard *pb  = [NSPasteboard generalPasteboard];
+    NSString     *str = [pb stringForType:NSPasteboardTypeString];
+    if (!str) return NULL;
+    const char *utf8 = [str UTF8String];
+    if (!utf8) return NULL;
+    size_t len = strlen(utf8);
+    if (!len || len > MAX_CLIP_SIZE) return NULL;
+    char *buf = malloc(len + 1);
+    if (!buf) return NULL;
+    memcpy(buf, utf8, len); buf[len] = '\0'; *out_len = len;
+    return buf;
 }
 
-/* ─────────────────────────────────────────────────────────────────────
-   run_oneshot()
-   Print clipboard text to stdout and exit.
-   ───────────────────────────────────────────────────────────────────── */
+static bool set_clipboard_utf8(const char *data, size_t len) {
+    if (!data || !len) return false;
+    NSString *str = [[NSString alloc] initWithBytes:data length:len
+                                           encoding:NSUTF8StringEncoding];
+    if (!str) str = [[NSString alloc] initWithBytes:data length:len
+                                           encoding:NSISOLatin1StringEncoding];
+    if (!str) return false;
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    [pb clearContents];
+    return [pb setString:str forType:NSPasteboardTypeString];
+}
+
+static char *read_all_stdin(size_t *out_len) {
+    size_t cap = 4096, total = 0;
+    char  *buf = malloc(cap);
+    if (!buf) { *out_len = 0; return NULL; }
+    for (;;) {
+        if (total + 4096 > cap) {
+            cap *= 2;
+            if (cap > MAX_CLIP_SIZE) break;
+            char *nb = realloc(buf, cap);
+            if (!nb) { free(buf); *out_len = 0; return NULL; }
+            buf = nb;
+        }
+        ssize_t n = read(STDIN_FILENO, buf + total, 4096);
+        if (n > 0) total += (size_t)n; else break;
+    }
+    *out_len = total; return buf;
+}
+
+/* ── Short-lived modes ───────────────────────────────────────────────── */
 static int run_oneshot(void) {
-  @autoreleasepool {
-    [NSApplication sharedApplication];
-    [[NSApplication sharedApplication]
-        setActivationPolicy:NSApplicationActivationPolicyAccessory];
-
-    size_t len = 0;
-    char *data = get_clipboard_utf8(&len);
-    if (data && len > 0) {
-      fwrite(data, 1, len, stdout);
-      free(data);
-      return 0;
-    }
-    free(data);
-    return 1;
-  }
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   run_copy_clipboard()
-   Read stdin and write to NSPasteboard. No clipboard server needed —
-   the macOS pboard daemon owns storage persistently after writing.
-   ───────────────────────────────────────────────────────────────────── */
-static int run_copy_clipboard(void) {
-  size_t len = 0;
-  char *data = read_all_stdin(&len);
-  if (!data || len == 0) {
-    free(data);
-    return 1;
-  }
-
-  @autoreleasepool {
-    [NSApplication sharedApplication];
-    [[NSApplication sharedApplication]
-        setActivationPolicy:NSApplicationActivationPolicyAccessory];
-
-    bool ok = set_clipboard_utf8(data, len);
-    free(data);
-    return ok ? 0 : 1;
-  }
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   run_clear_primary()
-   Clear local cache files so shell does not see stale text.
-   DOES NOT call [NSPasteboard clearContents] — clearing the system
-   clipboard would destroy user-copied content from other apps.
-   Only the local seq/primary files (which the shell watches) are cleared.
-   ───────────────────────────────────────────────────────────────────── */
-static int run_clear_primary(void) {
-  g_seq_counter++;
-  write_primary("", 0, g_seq_counter);
-  return 0;
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   run_daemon_worker()
-   The actual daemon process, launched via posix_spawn by run_daemon().
-   Runs with a 100% clean process state.
-   ───────────────────────────────────────────────────────────────────── */
-static int run_daemon_worker(const char *cache_dir_arg) {
-  if (ensure_cache_dir(cache_dir_arg) != 0) {
-    return 1;
-  }
-
-  /* Child: new session, user namespace preserved. */
-  setsid();
-
-  /* ── COCOA INITIALIZATION ───────────────────────────────────────
-     MUST happen here, AFTER fork(). Calling [NSApplication sharedApplication]
-     before fork() leaves the child state corrupted (deadlocks and invalid
-     Mach ports), crashing the daemon immediately. */
-  @autoreleasepool {
-    [NSApplication sharedApplication];
-    [[NSApplication sharedApplication]
-        setActivationPolicy:NSApplicationActivationPolicyAccessory];
-  }
-
-  {
-    int devnull = open("/dev/null", O_RDWR | O_CLOEXEC);
-    if (devnull >= 0) {
-      dup2(devnull, STDIN_FILENO);
-      dup2(devnull, STDOUT_FILENO);
-      dup2(devnull, STDERR_FILENO);
-      if (devnull > STDERR_FILENO)
-        close(devnull);
-    }
-  }
-
-  /* Write PID file for shell liveness probes (kill -0 $pid). */
-  {
-    FILE *f = fopen(g_pid_path, "w");
-    if (f) {
-      fprintf(f, "%d\n", getpid());
-      fclose(f);
-    }
-  }
-
-  /* Open persistent fds for write_primary() hot path.
-     O_CREAT ensures files exist if removed between write_primary()
-     above and here.                                                   */
-  g_fd_primary = open(g_primary_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-  g_fd_seq = open(g_seq_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-
-  /* ── GCD signal handling ────────────────────────────────────────────
-     MUST call signal(SIG, SIG_IGN) BEFORE creating dispatch sources
-     for those signals. Otherwise the default handler fires on the
-     first delivery, killing the process before the source is installed.
-     GCD dispatch sources for signals run handlers on the specified queue
-     (main queue here). Calling CFRunLoopStop() from main queue is safe. */
-  signal(SIGTERM, SIG_IGN);
-  signal(SIGINT, SIG_IGN);
-  signal(SIGHUP, SIG_IGN);
-
-  dispatch_source_t sig_term = dispatch_source_create(
-      DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
-  dispatch_source_set_event_handler(sig_term, ^{
-    g_running = 0;
-    CFRunLoopStop(CFRunLoopGetMain());
-  });
-  dispatch_resume(sig_term);
-
-  dispatch_source_t sig_int = dispatch_source_create(
-      DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
-  dispatch_source_set_event_handler(sig_int, ^{
-    g_running = 0;
-    CFRunLoopStop(CFRunLoopGetMain());
-  });
-  dispatch_resume(sig_int);
-
-  dispatch_source_t sig_hup = dispatch_source_create(
-      DISPATCH_SOURCE_TYPE_SIGNAL, SIGHUP, 0, dispatch_get_main_queue());
-  dispatch_source_set_event_handler(sig_hup, ^{
-    g_running = 0;
-    CFRunLoopStop(CFRunLoopGetMain());
-  });
-  dispatch_resume(sig_hup);
-
-  /* ── CGEventTap for AX-based PRIMARY selection ──────────────────────
-     Installed ONLY if Accessibility permission is granted.
-     Without it, the daemon runs but the primary cache is never updated
-     by mouse actions — keyboard selections and paste still work.
-
-     kCGSessionEventTap:     Session-level tap (sees all apps' events).
-     kCGTailAppendEventTap:  Appended at end of event stream (passive).
-     kCGEventTapOptionListenOnly: NEVER consume or modify events.
-     CGEventMaskBit(kCGEventLeftMouseUp): only mouse button release.
-
-     The tap run loop source is added to the main run loop.
-     CFRunLoopRun() below pumps the main run loop.                      */
-  if (AXIsProcessTrusted()) {
-    CGEventMask mask = CGEventMaskBit(kCGEventLeftMouseUp);
-    g_event_tap = CGEventTapCreate(kCGSessionEventTap, kCGTailAppendEventTap,
-                                   kCGEventTapOptionListenOnly, mask,
-                                   event_tap_callback, NULL);
-
-    if (g_event_tap) {
-      g_tap_rls =
-          CFMachPortCreateRunLoopSource(kCFAllocatorDefault, g_event_tap, 0);
-      if (g_tap_rls) {
-        CFRunLoopAddSource(CFRunLoopGetMain(), g_tap_rls,
-                           kCFRunLoopDefaultMode);
-        CGEventTapEnable(g_event_tap, true);
-      }
-    }
-    /* If CGEventTapCreate fails (permission revoked after start),
-       continue in no-AX mode silently.                               */
-  }
-  /* ───────────────────────────────────────────────────────────────── */
-
-  /* Block main thread until GCD signal source calls CFRunLoopStop(). */
-  CFRunLoopRun();
-
-  /* ── Cleanup ────────────────────────────────────────────────────── */
-  g_running = 0;
-
-  dispatch_source_cancel(sig_term);
-  dispatch_source_cancel(sig_int);
-  dispatch_source_cancel(sig_hup);
-  /* ARC manages dispatch_source_t lifetime. dispatch_release() is a
-     compile error with -fobjc-arc and must NOT be called here.
-     dispatch_source_cancel() above stops event delivery; ARC releases
-     the objects when they go out of scope at function return.
-     CFRelease() below is for CoreFoundation types — NOT affected by ARC,
-     must be called explicitly.                                           */
-
-  if (g_event_tap) {
-    CGEventTapEnable(g_event_tap, false);
-    if (g_tap_rls) {
-      CFRunLoopRemoveSource(CFRunLoopGetMain(), g_tap_rls,
-                            kCFRunLoopDefaultMode);
-      CFRelease(g_tap_rls);
-      g_tap_rls = NULL;
-    }
-    CFRelease(g_event_tap);
-    g_event_tap = NULL;
-  }
-
-
-
-  if (g_fd_primary >= 0) {
-    close(g_fd_primary);
-    g_fd_primary = -1;
-  }
-  if (g_fd_seq >= 0) {
-    close(g_fd_seq);
-    g_fd_seq = -1;
-  }
-
-  unlink(g_primary_path);
-  unlink(g_seq_path);
-  unlink(g_pid_path);
-  return 0;
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   run_daemon()
-   Launcher for the daemon using posix_spawn.
-   ───────────────────────────────────────────────────────────────────── */
-static int run_daemon(const char *exe_path, const char *cache_dir_arg) {
-  if (ensure_cache_dir(cache_dir_arg) != 0) {
-    fprintf(stderr,
-            "zes-macos-clipboard-agent: cannot create cache directory\n");
-    return 1;
-  }
-
-  /* Seed counter monotonically larger than any prior daemon instance. */
-  g_seq_counter = (unsigned long)time(NULL);
-
-  /* Write readiness signal BEFORE spawn. Shell polls for this file.
-     Uses fallback open/write/close path (g_fd_primary == -1 here). */
-  write_primary("", 0, g_seq_counter);
-
-  pid_t pid;
-  const char *argv[] = {exe_path, "--_daemon-child", cache_dir_arg, NULL};
-
-  posix_spawnattr_t attr;
-  posix_spawnattr_init(&attr);
-
-  /* macOS supports POSIX_SPAWN_SETSID to create a new session automatically */
-#ifdef POSIX_SPAWN_SETSID
-  posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
-#endif
-
-  int ret =
-      posix_spawn(&pid, exe_path, NULL, &attr, (char *const *)argv, environ);
-  posix_spawnattr_destroy(&attr);
-
-  if (ret != 0) {
-    fprintf(stderr, "zes-macos-clipboard-agent: posix_spawn failed: %d\n", ret);
-    return 1;
-  }
-
-  /* Launcher exits successfully. The spawned child runs the daemon worker. */
-  return 0;
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   main()
-   Parse arguments and dispatch to the appropriate mode.
-
-   COCOA INITIALIZATION:
-   [NSApplication sharedApplication] MUST NOT be called before fork().
-   It is called in the individual run_* functions (and after fork() in
-   run_daemon).
-
-   ACTIVATION POLICY:
-   setActivationPolicy:NSApplicationActivationPolicyAccessory MUST be called
-   immediately after [NSApplication sharedApplication]. Without it, on macOS
-   15 Sequoia, CGEventTapCreate silently returns NULL even when Accessibility
-   permission is granted. NSApplicationActivationPolicyAccessory means: no
-   Dock icon, no menu bar, but all system APIs (CGEventTap, AX) work correctly.
-
-   SHORT-LIVED MODES that do not need NSPasteboard:
-   --check-ax, --request-ax, --clear-primary are dispatched BEFORE the
-   Cocoa initialization for minimal overhead.
-   ───────────────────────────────────────────────────────────────────── */
-int main(int argc, char *argv[]) {
-  const char *cache_dir_arg = NULL;
-  bool oneshot = false;
-  bool get_clipboard = false;
-  bool copy_clipboard = false;
-  bool clear_primary = false;
-  bool check_ax = false;
-  bool request_ax = false;
-  bool daemon_child = false;
-
-  for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "--oneshot") == 0)
-      oneshot = true;
-    else if (strcmp(argv[i], "--get-clipboard") == 0)
-      get_clipboard = true;
-    else if (strcmp(argv[i], "--copy-clipboard") == 0)
-      copy_clipboard = true;
-    else if (strcmp(argv[i], "--clear-primary") == 0)
-      clear_primary = true;
-    else if (strcmp(argv[i], "--check-ax") == 0)
-      check_ax = true;
-    else if (strcmp(argv[i], "--request-ax") == 0)
-      request_ax = true;
-    else if (strcmp(argv[i], "--_daemon-child") == 0)
-      daemon_child = true;
-    else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-      fprintf(stderr,
-              "Usage: %s [cache_dir] [--oneshot|--get-clipboard"
-              "|--copy-clipboard|--clear-primary|--check-ax|--request-ax]\n"
-              "macOS AX-based primary selection agent for zsh-edit-select.\n\n"
-              "  (default)          Daemon: CGEventTap+AX for mouse selection\n"
-              "  --oneshot          Print current clipboard and exit\n"
-              "  --get-clipboard    Alias for --oneshot\n"
-              "  --copy-clipboard   Read stdin, set as clipboard, exit\n"
-              "  --clear-primary    Clear local cache files only (NOT "
-              "NSPasteboard)\n"
-              "  --check-ax         Exit 0 if Accessibility permission "
-              "granted, 1 if not\n"
-              "  --request-ax       Prompt for Accessibility permission; exit "
-              "0 if granted\n",
-              argv[0]);
-      return 0;
-    } else {
-      cache_dir_arg = argv[i];
-    }
-  }
-
-  /* --check-ax: no NSPasteboard needed. */
-  if (check_ax) {
-    return AXIsProcessTrusted() ? 0 : 1;
-  }
-
-  /* --request-ax: no NSPasteboard needed. */
-  if (request_ax) {
     @autoreleasepool {
-      NSDictionary *opts = @{(__bridge id)kAXTrustedCheckOptionPrompt : @YES};
-      bool trusted =
-          AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opts);
-      return trusted ? 0 : 1;
+        [NSApplication sharedApplication];
+        [[NSApplication sharedApplication]
+            setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        size_t len = 0; char *data = get_clipboard_utf8(&len);
+        if (data && len) { fwrite(data, 1, len, stdout); free(data); return 0; }
+        free(data); return 1;
     }
-  }
+}
 
-  /* --clear-primary: touches only local files, no NSPasteboard needed.
-     Read current seq from file to ensure the clear write has a seq
-     value higher than the daemon's last write, preventing a stale
-     mtime from being missed by the shell.
-     g_seq_counter is _Atomic; use unsigned long tmp for fscanf
-     (passing &g_seq_counter to %lu is undefined behavior).           */
-  if (clear_primary) {
-    if (ensure_cache_dir(cache_dir_arg) != 0)
-      return 1;
-    FILE *f = fopen(g_seq_path, "r");
-    if (f) {
-      unsigned long tmp = 0;
-      if (fscanf(f, "%lu", &tmp) == 1)
-        g_seq_counter = tmp;
-      else
-        g_seq_counter = (unsigned long)time(NULL);
-      fclose(f);
-    } else {
-      g_seq_counter = (unsigned long)time(NULL);
+static int run_copy_clipboard(void) {
+    size_t len = 0; char *data = read_all_stdin(&len);
+    if (!data || !len) { free(data); return 1; }
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        [[NSApplication sharedApplication]
+            setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        bool ok = set_clipboard_utf8(data, len);
+        free(data); return ok ? 0 : 1;
     }
-    return run_clear_primary();
-  }
+}
 
-  /* All remaining modes require NSPasteboard.
-     Cocoa runtime initialization is deferred and handled by each
-     mode individually to ensure it happens AFTER fork() for the daemon. */
+static int run_clear_primary(void) {
+    g_seq++; write_primary("", 0, g_seq); return 0;
+}
 
-  if (oneshot || get_clipboard)
-    return run_oneshot();
-  if (copy_clipboard)
-    return run_copy_clipboard();
-  if (daemon_child)
-    return run_daemon_worker(cache_dir_arg);
+static int run_status(const char *cache_dir_arg) {
+    if (ensure_cache_dir(cache_dir_arg) != 0) {
+        fprintf(stdout, "status: cache directory unavailable\n"); return 1;
+    }
+    bool alive = false; pid_t dpid = 0;
+    FILE *pf = fopen(g_pid_path, "r");
+    if (pf) {
+        if (fscanf(pf, "%d", &dpid) == 1 && dpid > 0) alive = (kill(dpid, 0) == 0);
+        fclose(pf);
+    }
+    char preview[64] = "(empty)";
+    FILE *prf = fopen(g_primary_path, "r");
+    if (prf) {
+        size_t n = fread(preview, 1, sizeof(preview)-1, prf);
+        preview[n] = '\0';
+        for (size_t i = 0; i < n; i++) if (preview[i] == '\n') preview[i] = ' ';
+        fclose(prf);
+        if (n == 0) strcpy(preview, "(empty)");
+        else if (n == sizeof(preview)-1) strcpy(preview+60, "...");
+    }
+    bool ax = AXIsProcessTrusted();
+    char pid_buf[32] = "";
+    if (alive) snprintf(pid_buf, sizeof(pid_buf), "%d)", dpid);
+    fprintf(stdout,
+        "zes-macos-clipboard-agent v1.0.3\n"
+        "  daemon pid    : %s%s\n"
+        "  accessibility : %s\n"
+        "  cache dir     : %s\n"
+        "  primary now   : \"%s\"\n"
+        "  selection path: %s\n",
+        alive ? "running (pid " : "NOT RUNNING", pid_buf,
+        ax ? "granted" : "NOT GRANTED (run: edit-select setup-ax)",
+        g_cache_dir, preview,
+        ax ? "AX (AppKit) + Named PB (Ghostty) + Cmd+C inject (others)"
+           : "disabled (no Accessibility permission)");
+    return alive ? 0 : 1;
+}
 
-  /* Default: daemon mode. */
-  return run_daemon(argv[0], cache_dir_arg);
+/* ── Daemon ──────────────────────────────────────────────────────────── */
+static int run_daemon_worker(const char *cache_dir_arg) {
+    if (ensure_cache_dir(cache_dir_arg) != 0) return 1;
+    setsid();
+
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        [[NSApplication sharedApplication]
+            setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    }
+
+    named_pb_init();
+
+    { int dn = open("/dev/null", O_RDWR|O_CLOEXEC);
+      if (dn >= 0) { dup2(dn,0); dup2(dn,1); dup2(dn,2); if (dn>2) close(dn); } }
+
+    { FILE *f = fopen(g_pid_path, "w");
+      if (f) { fprintf(f, "%d\n", getpid()); fclose(f); } }
+
+    g_fd_primary = open(g_primary_path, O_WRONLY|O_CREAT|O_CLOEXEC, 0644);
+    g_fd_seq     = open(g_seq_path,     O_WRONLY|O_CREAT|O_CLOEXEC, 0644);
+
+    signal(SIGTERM, SIG_IGN); signal(SIGINT, SIG_IGN); signal(SIGHUP, SIG_IGN);
+    void (^stop)(void) = ^{ g_running = 0; CFRunLoopStop(CFRunLoopGetMain()); };
+    dispatch_source_t st = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(st, stop); dispatch_resume(st);
+    dispatch_source_t si = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT,  0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(si, stop); dispatch_resume(si);
+    dispatch_source_t sh = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGHUP,  0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(sh, stop); dispatch_resume(sh);
+
+    if (AXIsProcessTrusted()) {
+        CGEventMask mask = CGEventMaskBit(kCGEventLeftMouseDown) |
+                           CGEventMaskBit(kCGEventLeftMouseUp);
+        g_tap = CGEventTapCreate(kCGSessionEventTap, kCGTailAppendEventTap,
+                                 kCGEventTapOptionListenOnly, mask,
+                                 event_tap_callback, NULL);
+        if (g_tap) {
+            g_tap_rls = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, g_tap, 0);
+            if (g_tap_rls) {
+                CFRunLoopAddSource(CFRunLoopGetMain(), g_tap_rls, kCFRunLoopDefaultMode);
+                CGEventTapEnable(g_tap, true);
+            }
+        }
+    }
+
+    CFRunLoopRun();
+
+    g_running = 0;
+    cancel_watcher();
+    delete_pending_marker();
+    dispatch_source_cancel(st); dispatch_source_cancel(si); dispatch_source_cancel(sh);
+    if (g_tap) {
+        CGEventTapEnable(g_tap, false);
+        if (g_tap_rls) {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), g_tap_rls, kCFRunLoopDefaultMode);
+            CFRelease(g_tap_rls); g_tap_rls = NULL;
+        }
+        CFRelease(g_tap); g_tap = NULL;
+    }
+    if (g_fd_primary >= 0) { close(g_fd_primary); g_fd_primary = -1; }
+    if (g_fd_seq     >= 0) { close(g_fd_seq);     g_fd_seq     = -1; }
+    unlink(g_primary_path); unlink(g_seq_path);
+    unlink(g_pid_path); unlink(g_pending_path);
+    return 0;
+}
+
+static int run_daemon(const char *exe_path, const char *cache_dir_arg) {
+    if (ensure_cache_dir(cache_dir_arg) != 0) {
+        fprintf(stderr, "zes-macos-clipboard-agent: cannot create cache dir\n");
+        return 1;
+    }
+    g_seq = (unsigned long)time(NULL);
+    write_primary("", 0, g_seq);
+
+    pid_t pid;
+    const char *argv[] = { exe_path, "--_daemon-child", cache_dir_arg, NULL };
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+#ifdef POSIX_SPAWN_SETSID
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+#endif
+    int ret = posix_spawn(&pid, exe_path, NULL, &attr, (char *const *)argv, environ);
+    posix_spawnattr_destroy(&attr);
+    if (ret != 0) {
+        fprintf(stderr, "zes-macos-clipboard-agent: posix_spawn failed: %d\n", ret);
+        return 1;
+    }
+    return 0;
+}
+
+/* ── main() ──────────────────────────────────────────────────────────── */
+int main(int argc, char *argv[]) {
+    const char *cache_dir_arg = NULL;
+    bool oneshot=0, get_clip=0, copy_clip=0, clr_prim=0,
+         chk_ax=0, req_ax=0, child=0, status=0;
+
+    for (int i = 1; i < argc; i++) {
+        if      (!strcmp(argv[i],"--oneshot"))        oneshot   = true;
+        else if (!strcmp(argv[i],"--get-clipboard"))  get_clip  = true;
+        else if (!strcmp(argv[i],"--copy-clipboard")) copy_clip = true;
+        else if (!strcmp(argv[i],"--clear-primary"))  clr_prim  = true;
+        else if (!strcmp(argv[i],"--check-ax"))       chk_ax    = true;
+        else if (!strcmp(argv[i],"--request-ax"))     req_ax    = true;
+        else if (!strcmp(argv[i],"--_daemon-child"))  child     = true;
+        else if (!strcmp(argv[i],"--status"))         status    = true;
+        else if (!strcmp(argv[i],"--help")||!strcmp(argv[i],"-h")) {
+            fprintf(stderr,
+                "Usage: %s [cache_dir] [OPTIONS]\n"
+                "zsh-edit-select macOS primary selection agent v1.0.3\n\n"
+                "  (default)         Daemon\n"
+                "  --oneshot         Print clipboard and exit\n"
+                "  --get-clipboard   Alias for --oneshot\n"
+                "  --copy-clipboard  Read stdin, write to clipboard, exit\n"
+                "  --clear-primary   Clear cache files only\n"
+                "  --check-ax        Exit 0 if Accessibility granted\n"
+                "  --request-ax      Prompt for Accessibility permission\n"
+                "  --status          Print daemon status\n",
+                argv[0]);
+            return 0;
+        } else { cache_dir_arg = argv[i]; }
+    }
+
+    if (chk_ax)  return AXIsProcessTrusted() ? 0 : 1;
+    if (status)  return run_status(cache_dir_arg);
+    if (req_ax) {
+        @autoreleasepool {
+            NSDictionary *opts = @{ (__bridge id)kAXTrustedCheckOptionPrompt : @YES };
+            return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opts) ? 0 : 1;
+        }
+    }
+    if (clr_prim) {
+        if (ensure_cache_dir(cache_dir_arg) != 0) return 1;
+        FILE *f = fopen(g_seq_path, "r");
+        if (f) { unsigned long tmp=0;
+                 g_seq = (fscanf(f,"%lu",&tmp)==1) ? tmp : (unsigned long)time(NULL);
+                 fclose(f); }
+        else   { g_seq = (unsigned long)time(NULL); }
+        return run_clear_primary();
+    }
+    if (oneshot || get_clip) return run_oneshot();
+    if (copy_clip)           return run_copy_clipboard();
+    if (child)               return run_daemon_worker(cache_dir_arg);
+    return run_daemon(argv[0], cache_dir_arg);
 }

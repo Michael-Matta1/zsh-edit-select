@@ -1,5 +1,4 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 # Absolute path to the compiled WSL selection agent binary.

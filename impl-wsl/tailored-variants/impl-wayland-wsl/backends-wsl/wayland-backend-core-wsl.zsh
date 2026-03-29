@@ -1,5 +1,4 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Wayland backend — auto-detects XWayland (invisible) vs pure Wayland monitor.

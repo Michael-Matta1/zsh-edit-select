@@ -1,8 +1,7 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
-# Makefile for zsh-edit-select macOS pasteboard agent.
+# Makefile for the zsh-edit-select macOS pasteboard agent.
 #
 # Prerequisites:
 #   Apple Command Line Tools: xcode-select --install
@@ -21,14 +20,13 @@
 CC      ?= clang
 
 # Compiler flags:
-#   -Os                  Optimize for size: keeps binary small in I-cache.
-#   -fobjc-arc           Automatic Reference Counting — no manual retain/release needed.
+#   -Os                  Optimize for size.
+#   -fobjc-arc           Automatic Reference Counting.
 #   -ffunction-sections  Enables -dead_strip to eliminate unreachable functions.
 #   -fdata-sections      Enables -dead_strip to eliminate unreachable data.
-#   -fomit-frame-pointer Saves one register in the hot path (event callback and AX read).
+#   -fomit-frame-pointer Saves one register in the hot path.
 #   -fno-ident           Suppresses compiler ident string in object file.
 #   -DNDEBUG             Disables assert() calls.
-#   NOTE: No -Wno-deprecated-declarations needed because daemon(3) is NOT used.
 CFLAGS  ?= -Os \
             -fobjc-arc \
             -ffunction-sections \
@@ -40,16 +38,14 @@ CFLAGS  ?= -Os \
 
 # Linker flags:
 #   -framework AppKit              NSPasteboard, GCD (libdispatch), Foundation.
-#   -framework ApplicationServices AXUIElement, AXObserver, CGEventTap (via HIServices
-#                                  and CoreGraphics, both bundled in ApplicationServices).
-#   -framework CoreGraphics        CGEventTapCreate, CGEventMask, kCGEventLeftMouseUp.
-#                                  Explicitly linked for clarity even though
-#                                  ApplicationServices.framework bundles it.
-#   -Wl,-dead_strip                macOS ld64 equivalent of GNU ld's --gc-sections.
-#                                  Removes unreachable code/data after -ffunction-sections.
+#   -framework ApplicationServices AXUIElement, CGEventTap (via HIServices/CG).
+#   -framework CoreGraphics        CGEventTapCreate, CGEventMask, mouse events.
+#   -lm                            sqrt() for drag-distance calculation.
+#   -Wl,-dead_strip                Remove unreachable code/data.
 LDFLAGS = -framework AppKit \
            -framework ApplicationServices \
            -framework CoreGraphics \
+           -lm \
            -Wl,-dead_strip
 
 TARGET  = zes-macos-clipboard-agent

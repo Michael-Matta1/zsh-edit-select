@@ -1,13 +1,14 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # macOS-native text selection and editing for Zsh command line.
 #
-# AX-ONLY PRIMARY SELECTION:
-# Mouse selections are detected exclusively via CGEventTap+AX.
-# NSPasteboard is NEVER polled. Plugin copy/cut operations write to
-# NSPasteboard but produce zero daemon events — no suppression needed.
+# PRIMARY SELECTION (two paths):
+# Path A (AX): mouse selections in Terminal.app, iTerm2, AppKit apps detected
+#   via CGEventTap + kAXSelectedTextAttribute. Zero clipboard side-effects.
+# Path B (Cmd+C): GPU terminals (Kitty, WezTerm, Alacritty, Ghostty) detected
+#   via CGEventTap + synthetic Cmd+C + reactive changeCount watcher.
+# NSPasteboard is NEVER polled. Plugin copy/cut writes produce zero daemon events.
 #
 # Structure: x11 source order + WSL behavioral patterns for sync functions.
 
@@ -24,10 +25,10 @@ typeset -g  _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit
 # ${0:A:h} resolves symlinks then takes parent directory.
 # For impl-macos/zsh-edit-select-macos.plugin.zsh → impl-macos/
 typeset -g  _EDIT_SELECT_PLUGIN_DIR="${0:A:h}"
-typeset -gi _EDIT_SELECT_LAST_MTIME=0
+typeset -g _EDIT_SELECT_LAST_SEQ=""
 typeset -gi _EDIT_SELECT_DAEMON_ACTIVE=0
 typeset -gi _EDIT_SELECT_NEW_SELECTION_EVENT=0
-typeset -gi _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0
+typeset -gi _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
 typeset -gi _ZES_LAST_PID_CHECK=0
 typeset -gF _ZES_SELECTION_SET_TIME=0
 
@@ -38,6 +39,8 @@ typeset -g _EDIT_SELECT_CACHE_DIR="${TMPDIR:-/tmp}/zsh-edit-select-${UID}"
 typeset -g _EDIT_SELECT_SEQ_FILE="$_EDIT_SELECT_CACHE_DIR/seq"
 typeset -g _EDIT_SELECT_PRIMARY_FILE="$_EDIT_SELECT_CACHE_DIR/primary"
 typeset -g _EDIT_SELECT_PID_FILE="$_EDIT_SELECT_CACHE_DIR/agent.pid"
+# Path B/C watcher activity signal (daemon creates/deletes this file).
+typeset -g _EDIT_SELECT_PENDING_FILE="$_EDIT_SELECT_CACHE_DIR/pending"
 
 # ── Default key sequences (macOS-native) ─────────────────────────────
 # Clipboard: Cmd key via CSI-u / kitty keyboard protocol.
@@ -108,9 +111,7 @@ function _zes_sync_after_paste() {
     _zes_clear_primary
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
-        local -a stat_info
-        zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null && \
-            _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
+        _EDIT_SELECT_LAST_SEQ=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
     fi
 }
 
@@ -128,18 +129,31 @@ function _zes_sync_after_paste() {
 function _zes_sync_selection_state() {
     ((!_EDIT_SELECT_DAEMON_ACTIVE)) && return
 
-    local -a stat_info
-    zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null || return
+    # Wait for any active agent capture/restore to finish.
+    # Eliminates race conditions with type-to-replace and paste-to-replace
+    # by pausing ZLE until the background capture is complete.
+    if [[ -f "$_EDIT_SELECT_PENDING_FILE" ]]; then
+        local _zes_start=$EPOCHREALTIME
+        while [[ -f "$_EDIT_SELECT_PENDING_FILE" ]]; do
+            # Wait up to 350ms. The macOS agent allows up to 300ms for Cmd+C copy
+            # injection to complete. If ZLE breaks out earlier, it risks reading
+            # the clipboard before the background restore has finished.
+            if (( EPOCHREALTIME - _zes_start > 0.35 )); then break; fi
+        done
+    fi
 
-    if ((stat_info[1] != _EDIT_SELECT_LAST_MTIME)); then
-        _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0
+    local current_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+    [[ -z "$current_seq" ]] && return
+
+    if [[ -n "$_EDIT_SELECT_LAST_SEQ" ]] && [[ "$current_seq" != "$_EDIT_SELECT_LAST_SEQ" ]]; then
+        _EDIT_SELECT_LAST_SEQ="$current_seq"
+        _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
         local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
         _EDIT_SELECT_LAST_PRIMARY="$new_primary"
 
         if [[ -n "$new_primary" ]]; then
             _EDIT_SELECT_NEW_SELECTION_EVENT=1
-            _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+            _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         else
             # Empty primary: selection cleared (e.g. after paste/click-deselect).
             _EDIT_SELECT_ACTIVE_SELECTION=""
@@ -147,8 +161,11 @@ function _zes_sync_selection_state() {
             _ZES_SELECTION_SET_TIME=0
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
         fi
+    elif [[ -z "$_EDIT_SELECT_LAST_SEQ" ]]; then
+        _EDIT_SELECT_LAST_SEQ="$current_seq"
     else
-        if ((_EDIT_SELECT_EVENT_FIRED_FOR_MTIME)); then
+        # Seq unchanged — no new selection event.
+        if ((_EDIT_SELECT_EVENT_FIRED_FOR_SEQ)); then
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
             if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
                 _EDIT_SELECT_ACTIVE_SELECTION=""
@@ -198,6 +215,14 @@ function _zes_detect_mouse_selection() {
     fi
 
     if ((is_new_selection)); then
+        # GPU terminal selections: strip trailing whitespace.
+        # GPU terminals (Alacritty, WezTerm, Ghostty) often append a trailing
+        # newline or space when dragging to end-of-line.  Without stripping,
+        # "hello\n" from primary does not match "hello" in $BUFFER.
+        # setopt localoptions: changes are local to this block, auto-restored.
+        { setopt localoptions extendedglob
+          mouse_sel="${mouse_sel%%[[:space:]]#}" }
+
         _EDIT_SELECT_LAST_PRIMARY="$mouse_sel"
         if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             zle -M ""
@@ -300,7 +325,7 @@ function _zes_delete_mouse_selection() {
         # WSL pattern: full ZLE state cleanup.
         _zes_sync_after_paste
         _EDIT_SELECT_NEW_SELECTION_EVENT=0
-        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         zle deactivate-region -w 2>/dev/null
         zle -K main 2>/dev/null
         return 0
@@ -503,10 +528,10 @@ function _zes_activate_region_and_dispatch() {
 
 function _zes_terminal_focus_in() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
-        local -a stat_info
-        if zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null; then
-            _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-            _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        local current_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+        if [[ -n "$current_seq" ]]; then
+            _EDIT_SELECT_LAST_SEQ="$current_seq"
+            _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         fi
     fi
     _EDIT_SELECT_NEW_SELECTION_EVENT=0
@@ -517,6 +542,31 @@ zle -N _zes_terminal_focus_in
 
 function _zes_terminal_focus_out() { : }
 zle -N _zes_terminal_focus_out
+
+# ─────────────────────────────────────────────────────────────────────
+# _zes_wezterm_mousedown_clear
+# WezTerm (and compatible terminals) send \e[>62300u via
+# pane:send_text() on mouse-Down when an active selection exists.
+# This widget clears the stale NEW_SELECTION_EVENT before the user
+# can type, preventing phantom deletion of the old selection.
+# Add to WezTerm config:
+#   { Down = { streak = 1, button = "Left" } }
+#   action = wezterm.action_callback(function(window, pane)
+#     local sel = window:get_selection_text_for_pane(pane)
+#     if sel ~= "" then pane:send_text("\x1b[>62300u") end
+#     window:perform_action(act.ClearSelection, pane)
+#     window:perform_action(act.SelectTextAtMouseCursor("Cell"), pane)
+#   end)
+# ─────────────────────────────────────────────────────────────────────
+function _zes_wezterm_mousedown_clear() {
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
+    _ZES_SELECTION_SET_TIME=0
+}
+zle -N _zes_wezterm_mousedown_clear
+bindkey -M emacs '\e[>62300u' _zes_wezterm_mousedown_clear
+bindkey '\e[>62300u' _zes_wezterm_mousedown_clear
 
 # ─────────────────────────────────────────────────────────────────────
 # edit-select::zle-line-pre-redraw
@@ -541,20 +591,21 @@ function edit-select::zle-line-pre-redraw() {
             fi
         fi
 
-        local -a stat_info
-        zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null || {
+        local current_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+        if [[ -z "$current_seq" ]]; then
             _EDIT_SELECT_DAEMON_ACTIVE=0
             return
-        }
+        fi
 
-        if ((stat_info[1] != _EDIT_SELECT_LAST_MTIME)); then
-            _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-            _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0
+        if [[ "$current_seq" != "$_EDIT_SELECT_LAST_SEQ" ]]; then
+            _EDIT_SELECT_LAST_SEQ="$current_seq"
+            _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
             local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
 
             _EDIT_SELECT_LAST_PRIMARY="$new_primary"
             if [[ -n "$new_primary" ]]; then
                 _EDIT_SELECT_NEW_SELECTION_EVENT=1
+                _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
             else
                 # Empty primary: selection was cleared (click-deselect, paste).
                 _EDIT_SELECT_ACTIVE_SELECTION=""
@@ -740,10 +791,8 @@ if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
     _zes_start_monitor
     if ((_EDIT_SELECT_DAEMON_ACTIVE)) && [[ -f "$_EDIT_SELECT_PRIMARY_FILE" ]]; then
         _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
-        local -a _zes_init_st
-        zstat -A _zes_init_st +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null && \
-            _EDIT_SELECT_LAST_MTIME=${_zes_init_st[1]}
-        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        _EDIT_SELECT_LAST_SEQ=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+        _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
     fi
 fi
 
@@ -789,6 +838,8 @@ function edit-select::apply-mouse-replacement-config() {
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
         bindkey '\e[O' _zes_terminal_focus_out
+        bindkey -M emacs '\e[>62300u' _zes_wezterm_mousedown_clear
+        bindkey '\e[>62300u' _zes_wezterm_mousedown_clear
     else
         bindkey -M emacs -R ' '-'~' self-insert
         bindkey -M emacs '^?' backward-delete-char

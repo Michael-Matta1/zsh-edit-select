@@ -1,5 +1,4 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 
@@ -509,7 +508,7 @@ function edit-select::show-menu() {
 		if "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" \
 				--check-ax 2>/dev/null; then
 			_zesw_status_line "Mouse Selection" \
-				"${_ZESW_CLR_HILITE}Active (AX) ✓${_ZESW_CLR_RESET}"
+				"${_ZESW_CLR_HILITE}Active — all terminals ✓${_ZESW_CLR_RESET}"
 		else
 			_zesw_status_line "Mouse Selection" \
 				"${_ZESW_CLR_WARN}Clipboard only — run 'edit-select setup-ax'${_ZESW_CLR_RESET}"
@@ -1426,6 +1425,16 @@ function edit-select::view-config() {
 
 	_zesw_section_header "Active Runtime Settings"
 	printf "  %sClipboard:%s NSPasteboard (macOS)\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+	printf "\n  %sMouse Selection Engine:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+	if [[ -x "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" ]] && \
+	   "${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent" --check-ax 2>/dev/null; then
+		_zesw_status_line "  Path A" "Accessibility API  — Terminal.app, iTerm2, AppKit apps"
+		_zesw_status_line "  Path B" "Reactive Cmd+C     — Kitty, WezTerm, Alacritty, Ghostty"
+		_zesw_info "Both paths active. Drag, double-click, triple-click all captured."
+	else
+		_zesw_status_line "  Status" "${_ZESW_CLR_WARN}Accessibility not granted — run: edit-select setup-ax${_ZESW_CLR_RESET}"
+		_zesw_info "Without Accessibility permission, mouse selection capture is disabled."
+	fi
 
 	printf "\n  %sMouse Integration:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	local mouse_status="$(_zesw_get_mouse_status)"

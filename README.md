@@ -8,12 +8,6 @@ support.
 
 [demo video](https://github.com/user-attachments/assets/a024e609-1de1-4608-a7c3-e17264162904)
 
-<details>
-<summary><b>If the demo video is unavailable, click here to view the GIF.</b></summary>
-
-![Demo](assets/demo.gif)
-
-</details>
 
 ---
 
@@ -1529,7 +1523,12 @@ the cache is memory-resident, while the agent syncs changes from Windows in the 
 
 ## macOS Support
 
+
 macOS is fully supported with a native Objective-C clipboard agent that provides true PRIMARY selection via the Accessibility API.
+
+### macOS is Currently Under Maintenance
+
+Implementation and documentation are actively being developed to ensure full compatibility and an improved user experience. Availability is expected within the next two weeks.
 
 
 <details>
