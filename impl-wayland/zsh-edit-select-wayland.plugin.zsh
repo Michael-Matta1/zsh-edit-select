@@ -863,15 +863,28 @@ if ((_ZES_SSH_MODE)); then
     bindkey                '^[[122;9u'  undo
     bindkey -M emacs       '^[[122;10u' redo                        # Cmd+Shift+Z
     bindkey                '^[[122;10u' redo
+    # Line / buffer navigation (Cmd = modifier 9)
+    bindkey -M emacs       '^[[1;9D' beginning-of-line              # Cmd+Left
+    bindkey -M emacs       '^[[1;9C' end-of-line                    # Cmd+Right
+    bindkey -M emacs       '^[[1;9A' beginning-of-buffer-or-history # Cmd+Up
+    bindkey -M emacs       '^[[1;9B' end-of-buffer-or-history       # Cmd+Down
     # Word navigation (Option = modifier 3)
     bindkey -M emacs       '^[[1;3D' backward-word                  # Option+Left
     bindkey -M emacs       '^[[1;3C' forward-word                   # Option+Right
+    # Line / buffer selection (Cmd+Shift = modifier 10)
+    bindkey -M emacs       '^[[1;10D' edit-select::beginning-of-line   # Cmd+Shift+Left
+    bindkey -M edit-select '^[[1;10D' edit-select::beginning-of-line
+    bindkey -M emacs       '^[[1;10C' edit-select::end-of-line         # Cmd+Shift+Right
+    bindkey -M edit-select '^[[1;10C' edit-select::end-of-line
+    bindkey -M emacs       '^[[1;10A' edit-select::beginning-of-buffer # Cmd+Shift+Up
+    bindkey -M edit-select '^[[1;10A' edit-select::beginning-of-buffer
+    bindkey -M emacs       '^[[1;10B' edit-select::end-of-buffer       # Cmd+Shift+Down
+    bindkey -M edit-select '^[[1;10B' edit-select::end-of-buffer
     # Word selection (Option+Shift = modifier 4)
-    bindkey -M edit-select '^[[1;4D' backward-word                  # Option+Shift+Left
-    bindkey -M edit-select '^[[1;4C' forward-word                   # Option+Shift+Right
-    # Buffer start/end selection (Cmd+Shift = modifier 10)
-    bindkey -M edit-select '^[[1;10A' beginning-of-buffer-or-history # Cmd+Shift+Up
-    bindkey -M edit-select '^[[1;10B' end-of-buffer-or-history       # Cmd+Shift+Down
+    bindkey -M emacs       '^[[1;4D' edit-select::backward-word     # Option+Shift+Left
+    bindkey -M edit-select '^[[1;4D' edit-select::backward-word
+    bindkey -M emacs       '^[[1;4C' edit-select::forward-word      # Option+Shift+Right
+    bindkey -M edit-select '^[[1;4C' edit-select::forward-word
 fi
 
 # Normalise any residual string value that may still be in the live env.
