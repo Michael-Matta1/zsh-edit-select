@@ -1,5 +1,4 @@
 # Copyright (c) 2025 Michael Matta
-# Version: 0.6.4
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # Wayland-native text selection and editing for Zsh command line.
@@ -563,6 +562,24 @@ zle -N _zes_terminal_focus_in
 function _zes_terminal_focus_out() { : }
 zle -N _zes_terminal_focus_out
 
+# ── WezTerm click-to-deselect handler ─────────────────────────────────────
+# WezTerm sends \e[>62300u via pane:send_text() on mouse-Down when it has
+# an active selection.  This widget clears the stale NEW_SELECTION_EVENT
+# before the user types, preventing phantom deletion of the old selection.
+# Unlike _zes_terminal_focus_in, this does NOT touch EVENT_FIRED_FOR_MTIME
+# so a subsequent drag will still be processed normally by zle-line-pre-redraw.
+function _zes_wezterm_mousedown_clear() {
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
+    _ZES_SELECTION_SET_TIME=0
+}
+zle -N _zes_wezterm_mousedown_clear
+bindkey -M emacs '\e[>62300u' _zes_wezterm_mousedown_clear
+bindkey '\e[>62300u' _zes_wezterm_mousedown_clear
+
+
+
 # ZLE hook: called before every prompt redraw.  Must be fast — no forks.
 # Detects PRIMARY selection changes via seq-file mtime (one stat syscall).
 # Daemon liveness is checked at most once every 30 s to avoid a kill -0 on
@@ -631,6 +648,8 @@ function edit-select::apply-mouse-replacement-config() {
     autoload -Uz add-zle-hook-widget
 
     if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
+        bindkey -M emacs '\e[>62300u' _zes_wezterm_mousedown_clear
+        bindkey '\e[>62300u' _zes_wezterm_mousedown_clear
         bindkey -M emacs -R ' '-'~' edit-select::handle-char
         bindkey -M emacs '^?' edit-select::delete-mouse-or-backspace
         bindkey -M emacs "${terminfo[kdch1]:-^[[3~}" edit-select::delete-mouse-or-delete
