@@ -767,6 +767,16 @@ function { emulate -L zsh
     [[ -n "$EDIT_SELECT_KEY_WORD_LEFT" ]]  && bindkey -M emacs "$EDIT_SELECT_KEY_WORD_LEFT" backward-word
     [[ -n "$EDIT_SELECT_KEY_WORD_RIGHT" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_WORD_RIGHT" forward-word
 
+    # Home / End → move to line start / end (plain navigation, no selection).
+    # Provide broad defaults covering normal, application, and rxvt/xterm modes.
+    local _zes_k
+    for _zes_k in "${terminfo[khome]:-^[[H}" '^[[H' '^[OH' '^[[1~' '^[[7~'; do
+        bindkey -M emacs "$_zes_k" beginning-of-line
+    done
+    for _zes_k in "${terminfo[kend]:-^[[F}" '^[[F' '^[OF' '^[[4~' '^[[8~'; do
+        bindkey -M emacs "$_zes_k" end-of-line
+    done
+
     bindkey -M edit-select '\e[I' _zes_terminal_focus_in
     bindkey -M edit-select '\e[O' _zes_terminal_focus_out
 }

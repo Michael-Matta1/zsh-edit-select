@@ -230,6 +230,6 @@ function _zes_clear_primary() {
     fi
 
     # Truncate locally immediately for instant visibility.
-    [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && \
+    [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && [[ -d "${_EDIT_SELECT_PRIMARY_FILE:h}" ]] && \
         : >"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
 }
