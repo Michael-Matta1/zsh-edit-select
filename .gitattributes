@@ -1,4 +1,4 @@
-# Always use LF line endings for shell scripts — CRLF or BOM breaks zsh on Linux/WSL.
+# Always use LF line endings for shell scripts — Needed for WSL.
 *.zsh        text eol=lf working-tree-encoding=UTF-8
 *.sh         text eol=lf working-tree-encoding=UTF-8
 *.zsh.zwc    binary

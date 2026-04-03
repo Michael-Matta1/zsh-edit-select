@@ -1,3 +1,5 @@
+# Needed for WSL development.
+
 root = true
 
 [*.{zsh,sh}]
