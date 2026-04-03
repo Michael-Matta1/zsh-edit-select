@@ -114,6 +114,10 @@ static bool dc_clip_has_text_sel = false;
 static bool dc_got_selection = false;
 static bool dc_use_ext = false;
 
+/* Data-control offer for PRIMARY selection — set by data-control primary_selection event. */
+static void *dc_primary_offer = NULL;
+static bool dc_primary_has_text_sel = false;
+
 /* Set true whenever dd_handle_selection fires — even if the offer is NULL
    (empty clipboard).  Used as the exit condition for the focus-surface
    event loop in run_get_clipboard() so an empty clipboard does not hang. */
@@ -181,10 +185,7 @@ static int ensure_cache_dir(const char *dir) {
     return 0;
 }
 
-/* Forward declaration — needed because check_and_update_primary() is
-   defined before read_ps_offer() for logical grouping. */
-static char *read_ps_offer(struct zwp_primary_selection_offer_v1 *offer,
-                           size_t *out_len);
+
 
 /* Write selection text to the PRIMARY cache file and the monotonic
    sequence number to the SEQ file.  Uses persistent fds when available
@@ -232,61 +233,6 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
         (void)r;
         close(fd);
     }
-}
-
-/* Helper: re-read the current PRIMARY offer, compare with cached content,
- * and update the cache files only if content actually changed.
- *
- * Called exclusively from the daemon's 50 ms poll-timeout path to detect
- * content changes within the same selection (e.g. the user extends a
- * terminal selection).  Selection-owner-change events are handled
- * separately in ps_device_handle_selection() which always writes.
- *
- * Skipping the write when content is unchanged saves 4 syscalls
- * (2 × pwrite + 2 × ftruncate) per poll cycle — ~80 syscalls/sec
- * while the selection is static. */
-static bool check_and_update_primary(void) {
-    if (!current_ps_offer || !ps_has_text) {
-        if (last_known_content) {
-            seq_counter++;
-            write_primary("", 0, seq_counter);
-            free(last_known_content);
-            last_known_content = NULL;
-            last_known_len = 0;
-            return true;
-        }
-        return false;
-    }
-
-    size_t len = 0;
-    char *sel = read_ps_offer(current_ps_offer, &len);
-
-    bool changed = false;
-    if (!sel && last_known_content)
-        changed = true;
-    else if (sel && !last_known_content)
-        changed = true;
-    else if (sel && last_known_content)
-        changed = (len != last_known_len || memcmp(sel, last_known_content, len) != 0);
-
-    if (changed) {
-        seq_counter++;
-        write_primary(sel ? sel : "", sel ? len : 0, seq_counter);
-        free(last_known_content);
-        if (sel && len > 0) {
-            /* Transfer ownership of the heap buffer from read_ps_offer()
-               directly — avoids a redundant malloc+memcpy per event. */
-            last_known_content = sel;
-            last_known_len = len;
-            sel = NULL;
-        } else {
-            last_known_content = NULL;
-            last_known_len = 0;
-        }
-    }
-
-    free(sel);
-    return changed;
 }
 
 /* ------------------------------------------------------------------ */
@@ -435,6 +381,80 @@ static bool osc52_write(const char *data, size_t len) {
 
 /* ===== DATA-CONTROL PROTOCOL LISTENERS (Mechanism B) ============== */
 
+/* Helper function: reads the primary selection from either standard
+ * zwp_primary_selection or data-control protocols and updates the cache. */
+static void process_primary_update(
+        struct ext_data_control_offer_v1 *ext_offer,
+        struct zwlr_data_control_offer_v1 *wlr_offer,
+        struct zwp_primary_selection_offer_v1 *ps_offer,
+        bool has_text) {
+    seq_counter++;
+    got_selection = true;
+
+    if (!is_daemon_mode) return;
+
+    if ((!ext_offer && !wlr_offer && !ps_offer) || !has_text) {
+        if (last_known_content) {
+            seq_counter++;
+            write_primary("", 0, seq_counter);
+            free(last_known_content);
+            last_known_content = NULL;
+            last_known_len = 0;
+        }
+        return;
+    }
+
+    size_t len = 0;
+    char *sel = NULL;
+
+    if (ext_offer) {
+        int fds[2];
+        if (pipe2(fds, O_CLOEXEC) != -1) {
+            ext_data_control_offer_v1_receive(ext_offer, "text/plain;charset=utf-8", fds[1]);
+            wl_display_flush(wl_dpy);
+            close(fds[1]);
+            sel = read_fd_with_timeout(fds[0], &len, MAX_SELECTION_SIZE, 500);
+            close(fds[0]);
+        }
+    } else if (wlr_offer) {
+        int fds[2];
+        if (pipe2(fds, O_CLOEXEC) != -1) {
+            zwlr_data_control_offer_v1_receive(wlr_offer, "text/plain;charset=utf-8", fds[1]);
+            wl_display_flush(wl_dpy);
+            close(fds[1]);
+            sel = read_fd_with_timeout(fds[0], &len, MAX_SELECTION_SIZE, 500);
+            close(fds[0]);
+        }
+    } else if (ps_offer) {
+        sel = read_ps_offer(ps_offer, &len);
+    }
+
+    /* Only update cache if content actually changed. */
+    bool changed = false;
+    if (!sel && last_known_content)
+        changed = true;
+    else if (sel && !last_known_content)
+        changed = true;
+    else if (sel && last_known_content)
+        changed = (len != last_known_len || memcmp(sel, last_known_content, len) != 0);
+
+    if (changed) {
+        seq_counter++;
+        write_primary(sel ? sel : "", sel ? len : 0, seq_counter);
+        free(last_known_content);
+        if (sel && len > 0) {
+            /* Transfer ownership — avoids redundant malloc+memcpy. */
+            last_known_content = sel;
+            last_known_len = len;
+            sel = NULL;
+        } else {
+            last_known_content = NULL;
+            last_known_len = 0;
+        }
+    }
+    free(sel);
+}
+
 /* Offer listener — tracks whether the data-control offer has text MIME. */
 static void dc_offer_handle_offer_wlr(void *data,
         struct zwlr_data_control_offer_v1 *offer, const char *mime_type) {
@@ -491,9 +511,12 @@ static void dc_device_primary_selection_wlr(void *data,
         struct zwlr_data_control_device_v1 *dev,
         struct zwlr_data_control_offer_v1 *offer) {
     (void)data; (void)dev;
-    /* PRIMARY is handled by zwp_primary_selection — destroy the offer
-       to avoid leaking the proxy object. */
-    if (offer) zwlr_data_control_offer_v1_destroy(offer);
+    if (dc_primary_offer && dc_primary_offer != offer)
+        zwlr_data_control_offer_v1_destroy(dc_primary_offer);
+    dc_primary_offer = offer;
+    dc_primary_has_text_sel = dc_clip_has_text;
+
+    process_primary_update(NULL, offer, NULL, dc_primary_has_text_sel);
 }
 
 static const struct zwlr_data_control_device_v1_listener dc_device_listener_wlr = {
@@ -532,9 +555,12 @@ static void dc_device_primary_selection_ext(void *data,
         struct ext_data_control_device_v1 *dev,
         struct ext_data_control_offer_v1 *offer) {
     (void)data; (void)dev;
-    /* PRIMARY is handled by zwp_primary_selection — destroy the offer
-       to avoid leaking the proxy object. */
-    if (offer) ext_data_control_offer_v1_destroy(offer);
+    if (dc_primary_offer && dc_primary_offer != offer)
+        ext_data_control_offer_v1_destroy(dc_primary_offer);
+    dc_primary_offer = offer;
+    dc_primary_has_text_sel = dc_clip_has_text;
+
+    process_primary_update(offer, NULL, NULL, dc_primary_has_text_sel);
 }
 
 static const struct ext_data_control_device_v1_listener dc_device_listener_ext = {
@@ -715,55 +741,8 @@ static void ps_device_handle_selection(void *data,
     if (current_ps_offer && current_ps_offer != offer)
         zwp_primary_selection_offer_v1_destroy(current_ps_offer);
     current_ps_offer = offer;
-    seq_counter++;
-    got_selection = true;
 
-    /* In daemon mode, read the offer immediately and write to cache.
-       In other modes (oneshot etc), just store the offer reference
-       and let the caller read it — avoids double-read bugs where
-       the second read times out because the offering client already
-       served the first request. */
-    if (!is_daemon_mode) return;
-
-    if (!offer || !ps_has_text) {
-        if (last_known_content) {
-            seq_counter++;
-            write_primary("", 0, seq_counter);
-            free(last_known_content);
-            last_known_content = NULL;
-            last_known_len = 0;
-        }
-        return;
-    }
-
-    size_t len = 0;
-    char *sel = read_ps_offer(offer, &len);
-
-    /* Only update cache if content actually changed. */
-    bool changed = false;
-    if (!sel && last_known_content)
-        changed = true;
-    else if (sel && !last_known_content)
-        changed = true;
-    else if (sel && last_known_content)
-        changed = (len != last_known_len || memcmp(sel, last_known_content, len) != 0);
-
-    if (changed) {
-        seq_counter++;
-        write_primary(sel ? sel : "", sel ? len : 0, seq_counter);
-        free(last_known_content);
-        if (sel && len > 0) {
-            /* Transfer ownership — avoids redundant malloc+memcpy. */
-            last_known_content = sel;
-            last_known_len = len;
-            sel = NULL;
-        } else {
-            last_known_content = NULL;
-            last_known_len = 0;
-        }
-    }
-
-    free(sel);
+    process_primary_update(NULL, NULL, offer, ps_has_text);
 }
 
 /* Listener table for the PRIMARY selection device.
@@ -1715,9 +1694,9 @@ static int create_daemon_surface(void) {
  * event loop for the full monitoring strategy. */
 static int run_daemon(const char *cache_dir_arg) {
     if (wayland_connect() != 0) return 1;
-    if (!ps_manager) {
+    if (!ps_manager && !ext_dcm && !wlr_dcm) {
         fprintf(stderr,
-                "Compositor does not support zwp_primary_selection_v1\n");
+                "Compositor does not support primary selection or data control\n");
         wayland_disconnect();
         return 1;
     }
@@ -1762,35 +1741,49 @@ static int run_daemon(const char *cache_dir_arg) {
     fd_primary = open(primary_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
     fd_seq     = open(seq_path,    O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
 
-    ps_device = zwp_primary_selection_device_manager_v1_get_device(
-        ps_manager, wl_seat_obj);
-    zwp_primary_selection_device_v1_add_listener(
-        ps_device, &ps_device_listener, NULL);
+    if (ext_dcm) {
+        dc_use_ext = true;
+        dc_primary_offer = NULL;
+        dc_primary_has_text_sel = false;
+        struct ext_data_control_device_v1 *ext_dc_dev = ext_data_control_manager_v1_get_data_device(ext_dcm, wl_seat_obj);
+        ext_data_control_device_v1_add_listener(ext_dc_dev, &dc_device_listener_ext, NULL);
+    } else if (wlr_dcm) {
+        dc_use_ext = false;
+        dc_primary_offer = NULL;
+        dc_primary_has_text_sel = false;
+        struct zwlr_data_control_device_v1 *wlr_dc_dev = zwlr_data_control_manager_v1_get_data_device(wlr_dcm, wl_seat_obj);
+        zwlr_data_control_device_v1_add_listener(wlr_dc_dev, &dc_device_listener_wlr, NULL);
+    } else if (ps_manager) {
+        ps_device = zwp_primary_selection_device_manager_v1_get_device(
+            ps_manager, wl_seat_obj);
+        zwp_primary_selection_device_v1_add_listener(
+            ps_device, &ps_device_listener, NULL);
+        
+        /* Create permanent 1x1 transparent surface. GNOME < 47 without data-control
+           requires the surface for Mutter to send events. */
+        if (create_daemon_surface() != 0) {
+            fprintf(stderr, "Cannot create daemon surface\n");
+            free(last_known_content);   /* may be NULL — free(NULL) is safe (C99 §7.20.3.2) */
+            last_known_content = NULL;
+            if (fd_primary >= 0) { close(fd_primary); fd_primary = -1; }
+            if (fd_seq     >= 0) { close(fd_seq);     fd_seq     = -1; }
+            unlink(pid_path);
+            wayland_disconnect();
+            return 1;
+        }
+    }
     wl_display_roundtrip(wl_dpy);
 
-    /* Create permanent 1x1 transparent surface.  Mutter/GNOME requires
-       a mapped surface to deliver PRIMARY selection events.  The surface
-       has an empty input region so it cannot steal keyboard focus. */
-    if (create_daemon_surface() != 0) {
-        fprintf(stderr, "Cannot create daemon surface\n");
-        free(last_known_content);   /* may be NULL — free(NULL) is safe (C99 §7.20.3.2) */
-        last_known_content = NULL;
-        if (fd_primary >= 0) { close(fd_primary); fd_primary = -1; }
-        if (fd_seq     >= 0) { close(fd_seq);     fd_seq     = -1; }
-        unlink(pid_path);
-        wayland_disconnect();
-        return 1;
-    }
-
     /* DETECTION ARCHITECTURE:
-     * 1. Event-driven: compositor sends selection events when PRIMARY
-     *    changes → ps_device_handle_selection fires → reads content
-     *    and updates cache immediately.
-     * 2. 50ms polling fallback: re-reads the current offer to catch
-     *    content changes within the same selection (e.g. user extends
-     *    a selection in the terminal).
-     * 3. The permanent surface ensures Mutter delivers events without
-     *    stealing focus (empty input region). */
+     * Purely event-driven: compositor sends selection events when PRIMARY
+     * changes → ps_device_handle_selection fires → reads content and
+     * updates cache immediately.  No polling of current offer is needed;
+     * the Wayland protocol spec states PRIMARY selection clients should
+     * call set_selection only once after operation finishes (mouse release).
+     * GTK3/GTK4 terminals comply: they fire ps_device_handle_selection on
+     * the mouse-button release event with final content.  The cache is
+     * always correct before user invokes Ctrl+C.
+     * The event loop wakes up every 1 s for SIGTERM processing only. */
     int wl_fd = wl_display_get_fd(wl_dpy);
 
     while (running) {
@@ -1802,8 +1795,9 @@ static int run_daemon(const char *cache_dir_arg) {
             break;
         }
 
+        int timeout = (ext_dcm || wlr_dcm) ? 1000 : 50;
         struct pollfd pfd = { .fd = wl_fd, .events = POLLIN };
-        int ret = poll(&pfd, 1, 50);
+        int ret = poll(&pfd, 1, timeout);
 
         if (ret < 0) {
             wl_display_cancel_read(wl_dpy);
@@ -1813,9 +1807,12 @@ static int run_daemon(const char *cache_dir_arg) {
 
         if (ret == 0) {
             wl_display_cancel_read(wl_dpy);
-            /* Poll timeout — re-read current offer to detect changes */
-            if (current_ps_offer && ps_has_text)
-                check_and_update_primary();
+            /* If no data-control manager exists (GNOME/Mutter), we MUST poll the
+               current offer because the compositor won't send selection events
+               to unfocused background surfaces. */
+            if (!ext_dcm && !wlr_dcm && current_ps_offer && ps_has_text) {
+                process_primary_update(NULL, NULL, current_ps_offer, ps_has_text);
+            }
             continue;
         }
 

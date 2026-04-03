@@ -22,7 +22,6 @@ support.
 >---
 >
 - [Famous Terminals Configurations](#famous-terminals-configurations)
-- [Wayland Support](#wayland-support)
 - [WSL Support](#wsl-support)
 - [SSH Support (Headless Linux Box)](#ssh-support-headless-linux-box)
 >
@@ -266,7 +265,7 @@ The process consists of two steps:
 >
 > For a manual build and an optimized experience tailored to your specific hardware (e.g., using `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
 >
-In some cases, delays may occur due to temporary issues with GitHub infrastructure. If the first load takes longer than expected, please wait a few minutes and try again once the services are fully operational.
+In some cases, delays may occur due to temporary issues with GitHub infrastructure. If the first load takes longer than expected, please wait a few minutes and try again once the GitHub services are fully operational.
 
 > If you run into any difficulty at any step, please
 > [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) and it will be addressed.
@@ -362,6 +361,11 @@ details.
 
 ### 2.5 Enable Mouse Integration (macOS only)
 
+If you are using macOS you will need an extra step to enable mouse integration.
+
+<details>
+<summary><b>Click to expand</b></summary>
+
 To enable the mouse integration run the following command:
 
 ```bash
@@ -388,9 +392,11 @@ If you face any issue with mouse integration, disable it from the configuration 
 #### tmux on macOS
 
 If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
-   ```bash
-   brew install reattach-to-user-namespace
-   ```
+  ```bash
+  brew install reattach-to-user-namespace
+  ```
+
+</details>
 
 
 ### 3. Restart Your Shell
@@ -1397,6 +1403,7 @@ Foot uses `[key-bindings]` to disable built-in actions and `[text-bindings]` to 
 
 - `clipboard-copy` (defaults to `Control+Shift+c`) — must be unbound so the copy escape sequence reaches the shell instead of triggering Foot's clipboard action.
 - `prompt-prev` (defaults to `Control+Shift+z`) — must be unbound so the undo escape sequence reaches the shell instead of triggering Foot's prompt navigation.
+- Foot does not  reliably follow the primary-selection protocol: it does not release PRIMARY when you click to deselect text, so mouse replacement can stay latched to an old selection. That is a Foot-side limitation, not a plugin bug. For Foot, keep mouse replacement disabled in the Configuration Wizard (`edit-select config` → Option 1 → Disabled) and use keyboard selection instead.
 
 Foot passes Shift+Arrow keys through to the terminal natively — **no additional configuration is needed for Shift selection.**
 
@@ -1457,7 +1464,6 @@ iTerm2 prepends `ESC` (`\x1b`) automatically — so entering `[99;9u` correctly 
 |---|---|---|---|
 | `Cmd+A` | Send Escape Sequence | `[97;9u` | Select All |
 | `Cmd+C` | Send Escape Sequence | `[99;9u` | Copy |
-| `Cmd+V` | Send Escape Sequence | `[118;9u` | Paste |
 | `Cmd+X` | Send Escape Sequence | `[120;9u` | Cut |
 | `Cmd+Z` | Send Escape Sequence | `[122;9u` | Undo |
 | `Cmd+Shift+Z` | Send Escape Sequence | `[122;10u` | Redo |
@@ -1586,144 +1592,6 @@ keybind = ctrl+shift+z=csi:90;6u
 
 
 ---
-
-## Wayland Support
-
-Wayland is fully supported with native protocol implementation. The plugin automatically detects your Wayland
-setup and uses the optimal clipboard agent:
-
-**Clipboard Agent Priority (automatically selected):**
-
-1. **`zes-wl-selection-agent` (Native Wayland)** — Clipboard integration with direct Wayland protocol support
-   - Handles PRIMARY selection and CLIPBOARD using native Wayland protocols
-   - Works on all compositors with protocol support (Sway, Hyprland, KDE Plasma, River, Wayfire)
-   - Full mouse selection replacement — no external tools needed
-   - Sub-2.2ms clipboard latency (96.4% faster than `wl-copy`)
-
-2. **`zes-xwayland-agent` (XWayland)** — XWayland compatibility layer (used when `DISPLAY` is available)
-   - Uses X11 XFixes via XWayland for clipboard integration
-   - Seamless support for mixed X11/Wayland environments
-   - Complements the native Wayland agent for maximum compatibility
-
-> The native Wayland implementation connects directly to Wayland protocols, eliminating reliance on
-> `wl-copy`/`wl-paste`. All clipboard operations happen within the persistent agent process — zero subprocess
-> overhead.
->
-> **Architecture:** The clipboard agents (`zes-wl-selection-agent`, `zes-xwayland-agent`,
-> `zes-x11-selection-agent`) are lightweight background processes that integrate with display server clipboard
-> protocols. Updates are written to a fast in-memory cache
-
-<details>
-<summary><b>Native Wayland Protocol Support (Fully Implemented)</b></summary>
-
-`zes-wl-selection-agent` provides complete clipboard and selection support on all Wayland compositors with
-protocol implementation:
-
-**Supported Compositors:**
-
-- ✅ **wlroots-based compositors** — Sway, Hyprland, River, Wayfire (full PRIMARY support)
-- ✅ **KDE Plasma Wayland** — Full PRIMARY selection via `zwp_primary_selection_unstable_v1`
-- ✅ **GNOME Wayland (Mutter)** — Native Wayland implementation provides PRIMARY selection support\*
-
-\*Note: GNOME's PRIMARY selection support depends on compositor configuration. If unavailable, XWayland bridge
-provides seamless fallback.
-
-**Performance Advantage:** Direct Wayland protocol access means:
-
-- No subprocess spawning for clipboard operations
-- No `wl-copy`/`wl-paste` process overhead
-- Native event-driven architecture
-- Instant response to selection changes
-- Zero typing lag even with frequent selections
-
-</details>
-
-<details>
-<summary><b>XWayland Bridge (Recommended, for Enhanced Compatibility)</b></summary>
-
-`zes-xwayland-agent` uses XWayland (if available) for an extra X11 compatibility layer for clipboard
-integration. XWayland provides:
-
-- Seamless fallback for hybrid X11/Wayland environments
-- Support for legacy applications running under XWayland
-- Alternative PRIMARY selection detection when native Wayland protocols unavailable
-
-</details>
-
-<details>
-<summary><b>Enabling XWayland (Recommended)</b></summary>
-
-`zes-xwayland-agent` uses XWayland for clipboard integration — it requires XWayland to be available. XWayland
-provides an X11 compatibility layer on top of Wayland, allowing the agent to use X11's XFixes extension —
-completely invisible: no windows, no dock entries, no compositor artifacts.
-
-**Check if XWayland is already running:**
-
-```bash
-echo $DISPLAY
-```
-
-If this prints something like `:0` or `:1`, XWayland is already available.
-
-**If `DISPLAY` is empty, enable XWayland on your compositor:**
-
-<details>
-<summary><b>GNOME (Mutter)</b></summary>
-
-XWayland is enabled by default on GNOME. If it was disabled:
-
-```bash
-# Re-enable XWayland (requires logout/login)
-gsettings reset org.gnome.mutter experimental-features
-```
-
-Or add `Xwayland` to the experimental features if using a custom list. On GNOME 47+, XWayland starts on demand
-when any X11 app connects.
-
-</details>
-
-<details>
-<summary><b>KDE Plasma</b></summary>
-
-XWayland is enabled by default. If disabled, re-enable it in:
-
-**System Settings → Display and Monitor → Compositor → Allow XWayland applications**
-
-</details>
-
-<details>
-<summary><b>Sway</b></summary>
-
-XWayland is enabled by default. If disabled, add to your Sway config:
-
-```
-xwayland enable
-```
-
-Then reload Sway (`$mod+Shift+C`).
-
-</details>
-
-<details>
-<summary><b>Hyprland</b></summary>
-
-Add to your Hyprland config:
-
-```
-xwayland {
-  force_zero_scaling = true
-}
-```
-
-XWayland is enabled by default in Hyprland.
-
-</details>
-
-**Without XWayland:** The plugin uses `zes-wl-selection-agent` directly, which uses
-`zwp_primary_selection_v1`. This works on wlroots-based compositors (Sway, Hyprland) and KDE Plasma, but may
-show a small surface in the dock/taskbar on GNOME/Mutter.
-
-</details>
 
 ---
 
@@ -2304,7 +2172,7 @@ Ctrl fallbacks set through `edit-select config`.
 
 - **macOS** — True PRIMARY selection via Accessibility API (`AXUIElement`); zero clipboard contamination
 - **X11 / XWayland** — Complete PRIMARY selection support via XFixes extension; XWayland bridge for mixed environments
-- **Native Wayland** — Direct protocol support on wlroots compositors (Sway, Hyprland, River, Wayfire), KDE Plasma, and GNOME/Mutter
+- **Native Wayland** — Direct protocol support on wlroots compositors (Sway, Hyprland, River, Wayfire), KDE Plasma, and GNOME/Mutter; when XWayland is unavailable, the native agent uses `zwp_primary_selection_v1` directly and may show a small surface in the dock/taskbar on GNOME/Mutter
 - **WSL** — Full mouse selection replacement with custom tracking modes on Windows Terminal
 
 If mouse selection replacement doesn't work:
@@ -2325,6 +2193,7 @@ This plugin has been thoroughly tested on **Kitty Terminal** and briefly on othe
   (`-O3 -march=native -flto -fipa-pta` and link-time dead code elimination); no interpreter overhead.
 - **RAM-backed cache** — Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions),
   with `TMPDIR` or `/tmp` as fallback. On standard systemd-based systems, all cache I/O remains in memory.
+- **Wayland protocol path** — Native Wayland uses direct compositor protocols for PRIMARY selection and CLIPBOARD, avoiding `wl-copy`/`wl-paste` subprocesses and keeping clipboard operations inside the persistent agent process.
 - **Graceful fallback** — If the compiled agents are unavailable, the plugin falls back to standard clipboard
   tools (`xclip`, `wl-paste`/`wl-copy`) transparently. No functionality is lost.
 
