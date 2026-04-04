@@ -157,9 +157,11 @@ Each documented with exact commands and copy-paste configurations.
 The auto-installer is provided as a convenience for users who are less comfortable with terminal configuration
 or who prefer a fully guided, hands-off setup. It detects your environment (X11, Wayland, XWayland, or WSL),
 installs dependencies, sets up the plugin, and configures your terminal in a single run. It has been tested
-across multiple distributions using Docker containers and virtual machines, and handles the most common
+across multiple distributions using virtual machines and Docker containers, and handles the most common
 configurations — but not every edge case can be guaranteed. If you encounter an issue, please
 [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) so it can be addressed.
+
+### ⚠️ The auto-installer is temporarily under enhancement and will be back soon.
 
 To use the auto-installer, simply run:
 
@@ -359,14 +361,24 @@ details.
 **WSL users:** For WSL, go directly to [WSL Support](#wsl-support)
 
 
-### 2.5 Enable Mouse Integration (macOS only)
+### 3. Restart Your Shell
+
+```bash
+source ~/.zshrc
+```
+
+> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
+> features to work correctly, especially in some terminal emulators.
+
+
+### 3.5 Enable Mouse Integration (macOS only)
 
 If you are using macOS you will need an extra step to enable mouse integration.
 
 <details>
 <summary><b>Click to expand</b></summary>
 
-To enable the mouse integration run the following command:
+To enable the mouse integration in macOS run the following command:
 
 ```bash
 edit-select setup-ax
@@ -397,17 +409,6 @@ If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
   ```
 
 </details>
-
-
-### 3. Restart Your Shell
-
-```bash
-source ~/.zshrc
-```
-
-> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
-> features to work correctly, especially in some terminal emulators.
-
 
 
 

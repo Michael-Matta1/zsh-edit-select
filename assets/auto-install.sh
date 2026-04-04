@@ -54,7 +54,7 @@ fi
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.6.4"
+readonly SCRIPT_VERSION="0.6.46"
 
 # Color codes
 readonly RED='\033[0;31m'

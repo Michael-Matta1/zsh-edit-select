@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Copyright (c) 2025 Michael Matta
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
-# Version: 0.6.4
+# Version: 0.6.46
 
 # zsh-edit-select — Unified platform loader
 # One-time detection, zero forks, sources correct implementation.

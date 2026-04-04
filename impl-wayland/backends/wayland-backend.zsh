@@ -4,16 +4,17 @@
 # Wayland backend — auto-detects XWayland (invisible) vs pure Wayland monitor.
 # Daemon writes to cache files; shell reads via builtins (zero forks during typing).
 
-# PRIMARY selection binary — always the Wayland agent when available.
-# The xwayland agent cannot detect PRIMARY from Wayland-native apps (e.g.
-# Ghostty, VSCode in Wayland mode) on compositors such as KDE/KWin that do
-# not bridge zwp_primary_selection_unstable_v1 to X11 PRIMARY.  The Wayland
-# agent uses the official Wayland protocol and works on all compositors.
-local _uses_xwayland_primary=0
+# PRIMARY selection binary — desktop-environment-aware selection.
+# Mutter-based DEs (GNOME and its forks) restrict background Wayland clients
+# from reading PRIMARY but faithfully sync it to XWayland, so we use the
+# xwayland agent there.
+# KDE/KWin and wlroots compositors do NOT bridge PRIMARY to X11 but
+# support data-control protocols, so we use the native Wayland agent.
+_uses_xwayland_primary=0
 case "${XDG_CURRENT_DESKTOP:-}" in
     # Desktop environments that use Mutter (or its forks) restrict background
     # Wayland clients from reading PRIMARY but heavily synchronize it to XWayland.
-    *GNOME*|*gnome*|*Budgie*|*budgie*|*Cinnamon*|*cinnamon*|*Pantheon*|*pantheon*|*Unity*|*unity*|*Mutter*|*mutter*)
+    *GNOME*|*gnome*|*Cinnamon*|*cinnamon*|*Pantheon*|*pantheon*)
         _uses_xwayland_primary=1
         ;;
 esac
@@ -28,6 +29,8 @@ else
     typeset -g _ZES_PRIMARY_BINARY=""
     typeset -g _ZES_PRIMARY_TYPE=""
 fi
+
+unset _uses_xwayland_primary
 
 # CLIPBOARD binary — prefer the xwayland agent when XWayland is present.
 # The xwayland agent uses direct X11 atom access for clipboard read/write,
