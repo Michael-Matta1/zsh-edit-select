@@ -23,7 +23,7 @@ support.
 >
 - [Famous Terminals Configurations](#famous-terminals-configurations)
 - [WSL Support](#wsl-support)
-- [SSH Support (Headless Linux Box)](#ssh-support-headless-linux-box)
+- [SSH Support](#ssh-support)
 >
 >---
 >
@@ -142,8 +142,6 @@ giving you instant clipboard response.
 > **Recommendation:** If you are comfortable editing dotfiles and prefer full control over your system
 > configuration, [Manual Installation](#manual-installation) is the recommended approach.
 
-> macOS auto installation will be available soon.
-
 Installation consists of two straightforward steps:
 
 1. install the plugin to your plugin manager
@@ -154,23 +152,26 @@ Each documented with exact commands and copy-paste configurations.
 - All instructions are organized in collapsed sections so you can expand only what applies to your specific
   setup and platform.
 
-The auto-installer is provided as a convenience for users who are less comfortable with terminal configuration
-or who prefer a fully guided, hands-off setup. It detects your environment (X11, Wayland, XWayland, or WSL),
-installs dependencies, sets up the plugin, and configures your terminal in a single run. It has been tested
-across multiple distributions using Docker containers and virtual machines, and handles the most common
+The auto-installer is currently not recommended if you have a complex setup and complex config files. It's provided as a convenience for users who are less comfortable with terminal configuration
+or who prefer a fully guided, hands-off setup. It has been tested
+across multiple environments using virtual machines and Docker containers, and handles the most common
 configurations — but not every edge case can be guaranteed. If you encounter an issue, please
 [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) so it can be addressed.
 
+The auto-installer detects your environment,
+installs dependencies, sets up the plugin, and configures your terminals in a single run.
+
 To use the auto-installer, simply run:
 
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install.sh -o install.sh && chmod +x install.sh && bash install.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh)
 ```
 
 Or
 
 ```bash
-wget -O /tmp/install.sh https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install.sh && chmod +x /tmp/install.sh && bash /tmp/install.sh
+bash <(wget -qO- https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh)
 ```
 
 ### Key Features
@@ -196,7 +197,7 @@ The script handles the end-to-end setup process:
 
 | Category           | Automated Actions                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dependencies**   | - Installs system packages (`git`, `zsh`, `xclip`/`wl-clipboard`), and interactively asks to optionally install build tools (`gcc`, `make`, `clang`) for compiling the agents locally<br>- Detects your system (macOS, Debian, Fedora, Arch, etc.) and uses the correct package manager (`brew`, `port`, `apt`, `dnf`, `pacman`)                                                                                                                                                                                                                                                                        |
+| **Dependencies**   | - Installs system packages like (`git`, `zsh`), and interactively asks to optionally install build tools (`gcc`, `make`, `clang`) and dependencies for compiling the agents locally<br>- Detects your system (macOS, Debian, Fedora, Arch, etc.) and uses the correct package manager (`brew`, `port`, `apt`, `dnf`, `pacman`)                                                                                                                                                                                                                                                                        |
 | **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- _Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer._ |
 | **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                                                                                          |
 | **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and terminal configuration files (Kitty, Alacritty, WezTerm, Foot, VS Code)<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                                                                 |
@@ -210,7 +211,7 @@ When run without arguments, the installer provides an interactive menu with the 
 1. **Full Installation (Recommended)**: The complete setup process. **Required for first-time installations.**
 2. **Configure Terminals Only**: Only detects and configures your terminal emulators.
 3. **Check for Conflicts Only**: Scans your configuration files for conflicting keybindings.
-4. **Update Plugin**: Pulls the latest changes from the repository.
+4. **Update Plugin**: Pulls the latest changes from the repository and update the agents.
 5. **Build Agents Only**: Rebuild clipboard agents for your display server.
 6. **Uninstall**: Remove the plugin, configuration entries, and agents.
 
@@ -232,25 +233,16 @@ pass them to bash:
 **Example: Non-interactive installation (CI/CD friendly)**
 
 ```bash
-bash auto-install.sh --non-interactive
+bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh) --non-interactive
 ```
 
 </details>
 
 ### Installation Output
 
-The script provides detailed, color-coded feedback for every step:
-
-- **✅ Success**: Step completed successfully
-- **⚠️ Warning**: Non-critical issue (e.g., optional component missing)
-- **❌ Error**: Critical failure that requires attention
-
-At the end, you'll receive a **Summary Report** listing all installed components and any manual steps
+The script provides detailed, color-coded feedback for every step and at the end, you'll receive a **Summary Report** listing all installed components and any manual steps
 required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
-> **Troubleshooting / Manual Preference:** If the automated installation fails or if you prefer to configure
-> everything yourself, you can follow the comprehensive [Manual Installation](#manual-installation) and
-> [Famous Terminals Configurations](#famous-terminals-configurations) guides below.
 
 ---
 
@@ -359,14 +351,24 @@ details.
 **WSL users:** For WSL, go directly to [WSL Support](#wsl-support)
 
 
-### 2.5 Enable Mouse Integration (macOS only)
+### 3. Restart Your Shell
+
+```bash
+source ~/.zshrc
+```
+
+> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
+> features to work correctly, especially in some terminal emulators.
+
+
+### 3.5 Enable Mouse Integration (macOS only)
 
 If you are using macOS you will need an extra step to enable mouse integration.
 
 <details>
 <summary><b>Click to expand</b></summary>
 
-To enable the mouse integration run the following command:
+To enable the mouse integration in macOS run the following command:
 
 ```bash
 edit-select setup-ax
@@ -385,7 +387,7 @@ Then restart your terminal. You may need to restart your device for the full int
 
 - Among GPU-accelerated terminals, Kitty offers the most reliable and consistent behavior for mouse integration.
 
-- Other GPU-based terminals use custom rendering pipelines, where mouse integration currently relies on a reactive `Cmd+C` mechanism. As a result, behavior may vary depending on the terminal version and runtime conditions, and support should be considered experimental.
+- Other GPU-based terminals use custom rendering pipelines, where mouse integration currently relies on a reactive `Cmd+C` mechanism. As a result, behavior may vary depending on the terminal version and runtime conditions, and the mouse integration for them is currently experimental.
 
 If you face any issue with mouse integration, disable it from the configuration wizard
 
@@ -397,17 +399,6 @@ If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
   ```
 
 </details>
-
-
-### 3. Restart Your Shell
-
-```bash
-source ~/.zshrc
-```
-
-> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
-> features to work correctly, especially in some terminal emulators.
-
 
 
 
@@ -1777,13 +1768,14 @@ the cache is memory-resident, while the agent syncs changes from Windows in the 
 
 
 
-## SSH Support (Headless Linux Box)
+## SSH Support
 
 If you are SSH-ing into a headless Linux box, the plugin **automatically detects the SSH environment** and switches clipboard operations to use **OSC 52** — a terminal escape sequence that tunnels clipboard writes back to your local terminal through the SSH connection, without needing any additional tools or manual configuration.
 
----
+<details>
+<summary><b>How It Works</b></summary>
 
-### How It Works
+<br>
 
 When `$SSH_CLIENT`, `$SSH_TTY`, or `$SSH_CONNECTION` is set (standard variables present in any SSH session), the plugin replaces its native clipboard backend with an OSC 52 write. This means:
 
@@ -1794,9 +1786,12 @@ When `$SSH_CLIENT`, `$SSH_TTY`, or `$SSH_CONNECTION` is set (standard variables 
 
 No `~/.zshrc` changes are needed on the Linux box. Just install the plugin normally.
 
----
+</details>
 
-### Opt Out
+<details>
+<summary><b>Opt Out</b></summary>
+
+<br>
 
 If you do not want the automatic SSH behaviour (e.g. you are SSH-ing between Linux machines and have `xclip` available via X11 forwarding), add this to your `~/.zshrc` on the remote machine **before** the plugin loads:
 
@@ -1804,9 +1799,12 @@ If you do not want the automatic SSH behaviour (e.g. you are SSH-ing between Lin
 ZES_SSH_CLIPBOARD=0
 ```
 
----
+</details>
 
-### Terminal Requirements
+<details>
+<summary><b>Terminal Requirements</b></summary>
+
+<br>
 
 Your terminal must support OSC 52 clipboard writes and have clipboard access enabled. Most modern terminals support this out of the box.
 
@@ -1829,9 +1827,12 @@ If you need to add one manually:
 - **Kitty:** add `map ctrl+v paste_from_clipboard` to `~/.config/kitty/kitty.conf`
 - **Ghostty:** add `keybind = ctrl+v=paste_from_clipboard` to `~/.config/ghostty/config`
 
----
+</details>
 
-### macOS to Linux — Cmd/Option Key Auto-Remapping
+<details>
+<summary><b>macOS to Linux — Cmd/Option Key Auto-Remapping</b></summary>
+
+<br>
 
 If you are SSH-ing from a macOS terminal (iTerm2, Ghostty, Kitty, WezTerm, Alacritty), the plugin **automatically maps your macOS Cmd/Option key sequences** to the corresponding Linux actions. No extra configuration is needed on the remote Linux box — Cmd+C copies, Cmd+X cuts, Cmd+A selects all, Cmd+Z undoes, Option+Arrow moves by word, etc.
 
@@ -1839,9 +1840,12 @@ If you are SSH-ing from a macOS terminal (iTerm2, Ghostty, Kitty, WezTerm, Alacr
 
 > **Note:** `Cmd+V` (Paste) is handled by your macOS terminal natively — it pastes directly into the SSH session. The plugin does not intercept it.
 
----
+</details>
 
-### Windows Terminal — Enable Ctrl+C Copy
+<details>
+<summary><b>Windows Terminal — Enable Ctrl+C Copy</b></summary>
+
+<br>
 
 If you are SSH-ing from Windows Terminal, the Linux TTY intercepts `Ctrl+C` as an interrupt signal (`SIGINT`) by default, preventing the plugin from copying text.
 
@@ -1890,10 +1894,14 @@ Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shif
 
 </details>
 
----
+</details>
 
+<details>
+<summary><b>Ghostty Terminfo on the Remote Linux Box</b></summary>
 
-**Ghostty terminfo on the remote Linux box:** If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), commands like `clear` may fail and backspace may not work correctly. Fix it by running this on the remote server:
+<br>
+
+If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), you may need running this on the remote server:
 
 ```bash
 echo '[[ "$TERM" == "xterm-ghostty" ]] && export TERM=xterm-256color' >> ~/.zshrc
@@ -1902,11 +1910,17 @@ source ~/.zshrc
 
 This was tested on Ubuntu Server 24.04. Your experience may differ depending on your Linux distro.
 
----
 
-**iTerm2 — Clipboard Access**
+</details>
+
+<details>
+<summary><b>iTerm2 — Clipboard Access</b></summary>
+
+<br>
 
 Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applications in terminal may access clipboard"** is checked, and set **"Allow sending of clipboard contents?"** to **Always**.
+
+</details>
 
 ---
 ---
@@ -2797,21 +2811,15 @@ cd "$PLUGIN_DIR/impl-wsl/backends/wsl" && make
 
 Contributions, suggestions, and recommendations are welcome. If you encounter a bug or unexpected behavior,
 please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with a clear description and
-steps to reproduce. Pull requests are open for any meaningful improvement — bug fixes, new features, or
-compatibility with additional environments.
+steps to reproduce.
+
+Pull requests are open for any meaningful improvement — bug fixes, new features, or compatibility with additional environments.
 
 If you have ideas for enhancements, feature requests, or recommendations to improve the plugin's functionality
-or documentation, feel free to share them. Your feedback helps shape the direction of the project and ensures
-it meets the needs of the community.
+or documentation, feel free to share them.
 
-**A note on development:** This plugin is developed and tested privately over an extended period before any
-public release. After every change — whether a fix, enhancement, or new feature — the plugin is heavily tested
-to validate stability and catch regressions under real conditions. New features are typically accompanied by
-new edge cases; each one is identified and resolved before the code is released. The goal is to ship complete,
-reliable increments rather than incremental works-in-progress. As a result, public commits tend to represent
-significant, well-tested milestones rather than a continuous stream of small changes.
-
-If something does not work as expected, please report it — every issue report directly improves the plugin's
+Your feedback helps shape the direction of the project and ensures
+it meets the needs of the community. If something does not work as expected, please report it — every issue report directly improves the plugin's
 reliability for everyone.
 
 ---
