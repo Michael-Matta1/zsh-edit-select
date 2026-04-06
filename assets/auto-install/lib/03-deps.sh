@@ -13,6 +13,8 @@
 readonly _ZES_MOD_DEPS_LOADED=1
 
 install_dependencies() {
+    local force_build_deps_install="${_ZES_FORCE_BUILD_DEPS_INSTALL:-0}"
+
     if [[ $SKIP_DEPS -eq 1 ]]; then
         print_info "Skipping dependency installation (--skip-deps flag)"
         return
@@ -21,7 +23,10 @@ install_dependencies() {
     # Ask the user whether they want to install build deps at all.
     # Pre-built binaries are installed by the auto-installer during the Agents phase.
     # Local compilation remains optional.
-    if [[ $NON_INTERACTIVE -eq 0 ]]; then
+    if [[ "$force_build_deps_install" == "1" ]]; then
+        print_info "Ensuring build dependencies are installed for source agent compilation..."
+        _ZES_USER_SKIPPED_DEPS=0
+    elif [[ $NON_INTERACTIVE -eq 0 ]]; then
         echo ""
         print_info "Pre-built agent binaries are installed automatically from GitHub Releases"
         print_info "during this installer run — no build tools required for normal use."

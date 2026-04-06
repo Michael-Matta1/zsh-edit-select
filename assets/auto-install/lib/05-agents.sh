@@ -19,7 +19,10 @@ build_monitor_daemons() {
     fi
 
     local runtime_impl
-    runtime_impl="$(_zes_detect_runtime_impl)"
+    runtime_impl="${1:-}"
+    if [[ -z "$runtime_impl" ]]; then
+        runtime_impl="$(_zes_detect_runtime_impl)"
+    fi
 
     print_step "Installing pre-built agent binaries from GitHub Releases..."
     if _zes_release_agent_provision "$runtime_impl"; then
@@ -40,9 +43,11 @@ build_monitor_daemons() {
     _zes_warmup_plugin_load "$runtime_impl"
 }
 
-reinstall_agents_after_update() {
-    local runtime_impl
-    runtime_impl="$(_zes_detect_runtime_impl)"
+refresh_agents_runtime() {
+    local runtime_impl="${1:-}"
+    if [[ -z "$runtime_impl" ]]; then
+        runtime_impl="$(_zes_detect_runtime_impl)"
+    fi
 
     print_step "Stopping old agent processes..."
     _zes_stop_agent_processes
@@ -57,7 +62,108 @@ reinstall_agents_after_update() {
     _zes_remove_plugin_zwc_files
 
     print_step "Re-installing, activating, and warming up agents..."
-    build_monitor_daemons
+    build_monitor_daemons "$runtime_impl"
+}
+
+_zes_install_build_dependencies_for_source_mode() {
+    if [[ $SKIP_DEPS -eq 1 ]]; then
+        print_warning "Cannot auto-install build dependencies because --skip-deps is set"
+        MANUAL_STEPS+=("Re-run without --skip-deps to install build dependencies for source builds")
+        return 1
+    fi
+
+    local had_force_flag=0
+    local previous_force_value=""
+    if [[ "${_ZES_FORCE_BUILD_DEPS_INSTALL+x}" == "x" ]]; then
+        had_force_flag=1
+        previous_force_value="${_ZES_FORCE_BUILD_DEPS_INSTALL}"
+    fi
+
+    _ZES_FORCE_BUILD_DEPS_INSTALL=1
+    install_dependencies
+    local install_status=$?
+
+    if [[ $had_force_flag -eq 1 ]]; then
+        _ZES_FORCE_BUILD_DEPS_INSTALL="$previous_force_value"
+    else
+        unset _ZES_FORCE_BUILD_DEPS_INSTALL
+    fi
+
+    return "$install_status"
+}
+
+_zes_build_source_agents_with_dependency_retry() {
+    local runtime_impl="$1"
+
+    if _zes_build_source_agents_for_impl "$runtime_impl"; then
+        return 0
+    fi
+
+    print_warning "Source build failed or build dependencies are missing." "agent_source_build"
+
+    if [[ $SKIP_DEPS -eq 1 ]]; then
+        MANUAL_STEPS+=("Install source-build dependencies manually and run: edit-select build")
+        return 1
+    fi
+
+    if [[ $NON_INTERACTIVE -eq 0 ]]; then
+        echo ""
+        if ! ask_yes_no "Install missing build dependencies now and retry source build?" "y"; then
+            MANUAL_STEPS+=("Install source-build dependencies manually and run: edit-select build")
+            return 1
+        fi
+    else
+        print_info "Non-interactive mode: attempting dependency installation and retrying source build."
+    fi
+
+    if ! _zes_install_build_dependencies_for_source_mode; then
+        print_warning "Build dependency installation did not fully complete; retrying source build anyway."
+    fi
+
+    print_step "Retrying source build after dependency installation..."
+    _zes_build_source_agents_for_impl "$runtime_impl"
+}
+
+refresh_agents_runtime_from_source() {
+    local runtime_impl="${1:-}"
+    if [[ -z "$runtime_impl" ]]; then
+        runtime_impl="$(_zes_detect_runtime_impl)"
+    fi
+
+    print_step "Stopping old agent processes..."
+    _zes_stop_agent_processes
+
+    print_step "Clearing old agent cache/runtime files..."
+    _zes_clear_agent_runtime_cache "$runtime_impl"
+
+    print_step "Deleting previously installed agent binaries..."
+    _zes_remove_agent_binaries "$runtime_impl"
+
+    print_step "Resetting compiled plugin cache (.zwc) before warm-up..."
+    _zes_remove_plugin_zwc_files
+
+    print_step "Building agent binaries from source using runtime-specific Makefile targets..."
+    if ! _zes_build_source_agents_with_dependency_retry "$runtime_impl"; then
+        print_error "Failed to build required agent binaries from source for runtime: $runtime_impl" "agent_source_build"
+        return 1
+    fi
+
+    local status=0
+
+    print_step "Starting rebuilt runtime agents..."
+    if ! _zes_start_runtime_agent "$runtime_impl"; then
+        status=1
+    fi
+
+    if ! _zes_warmup_plugin_load "$runtime_impl"; then
+        status=1
+    fi
+
+    return $status
+}
+
+reinstall_agents_after_update() {
+    refresh_agents_runtime "$@"
 }
 
 _zes_stop_agent_processes() {
@@ -73,7 +179,7 @@ _zes_stop_agent_processes() {
 
     if ! command_exists pkill; then
         print_warning "pkill is not available; cannot force-stop old agents automatically"
-        MANUAL_STEPS+=("Stop old zsh-edit-select agent processes manually before re-running update")
+        MANUAL_STEPS+=("Stop old zsh-edit-select agent processes manually before re-running build/update")
         return
     fi
 
@@ -362,26 +468,60 @@ _zes_release_agent_provision() {
     [[ $failures -eq 0 ]]
 }
 
+_zes_run_optional_source_build() {
+    local runtime_impl="$1"
+    local component_label="$2"
+    local build_fn="$3"
+
+    if [[ -z "$build_fn" ]] || ! declare -F "$build_fn" >/dev/null; then
+        print_warning "Optional component builder is unavailable: ${component_label} ($build_fn)"
+        return 0
+    fi
+
+    if "$build_fn"; then
+        return 0
+    fi
+
+    print_warning "Optional source build failed for ${component_label}; continuing with required runtime agents for ${runtime_impl}."
+    return 0
+}
+
 _zes_build_source_agents_for_impl() {
     local runtime_impl="$1"
+    local build_status=0
 
     case "$runtime_impl" in
     macos)
-        build_macos_agent
+        build_macos_agent || build_status=1
         ;;
     x11)
-        build_x11_monitor
+        build_x11_monitor || build_status=1
         ;;
     wayland)
-        build_wayland_monitor
-        [[ -n "${DISPLAY:-}" ]] && build_xwayland_monitor
+        build_wayland_monitor || build_status=1
+        if [[ -n "${DISPLAY:-}" ]]; then
+            # XWayland build is a best-effort optional companion on Wayland.
+            _zes_run_optional_source_build "$runtime_impl" "XWayland companion" "build_xwayland_monitor"
+        fi
         ;;
     wsl)
-        build_wsl_agents
-        [[ -n "${DISPLAY:-}" ]] && build_wsl_xwayland_monitor
-        [[ -n "${WAYLAND_DISPLAY:-}" ]] && build_wayland_monitor
+        build_wsl_agents || build_status=1
+        if [[ -n "${DISPLAY:-}" ]]; then
+            # Optional on WSL: runtime can fall back to the main WSL agent.
+            _zes_run_optional_source_build "$runtime_impl" "WSL XWayland companion" "build_wsl_xwayland_monitor"
+        fi
+        if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+            # Optional on WSL: runtime can fall back to the main WSL agent.
+            _zes_run_optional_source_build "$runtime_impl" "Wayland companion" "build_wayland_monitor"
+        fi
+        ;;
+    *)
+        print_error "Unsupported runtime implementation for source build: $runtime_impl" "agent_source_build"
+        return 1
         ;;
     esac
+
+    return $build_status
 }
 
 _zes_start_agent_daemon_binary() {
@@ -638,11 +778,11 @@ build_macos_agent() {
     if [[ ! -d "$build_dir" ]]; then
         print_warning "macOS agent source not found: $build_dir" "macos_build"
         print_info "Install-time download/build fallback could not find local source files."
-        return
+        return 1
     fi
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "macos_build"
-        return
+        return 1
     fi
 
     local missing_tools=()
@@ -657,7 +797,7 @@ build_macos_agent() {
         print_error "Missing build tools: ${missing_tools[*]}" "macos_build"
         print_info "Run: xcode-select --install"
         MANUAL_STEPS+=("Install Xcode CLT then rebuild: cd $build_dir && make")
-        return
+        return 1
     fi
 
     local build_output
@@ -665,14 +805,17 @@ build_macos_agent() {
         local agent_bin="$build_dir/zes-macos-clipboard-agent"
         if [[ -x "$agent_bin" ]]; then
             print_success "macOS clipboard agent built successfully" "macos_build"
+            return 0
         else
             print_warning "Build reported success but binary not found" "macos_build"
             MANUAL_STEPS+=("Verify macOS agent binary in $build_dir")
+            return 1
         fi
     else
         print_error "Failed to build macOS clipboard agent" "macos_build"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
         MANUAL_STEPS+=("Build macOS agent: cd $build_dir && make")
+        return 1
     fi
 }
 
@@ -702,7 +845,7 @@ build_x11_monitor() {
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         print_error "Missing build requirements: ${missing_tools[*]}" "x11_monitor_build"
         MANUAL_STEPS+=("Install build dependencies and build X11 monitor: ${missing_tools[*]}")
-        return
+        return 1
     fi
 
     local build_dir="$PLUGIN_INSTALL_DIR/impl-x11/backends/x11"
@@ -710,13 +853,13 @@ build_x11_monitor() {
     if [[ ! -d "$build_dir" ]]; then
         print_error "X11 backend source directory not found: $build_dir" "x11_monitor_build"
         print_info "Expected location per README: impl-x11/backends/x11"
-        return
+        return 1
     fi
 
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "x11_monitor_build"
         MANUAL_STEPS+=("Build X11 agent manually")
-        return
+        return 1
     fi
 
     local build_output
@@ -726,15 +869,18 @@ build_x11_monitor() {
         # Verify the binary was actually created
         if [[ -f "$build_dir/zes-x11-selection-agent" ]]; then
             print_success "X11 clipboard agent built successfully" "x11_monitor_build"
+            return 0
         else
             print_warning "Build reported success but binary not found" "x11_monitor_build"
             MANUAL_STEPS+=("Verify X11 agent binary in $build_dir")
+            return 1
         fi
     else
         print_error "Failed to build X11 clipboard agent" "x11_monitor_build"
         print_info "Build output (last 10 lines):"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
         MANUAL_STEPS+=("Build X11 agent: cd $build_dir && make")
+        return 1
     fi
 }
 
@@ -769,7 +915,7 @@ build_wayland_monitor() {
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         print_error "Missing build requirements: ${missing_tools[*]}" "wayland_monitor_build"
         MANUAL_STEPS+=("Install build dependencies and build Wayland monitor: ${missing_tools[*]}")
-        return
+        return 1
     fi
 
     local build_dir="$PLUGIN_INSTALL_DIR/impl-wayland/backends/wayland"
@@ -777,13 +923,13 @@ build_wayland_monitor() {
     if [[ ! -d "$build_dir" ]]; then
         print_error "Wayland backend source directory not found: $build_dir" "wayland_monitor_build"
         print_info "Expected location per README: impl-wayland/backends/wayland"
-        return
+        return 1
     fi
 
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "wayland_monitor_build"
         MANUAL_STEPS+=("Build Wayland agent manually")
-        return
+        return 1
     fi
 
     local build_output
@@ -793,15 +939,18 @@ build_wayland_monitor() {
         # Verify the binary was actually created
         if [[ -f "$build_dir/zes-wl-selection-agent" ]]; then
             print_success "Wayland clipboard agent built successfully" "wayland_monitor_build"
+            return 0
         else
             print_warning "Build reported success but binary not found" "wayland_monitor_build"
             MANUAL_STEPS+=("Verify Wayland agent binary in $build_dir")
+            return 1
         fi
     else
         print_error "Failed to build Wayland clipboard agent" "wayland_monitor_build"
         print_info "Build output (last 10 lines):"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
         MANUAL_STEPS+=("Build Wayland agent: cd $build_dir && make")
+        return 1
     fi
 }
 
@@ -831,7 +980,7 @@ build_xwayland_monitor() {
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         print_warning "Missing build requirements for XWayland monitor (optional): ${missing_tools[*]}" "xwayland_monitor_build"
         MANUAL_STEPS+=("Install build dependencies for XWayland monitor: ${missing_tools[*]}")
-        return
+        return 1
     fi
 
     local build_dir="$PLUGIN_INSTALL_DIR/impl-wayland/backends/xwayland"
@@ -839,13 +988,13 @@ build_xwayland_monitor() {
     if [[ ! -d "$build_dir" ]]; then
         print_info "XWayland backend source directory not found (optional component)"
         print_info "Expected location per README: impl-wayland/backends/xwayland"
-        return
+        return 1
     fi
 
     if [[ ! -f "$build_dir/Makefile" ]]; then
         print_warning "No Makefile found in $build_dir" "xwayland_monitor_build"
         MANUAL_STEPS+=("Build XWayland agent manually")
-        return
+        return 1
     fi
 
     local build_output
@@ -855,14 +1004,17 @@ build_xwayland_monitor() {
         # Verify the binary was actually created
         if [[ -f "$build_dir/zes-xwayland-agent" ]]; then
             print_success "XWayland clipboard agent built successfully" "xwayland_monitor_build"
+            return 0
         else
             print_warning "Build reported success but binary not found" "xwayland_monitor_build"
             MANUAL_STEPS+=("Verify XWayland agent binary in $build_dir")
+            return 1
         fi
     else
         print_error "Failed to build XWayland clipboard agent" "xwayland_monitor_build"
         print_info "Build output (last 10 lines):"
         echo "$build_output" | tail -10 | sed 's/^/    /' | tee -a "$LOG_FILE"
         MANUAL_STEPS+=("Build XWayland agent: cd $build_dir && make")
+        return 1
     fi
 }

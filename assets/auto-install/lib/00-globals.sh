@@ -66,6 +66,7 @@ SKIP_DEPS=0
 SKIP_VERIFY=0
 SKIP_CONFLICTS=0
 TEST_MODE=0
+RUN_MODE=""
 
 # Opt-in install/build flags (set during interactive session)
 _ZES_USER_SKIPPED_DEPS=1 # 1 = user declined deps (default), 0 = user accepted deps

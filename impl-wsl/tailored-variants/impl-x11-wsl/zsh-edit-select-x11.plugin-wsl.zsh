@@ -643,9 +643,29 @@ function edit-select::apply-mouse-replacement-config() {
     fi
 }
 
-# Public CLI entry-point.  Dispatches subcommands ("conf"/"config" → wizard).
+# Lazy installer launcher for maintenance modes.  This path is only touched
+# when the user explicitly invokes these subcommands, so normal shell startup
+# cost remains unchanged.
+function edit-select::run-installer-mode() {
+    local mode="$1"
+    local installer="$_EDIT_SELECT_PLUGIN_DIR/../../../assets/auto-install/install.sh"
+
+    if ! (( ${+commands[bash]} )); then
+        print -u2 "Error: bash is required to run installer modes."
+        return 1
+    fi
+    if [[ ! -r "$installer" ]]; then
+        print -u2 "Error: Installer not found at: $installer"
+        return 1
+    fi
+
+    command bash "$installer" --local --mode "$mode"
+}
+
+# Public CLI entry-point.
 function edit-select() {
-    if [[ $1 == conf || $1 == config ]]; then
+    case "$1" in
+    conf | config)
         local wizard_file="$_EDIT_SELECT_PLUGIN_DIR/../../edit-select-wizard-wsl.zsh"
         if [[ -f "$wizard_file" ]]; then
             source "$wizard_file" 2>/dev/null || {
@@ -657,12 +677,34 @@ function edit-select() {
             print -u2 "Error: Configuration wizard not found at: $wizard_file"
             return 1
         fi
-    else
+        ;;
+    conflicts)
+        edit-select::run-installer-mode conflicts
+        ;;
+    integrate)
+        edit-select::run-installer-mode integrate
+        ;;
+    update)
+        edit-select::run-installer-mode update
+        ;;
+    build)
+        edit-select::run-installer-mode build
+        ;;
+    uninstall)
+        edit-select::run-installer-mode uninstall
+        ;;
+    *)
         print "edit-select - Text selection and clipboard management for Zsh"
         print "\nUsage: edit-select <subcommand>"
         print "\nSubcommands:"
         print "  conf, config    Launch interactive configuration wizard"
-    fi
+        print "  conflicts       Run installer conflict detection mode"
+        print "  integrate       Run installer terminal configuration mode"
+        print "  update          Run installer update mode"
+        print "  build           Run installer build-agents mode"
+        print "  uninstall       Run installer uninstall mode"
+        ;;
+    esac
 }
 
 # Load the X11-specific clipboard backend (agent start/stop,

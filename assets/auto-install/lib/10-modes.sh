@@ -18,6 +18,62 @@ _zes_warn_if_zsh_missing_for_mode() {
     fi
 }
 
+_zes_normalize_mode() {
+    local raw_mode="${1:-}"
+    local mode_lc="${raw_mode,,}"
+
+    case "$mode_lc" in
+    full | install)
+        echo "full"
+        ;;
+    integrate | terminals | terminal | terminal-config)
+        echo "integrate"
+        ;;
+    conflicts | conflict | conflict-check)
+        echo "conflicts"
+        ;;
+    update)
+        echo "update"
+        ;;
+    build-agents | agents | build)
+        echo "build-agents"
+        ;;
+    uninstall | remove)
+        echo "uninstall"
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+_zes_run_selected_mode() {
+    local selected_mode="${1:-}"
+    case "$selected_mode" in
+    full)
+        run_full_install
+        ;;
+    integrate)
+        run_terminal_config_only
+        ;;
+    conflicts)
+        run_conflict_check_only
+        ;;
+    update)
+        run_plugin_update
+        ;;
+    build-agents)
+        run_build_agents_only
+        ;;
+    uninstall)
+        run_uninstall
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
 _zes_print_mode_completion() {
     local mode_label="$1"
     local mode_status="${2:-success}"
@@ -93,6 +149,24 @@ parse_arguments() {
             TEST_MODE=1
             shift
             ;;
+        --mode)
+            if [[ $# -lt 2 ]] || [[ -z "$2" ]]; then
+                print_error "--mode requires a value"
+                echo "Valid values: full, integrate, conflicts, update, build-agents (or build), uninstall"
+                exit 1
+            fi
+            RUN_MODE="$2"
+            shift 2
+            ;;
+        --mode=*)
+            RUN_MODE="${1#--mode=}"
+            if [[ -z "$RUN_MODE" ]]; then
+                print_error "--mode requires a value"
+                echo "Valid values: full, integrate, conflicts, update, build-agents (or build), uninstall"
+                exit 1
+            fi
+            shift
+            ;;
         --help | -h)
             cat <<EOF
 Zsh Edit-Select — Automated Installation Script v$SCRIPT_VERSION
@@ -105,6 +179,7 @@ Options:
   --skip-conflicts    Skip conflict detection
   --non-interactive   Run without user prompts (use defaults)
   --test-mode         Allow running as root (for testing only)
+  --mode <name>       Run a specific mode directly
   --help, -h          Show this help message
 
 Examples:
@@ -119,6 +194,15 @@ Examples:
 
   bash install.sh --skip-conflicts
       Install but do not check for keybinding conflicts
+
+  bash install.sh --mode integrate
+      Run terminal configuration mode directly
+
+  bash install.sh --mode build
+      Build agents from source using Makefiles, then restart and warm up runtime
+
+Mode values for --mode:
+  full, integrate, conflicts, update, build-agents, build, uninstall
 
 This script will:
     - Detect your system environment automatically
@@ -265,6 +349,7 @@ run_build_agents_only() {
     print_header "Build Agents Mode"
 
     # Init
+    check_sudo
     check_essential_commands
     acquire_lock
 
@@ -275,6 +360,9 @@ run_build_agents_only() {
     detect_linux_distro
     detect_plugin_manager "passive"
 
+    local runtime_impl
+    runtime_impl="$(_zes_detect_runtime_impl)"
+
     if [[ -z "$PLUGIN_INSTALL_DIR" ]] || [[ ! -d "$PLUGIN_INSTALL_DIR" ]]; then
         print_error "Plugin directory not found: ${PLUGIN_INSTALL_DIR:-<not set>}"
         print_info "Please run Full Install first to install the plugin."
@@ -282,11 +370,14 @@ run_build_agents_only() {
         return
     fi
 
-    # Provision and initialize agents
-    print_header "Phase 2: Provisioning Agents"
-    build_monitor_daemons
+    # Rebuild agents from source and refresh runtime so old binaries/processes are replaced safely.
+    local mode_status="success"
+    print_header "Phase 2: Source Build and Runtime Refresh"
+    if ! refresh_agents_runtime_from_source "$runtime_impl"; then
+        mode_status="warning"
+    fi
 
-    _zes_print_mode_completion "Build agents mode"
+    _zes_print_mode_completion "Build agents mode" "$mode_status"
 }
 
 show_main_menu() {
@@ -299,7 +390,7 @@ show_main_menu() {
         "Configure Terminals Only (Configure terminal keybindings for existing plugin)" \
         "Check for Conflicts Only (Scan your setup for configuration conflicts)" \
         "Update Plugin (Pull latest changes from repository)" \
-        "Build Agents Only (Install/start agents now, with optional source rebuild)" \
+        "Build Agents Only (Build from source via Makefiles, then restart agents)" \
         "Uninstall (Remove plugin, config entries, and agents)"
 
     case "$CHOICE_RESULT" in
@@ -332,6 +423,21 @@ main() {
         echo ""
         echo "The script will ask for sudo password when needed for system tasks."
         exit 1
+    fi
+
+    # Direct mode invocation (used by plugin command wrappers)
+    if [[ -n "$RUN_MODE" ]]; then
+        local normalized_mode
+        if ! normalized_mode="$(_zes_normalize_mode "$RUN_MODE")"; then
+            print_error "Unknown mode: $RUN_MODE"
+            echo "Valid values: full, integrate, conflicts, update, build-agents (or build), uninstall"
+            exit 1
+        fi
+        _zes_run_selected_mode "$normalized_mode" || {
+            print_error "Failed to run mode: $normalized_mode"
+            exit 1
+        }
+        return
     fi
 
     # If non-interactive, default to full install

@@ -27,6 +27,7 @@ support.
 >
 >---
 >
+- [Command Reference](#command-reference)
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
 - [Manual Agents Build (optional)](#manual-agents-build-optional)
@@ -204,16 +205,6 @@ The script handles the end-to-end setup process:
 
 </details>
 
-### Interactive Menu
-
-When run without arguments, the installer provides an interactive menu with the following options:
-
-1. **Full Installation (Recommended)**: The complete setup process. **Required for first-time installations.**
-2. **Configure Terminals Only**: Only detects and configures your terminal emulators.
-3. **Check for Conflicts Only**: Scans your configuration files for conflicting keybindings.
-4. **Update Plugin**: Pulls the latest changes from the repository and update the agents.
-5. **Build Agents Only**: Rebuild clipboard agents for your display server.
-6. **Uninstall**: Remove the plugin, configuration entries, and agents.
 
 <details>
 <summary><b>Advanced Usage & Options</b></summary>
@@ -273,7 +264,7 @@ Expand your plugin manager:
 <summary><b>Oh My Zsh</b></summary>
 
 ```bash
-git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
+git clone --depth=1 https://github.com/Michael-Matta1/zsh-edit-select.git \
   ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select
 ```
 
@@ -297,8 +288,15 @@ zgenom load Michael-Matta1/zsh-edit-select
 <details>
 <summary><b>zinit</b></summary>
 
+**One-liner:**
 ```bash
-zinit light Michael-Matta1/zsh-edit-select
+zinit depth"1" light-mode for Michael-Matta1/zsh-edit-select
+```
+
+
+**Or with explicit `ice`:**
+```bash
+zinit ice depth"1"; zinit light Michael-Matta1/zsh-edit-select
 ```
 
 </details>
@@ -307,7 +305,7 @@ zinit light Michael-Matta1/zsh-edit-select
 <summary><b>zplug</b></summary>
 
 ```bash
-zplug "Michael-Matta1/zsh-edit-select"
+zplug "Michael-Matta1/zsh-edit-select", depth:1
 ```
 
 </details>
@@ -324,8 +322,15 @@ antigen bundle Michael-Matta1/zsh-edit-select
 <details>
 <summary><b>sheldon</b></summary>
 
+**Via CLI:**
 ```bash
 sheldon add zsh-edit-select --github Michael-Matta1/zsh-edit-select
+```
+
+**Or manually in `~/.config/sheldon/plugins.toml`:**
+```toml
+[plugins.zsh-edit-select]
+github = "Michael-Matta1/zsh-edit-select"
 ```
 
 </details>
@@ -334,7 +339,7 @@ sheldon add zsh-edit-select --github Michael-Matta1/zsh-edit-select
 <summary><b>Manual Installation</b></summary>
 
 ```bash
-git clone https://github.com/Michael-Matta1/zsh-edit-select.git \
+git clone --depth=1 https://github.com/Michael-Matta1/zsh-edit-select.git \
   ~/.local/share/zsh/plugins/zsh-edit-select
 
 # Add to ~/.zshrc:
@@ -424,6 +429,9 @@ Launch the interactive configuration wizard:
 ```bash
 edit-select config
 ```
+
+For a full command list (including maintenance and platform-specific commands), see
+[Command Reference](#command-reference).
 
 The wizard provides:
 
@@ -1925,6 +1933,24 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 ---
 ---
 
+## Command Reference
+
+| Command | Description |
+| --- | --- |
+| `edit-select config` | Launch the interactive configuration wizard to configure mouse behavior and keybindings. |
+| `edit-select integrate` | Run installer terminal-integration mode to configure supported terminal keybindings. |
+| `edit-select conflicts` | Run installer conflict-scan mode and print remediation guidance for detected overlaps. |
+| `edit-select update` | Pull latest plugin changes from git, then fetch agent binaries from GitHub workflow-published releases and re-initialize agent runtime. |
+| `edit-select build` | Build/rebuild agent binaries from source for the active runtime implementation, then re-initialize runtime agents. |
+| `edit-select uninstall` | Run uninstall mode with prompts to remove plugin files and clean integration/config entries. |
+| `edit-select setup-ax` | macOS only: request Accessibility permission required for optional mouse integration. |
+| `edit-select refresh` | WSL Wayland-tailored variant only: re-apply runtime mouse/clipboard integration state. |
+| `edit-select mode auto\|terminal\|tracking\|toggle` | WSL Wayland-tailored variant only: switch mouse-replacement mode. |
+
+**Note on Updates:** Use `edit-select update` command to update the plugin and agents, rather than running a simple `pull` manually or via the plugin manager. The `update` command re-initializes the agent runtime to ensure all agent binaries are refreshed from the latest releases.
+
+**Note on `edit-select integrate`:** This mode is **experimental** and not recommended for complex setups with heavily customized or complex terminal config files. It may interfere with existing keybinding configurations.
+
 ## Default Key Bindings Reference
 
 ### Linux
@@ -2136,7 +2162,7 @@ preventing cross-pane mouse selection issues.
 **Symptoms:** Plugin loads but clipboard operations fail or `edit-select config` shows errors about missing helpers
 
 **Solution:** The WSL helper binaries (`zes-wsl-clipboard-helper.exe` and `zes-wsl-selection-agent`) are
-downloaded automatically on first use. If they fail to download or execute:
+downloaded automatically on first use only **if needed**. The plugin may prefere to use a **tailored-variant** for better support to your current environment. If they fail to download or execute:
 
 1. **Check your network connection** during the first plugin load.
 2. **Download or build manually:** You can compile the binaries yourself. See the [Manual Agents Build (optional)](#manual-agents-build-optional) section.
@@ -2232,6 +2258,9 @@ This plugin has been thoroughly tested on **Kitty Terminal** and briefly on othe
 - The other implementations are never loaded into memory, reducing both startup time and memory footprint
 - The configuration wizard is also lazy-loaded — its file is only sourced when the user explicitly runs
   `edit-select config`
+- Installer maintenance subcommands (`edit-select integrate`, `edit-select conflicts`, `edit-select update`,
+  `edit-select build`, `edit-select uninstall`) are lazy-triggered and spawn the installer only when invoked,
+  adding zero overhead to normal shell startup and typing paths
 
 **Zsh Bytecode Compilation**
 
