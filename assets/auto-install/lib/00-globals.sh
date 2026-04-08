@@ -14,7 +14,7 @@ readonly _ZES_MOD_GLOBALS_LOADED=1
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.6.46"
+readonly SCRIPT_VERSION="0.6.47"
 
 # Color codes
 readonly RED='\033[0;31m'

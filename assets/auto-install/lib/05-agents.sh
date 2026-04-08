@@ -699,6 +699,11 @@ build_wsl_agents() {
 
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         print_warning "Missing fallback build requirements for WSL agents: ${missing_tools[*]}" "wsl_build"
+        if [[ "${DETECTED_PACKAGE_MANAGER:-}" == "apt" ]]; then
+            print_info "Install WSL build deps: sudo apt-get install build-essential gcc-mingw-w64-x86-64 libx11-dev libxfixes-dev pkg-config"
+        else
+            print_info "WSL source build also requires a MinGW x86_64 cross-compiler (x86_64-w64-mingw32-gcc)."
+        fi
         return 1
     fi
 
@@ -751,6 +756,9 @@ build_wsl_xwayland_monitor() {
 
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         print_warning "Missing fallback build requirements for WSL XWayland agent: ${missing_tools[*]}" "wsl_xwayland_build"
+        if [[ "${DETECTED_PACKAGE_MANAGER:-}" == "apt" ]]; then
+            print_info "Install WSL build deps: sudo apt-get install build-essential gcc-mingw-w64-x86-64 libx11-dev libxfixes-dev pkg-config"
+        fi
         return 1
     fi
 

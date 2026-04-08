@@ -523,6 +523,8 @@ function edit-select::show-menu() {
 		_platform_disp="XWayland (WSL)"
 	elif [[ "$_ZES_MONITOR_TYPE" == "wayland" ]]; then
 		_platform_disp="Wayland (WSL)"
+	elif [[ "$_ZES_MONITOR_TYPE" == "wsl" ]]; then
+		_platform_disp="WSL native (zes-wsl-selection-agent)"
 	fi
 	_zesw_status_line "Platform" "$_platform_disp"
 	_zesw_status_line "Mouse Replace" "$(_zesw_get_mouse_status)"
@@ -1395,6 +1397,8 @@ function edit-select::view-config() {
 		backend_disp="XWayland (agent)"
 	elif [[ "$_ZES_MONITOR_TYPE" == "wayland" ]]; then
 		backend_disp="Wayland (native)"
+	elif [[ "$_ZES_MONITOR_TYPE" == "wsl" ]]; then
+		backend_disp="WSL native (zes-wsl-selection-agent)"
 	fi
 	printf "  %sClipboard:%s %s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET" "$backend_disp"
 

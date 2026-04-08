@@ -14,6 +14,7 @@
 #       Downloads <asset_name> from the latest release to <dest_path>.
 #       Verifies SHA256 before installing.  Returns 0 on success, 1 on any
 #       failure — the caller is expected to fall back to `make`.
+#       Also used by the WSL loader to fetch `zes-wsl-clipboard-helper.exe`.
 #
 #   _zes_asset_name <impl> <binary_basename>
 #       Prints the release asset filename for the current machine's arch.
@@ -36,7 +37,7 @@
 # the final diagnostic once it knows whether the make fallback also failed.
 # ---------------------------------------------------------------------------
 function _zes_fetch_binary() {
-  local _asset="$1"   # release asset filename, e.g. "zes-wl-selection-agent-aarch64"
+  local _asset="$1"   # release asset filename, e.g. "zes-wl-selection-agent-aarch64" or "zes-wsl-clipboard-helper.exe"
   local _dest="$2"    # absolute path where the binary should land
 
   local _base_url="https://github.com/Michael-Matta1/zsh-edit-select/releases/latest/download"

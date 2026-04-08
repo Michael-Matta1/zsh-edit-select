@@ -70,7 +70,11 @@ install_dependencies() {
         print_warning "Unknown package manager: $DETECTED_PACKAGE_MANAGER"
         print_info "Please install dependencies manually:"
         print_info "  - C compiler toolchain (gcc, make)"
-        if [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
+        if [[ "$DETECTED_OS" == "wsl" ]]; then
+            print_info "  - libx11-dev libxfixes-dev (WSL XWayland build libraries)"
+            print_info "  - build-essential gcc-mingw-w64-x86-64 (WSL source-build toolchain)"
+            print_info "  - Optional: libwayland-dev wayland-protocols wl-clipboard (WSL Wayland companion)"
+        elif [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
             print_info "  - libx11-dev libxfixes-dev (X11 libraries)"
             print_info "  - xclip (clipboard tool, optional)"
         elif [[ "$DETECTED_DISPLAY_SERVER" == "macos" ]]; then
@@ -85,6 +89,8 @@ install_dependencies() {
         return
         ;;
     esac
+
+    _zes_wsl_build_toolchain_postcheck
 }
 
 
@@ -144,7 +150,33 @@ install_deps_macos() {
 }
 
 
+_zes_wsl_build_toolchain_postcheck() {
+    if [[ "$DETECTED_OS" != "wsl" ]]; then
+        return 0
+    fi
+
+    if command_exists x86_64-w64-mingw32-gcc || command_exists mingw-w64-gcc; then
+        return 0
+    fi
+
+    print_warning "WSL source builds require a MinGW x86_64 cross-compiler for zes-wsl-clipboard-helper.exe"
+
+    if [[ "$DETECTED_PACKAGE_MANAGER" == "apt" ]]; then
+        print_info "Install WSL build deps: sudo apt-get install build-essential gcc-mingw-w64-x86-64 libx11-dev libxfixes-dev pkg-config"
+        MANUAL_STEPS+=("Install WSL build deps: sudo apt-get install build-essential gcc-mingw-w64-x86-64 libx11-dev libxfixes-dev pkg-config")
+    else
+        print_info "Install a package that provides x86_64-w64-mingw32-gcc, then rerun: edit-select build"
+        MANUAL_STEPS+=("Install WSL cross-compiler (x86_64-w64-mingw32-gcc), then rerun: edit-select build")
+    fi
+}
+
+
 ask_xwayland_deps() {
+    # WSL source builds include the WSL XWayland companion toolchain.
+    if [[ "$DETECTED_OS" == "wsl" ]]; then
+        return 0 # yes
+    fi
+
     # Always install X11 dev headers for Wayland users (XWayland compatibility)
     if [[ "$DETECTED_DISPLAY_SERVER" == "wayland" ]]; then
         return 0 # yes
@@ -265,7 +297,18 @@ install_deps_apt() {
 
     local packages=("build-essential" "pkg-config" "git" "zsh")
 
-    if [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
+    if [[ "$DETECTED_OS" == "wsl" ]]; then
+        # WSL source builds require:
+        #  - WSL native agent toolchain (build-essential)
+        #  - WSL Windows helper cross-compiler (gcc-mingw-w64-x86-64)
+        #  - XWayland build headers (libx11-dev/libxfixes-dev)
+        packages+=("libx11-dev" "libxfixes-dev" "gcc-mingw-w64-x86-64")
+
+        # Optional WSL Wayland companion build path.
+        if [[ "$DETECTED_DISPLAY_SERVER" == "wayland" ]]; then
+            packages+=("libwayland-dev" "wayland-protocols" "wl-clipboard")
+        fi
+    elif [[ "$DETECTED_DISPLAY_SERVER" == "x11" ]]; then
         packages+=("libx11-dev" "libxfixes-dev" "xclip")
     else
         packages+=("libwayland-dev" "wayland-protocols" "wl-clipboard")

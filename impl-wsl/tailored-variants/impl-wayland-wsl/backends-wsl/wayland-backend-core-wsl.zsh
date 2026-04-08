@@ -11,6 +11,7 @@
 # backend tree outside tailored-variants/ to reuse existing build targets.
 typeset -g _ZES_TAILORED_BACKEND_REAL_DIR="${0:A:h}/../../../../impl-wayland/backends"
 typeset -g _ZES_WSL_XWAYLAND_AGENT_DIR="${0:A:h}/xwayland"
+typeset -g _ZES_WSL_HELPER_EXE="${${(%):-%N}:A:h:h:h:h}/backends/wsl/zes-wsl-clipboard-helper.exe"
 
 # Binary detection uses -s (non-empty file) instead of -x because on WSL2's
 # DrvFs mounts (/mnt/c/…) the POSIX execute bit may not be set even though
@@ -58,7 +59,7 @@ if [[ -n "${DISPLAY:-}" ]] && \
   unset _zes_wsl_root
 fi
 if [[ -n "${DISPLAY:-}" ]] && [[ -s "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]]; then
-    chmod +x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" 2>/dev/null
+    [[ ! -x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" ]] && chmod +x "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent" 2>/dev/null
     # Pass --monitor-clipboard for the WSL XWayland agent to track Windows Terminal clipboard
     typeset -g _ZES_MONITOR_BINARY="$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-agent"
     typeset -g _ZES_MONITOR_BINARY_ARGS="--monitor-clipboard"
@@ -66,13 +67,42 @@ if [[ -n "${DISPLAY:-}" ]] && [[ -s "$_ZES_WSL_XWAYLAND_AGENT_DIR/zes-xwayland-a
 elif [[ -s "$_ZES_TAILORED_BACKEND_REAL_DIR/wayland/zes-wl-selection-agent" ]]; then
     chmod +x "$_ZES_TAILORED_BACKEND_REAL_DIR/wayland/zes-wl-selection-agent" 2>/dev/null
     typeset -g _ZES_MONITOR_BINARY="$_ZES_TAILORED_BACKEND_REAL_DIR/wayland/zes-wl-selection-agent"
+    typeset -g _ZES_MONITOR_BINARY_ARGS=""
     typeset -g _ZES_MONITOR_TYPE="wayland"
 else
-    # Neither binary was found — clipboard functions will fall back to
-    # wl-paste / wl-copy.  The agent can be built by running make in the
-    # appropriate backends/ subdirectory.
-    typeset -g _ZES_MONITOR_BINARY=""
-    typeset -g _ZES_MONITOR_TYPE=""
+    # Neither display-server agent was found.
+    # Fall back to the WSL-native helper pair under impl-wsl/backends/wsl:
+    #   zes-wsl-selection-agent      (Linux ELF)
+    #   zes-wsl-clipboard-helper.exe (Windows PE)
+    local _zes_wsl_root="${${(%):-%N}:A:h:h:h:h}"
+    local _zes_wsl_helpers_dir="$_zes_wsl_root/backends/wsl"
+    local _zes_wsl_agent="$_zes_wsl_helpers_dir/zes-wsl-selection-agent"
+
+    # If the WSL agent is missing, provision artifacts now.
+    if [[ ! -s "$_zes_wsl_agent" ]]; then
+        local _zes_wsl_loader="$_zes_wsl_root/loader-build.wsl.zsh"
+        if [[ -r "$_zes_wsl_loader" ]]; then
+            source "$_zes_wsl_loader" 2>/dev/null
+            _zes_loader_build_wsl_artifacts "$_zes_wsl_root" 2>/dev/null
+            unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null
+        fi
+    fi
+
+    [[ -f "$_zes_wsl_agent" && ! -x "$_zes_wsl_agent" ]] && chmod +x "$_zes_wsl_agent" 2>/dev/null
+
+    if [[ -s "$_zes_wsl_agent" ]]; then
+        typeset -g _ZES_MONITOR_BINARY="$_zes_wsl_agent"
+        typeset -g _ZES_MONITOR_BINARY_ARGS=""
+        typeset -g _ZES_MONITOR_TYPE="wsl"
+    else
+        # All agents unavailable — clipboard functions will fall back to
+        # clip.exe / powershell.exe.
+        typeset -g _ZES_MONITOR_BINARY=""
+        typeset -g _ZES_MONITOR_BINARY_ARGS=""
+        typeset -g _ZES_MONITOR_TYPE=""
+    fi
+
+    unset _zes_wsl_root _zes_wsl_helpers_dir _zes_wsl_agent
 fi
 
 # Self-write suppression for WSL CLIPBOARD monitoring.  When the plugin
@@ -81,12 +111,23 @@ fi
 # last self-initiated copy so the selection detector can suppress it.
 typeset -g _ZES_SELF_WRITE_CONTENT=""
 
-# Detect whether running on WSL so the daemon can enable the
-# --monitor-clipboard flag (WSLg bridges Windows clipboard ↔ X11 CLIPBOARD).
+# Detect whether running on WSL for clipboard fallback behavior.
 typeset -gi _ZES_ON_WSL=0
-if [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && grep -qi 'microsoft\|WSL' /proc/version 2>/dev/null; }; then
+if [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && { local pv="$(</proc/version 2>/dev/null)"; [[ "$pv" == *[Mm]icrosoft* ]] || [[ "$pv" == *[Ww][Ss][Ll]* ]]; }; }; then
     _ZES_ON_WSL=1
 fi
+
+# Detect VS Code terminal. VS Code clears the terminal's visual text selection
+# whenever mouse-tracking mode (DECSET 1000h) is enabled, unlike Windows
+# Terminal which preserves the selection through tracking mode changes.
+# To achieve functional parity we use a zle -F pipe-callback: a background
+# subshell waits for the physical mouse button to be released (via the helper
+# binary), then signals the parent ZLE loop through a zsystem pipe FD so that
+# _zes_enable_mouse_tracking runs fully in the parent context — re-installing
+# the \e[< binding and re-sending DECSET 1000h only after the selection has
+# been captured by the daemon. Fallback: lazy re-arm on the next keypress.
+typeset -gi _ZES_IS_VSCODE=0
+[[ "${TERM_PROGRAM:-}" == "vscode" ]] && _ZES_IS_VSCODE=1
 
 # Start the background selection agent and wait until it signals readiness.
 # The agent writes an initial seq file immediately after daemonising; waiting
@@ -120,11 +161,9 @@ function _zes_start_monitor() {
 
     # Launch the agent in a disowned background subshell so it survives
     # shell exit and does not generate job-control noise.
-    # On WSL, pass --monitor-clipboard so the agent also watches X11
-    # CLIPBOARD events (WSLg bridges Windows clipboard ↔ X11 CLIPBOARD).
     (
-        if ((_ZES_ON_WSL)); then
-            "$_ZES_MONITOR_BINARY" "$_EDIT_SELECT_CACHE_DIR" --monitor-clipboard &>/dev/null &
+        if [[ -n "${_ZES_MONITOR_BINARY_ARGS:-}" ]]; then
+            "$_ZES_MONITOR_BINARY" "$_EDIT_SELECT_CACHE_DIR" ${=_ZES_MONITOR_BINARY_ARGS} &>/dev/null &
         else
             "$_ZES_MONITOR_BINARY" "$_EDIT_SELECT_CACHE_DIR" &>/dev/null &
         fi
@@ -225,9 +264,21 @@ function _zes_copy_to_clipboard() {
 
 # Clear the PRIMARY selection.  Called after a mouse-selected region is
 # consumed to prevent accidental reuse of the highlighted text.
+#
+# WSL-native agent (zes-wsl-selection-agent --clear-primary): atomically
+#   writes empty primary + increments seq via write_primary("", 0, seq).
+#   No additional local truncate needed — doing so would race with the
+#   agent's seq write and could cause the shell to see empty content
+#   paired with a stale seq mtime.
+#
+# XWayland / Wayland agents (--clear-primary): only clear the compositor's
+#   selection state (X11 or Wayland) without touching cache files.  Local
+#   truncate is needed to prevent stale reads before the next event arrives.
 function _zes_clear_primary() {
     if [[ -n "$_ZES_MONITOR_BINARY" ]] && [[ -s "$_ZES_MONITOR_BINARY" ]]; then
         "$_ZES_MONITOR_BINARY" --clear-primary 2>/dev/null
+        # WSL-native agent writes cache atomically; skip redundant truncate.
+        [[ "$_ZES_MONITOR_TYPE" == "wsl" ]] && return
     else
         printf '' | wl-copy --primary 2>/dev/null
     fi
@@ -261,12 +312,16 @@ function _zes_wsl_check_copyonselect() {
     local settings_path
     _zes_wsl_find_terminal_settings_path || return 1
     settings_path="$REPLY"
-    # The global-level copyOnSelect takes precedence over profile defaults.
-    # Match the first occurrence (top-level) — if it's false, mouse selection
-    # won't reach the clipboard regardless of profile defaults.
-    local global_val
-    global_val=$(grep -m1 -E '"copyOnSelect"[[:space:]]*:' "$settings_path" 2>/dev/null) || return 1
-    [[ "$global_val" == *true* ]] && return 0
+    # Zero-fork check: read the settings file line-by-line using a builtin
+    # to avoid forking grep, but ensure we only check the true/false value
+    # on the exact line containing "copyOnSelect".
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == *'"copyOnSelect"'*':'* ]]; then
+            [[ "$line" == *true* ]] && return 0
+            return 1
+        fi
+    done < "$settings_path" 2>/dev/null
     return 1
 }
 
@@ -298,12 +353,18 @@ typeset -gi _ZES_MOUSE_PROMPT_WIDTH=0      # visible columns of last prompt line
 typeset -gi _ZES_MOUSE_SELECTING=0         # 1 during click-drag
 typeset -gi _ZES_MOUSE_ANCHOR=-1           # BUFFER pos of initial click
 typeset -gi _ZES_MOUSE_AUTOSUSPENDED=0     # 1 when tracking was suspended for free selection
+typeset -g _ZES_MOUSE_LAST_HIT_REGION="inside" # inside|above|below|left|outside
 typeset -g _ZES_WSL_MOUSE_MODE="tracking" # tracking | terminal | disabled
 # Multi-click detection (double-click = word, triple-click = line).
 typeset -gi _ZES_MOUSE_CLICK_COUNT=0       # consecutive click count
 typeset -gF _ZES_MOUSE_LAST_CLICK_TIME=0  # EPOCHREALTIME of last press
 typeset -gi _ZES_MOUSE_LAST_CLICK_POS=-1  # BUFFER pos of last press
 typeset -gF _ZES_MOUSE_MULTI_CLICK_THRESHOLD=0.4  # seconds
+typeset -gi _ZES_WSL_HELPER_HANDOFF_READY=-1      # -1 unknown, 0 no, 1 yes
+typeset -gi _ZES_WSL_HELPER_HANDOFF_REBUILD_TRIED=0
+typeset -g _ZES_WSL_HELPER_HANDOFF_MODE=""       # atomic | legacy
+# Read FD for the VS Code scrollback re-arm pipe (-1 = none open).
+typeset -gi _ZES_VSCODE_REARM_FD=-1
 
 # Select the WSL mouse strategy.
 # WSL mouse strategy:
@@ -355,16 +416,48 @@ function _zes_mouse_precmd() {
 # This runs only during mouse interaction, so the response can be consumed
 # synchronously without leaking into subsequent shell input.
 function _zes_refresh_mouse_prompt_base_row() {
+    local -i tw=$COLUMNS
+    ((tw < 1)) && tw=1
     local -i pw=$_ZES_MOUSE_PROMPT_WIDTH
-    local -i first_line_cols=$((COLUMNS - pw))
-    ((first_line_cols < 1)) && first_line_cols=1
 
-    local -i cursor_rel_row
-    if ((CURSOR < first_line_cols)); then
-        cursor_rel_row=0
-    else
-        cursor_rel_row=$((1 + (CURSOR - first_line_cols) / COLUMNS))
-    fi
+    # Compute cursor row offset from prompt base using O(rows) chunking
+    # instead of O(CURSOR) character-by-character iteration.
+    local -i cursor_rel_row=0
+    local -i cursor_col=$((pw + 1))
+    while ((cursor_col > tw)); do
+        ((cursor_rel_row++))
+        ((cursor_col -= tw))
+    done
+
+    local -i cur=$CURSOR
+    local -i blen=${#BUFFER}
+    ((cur < 0)) && cur=0
+    ((cur > blen)) && cur=$blen
+
+    local -i i=0 rem_len nl_idx
+    local segment prefix
+    local -i start_col=$cursor_col
+    while ((i < cur)); do
+        rem_len=$((tw - start_col + 1))
+        ((rem_len > cur - i)) && rem_len=$((cur - i))
+        segment="${BUFFER:$i:$rem_len}"
+
+        if [[ "$segment" == *$'\n'* ]]; then
+            prefix="${segment%%$'\n'*}"
+            nl_idx=${#prefix}
+            ((cursor_rel_row++))
+            start_col=1
+            i=$((i + nl_idx + 1))
+        elif ((i + rem_len >= cur)); then
+            # Reached the cursor position within this row
+            break
+        else
+            # Full row consumed — wrap
+            ((cursor_rel_row++))
+            start_col=1
+            i=$((i + rem_len))
+        fi
+    done
 
     local response="" char=""
     local tty_fd
@@ -409,73 +502,110 @@ function _zes_refresh_mouse_prompt_base_row() {
 # Convert screen coordinates (1-based) to BUFFER position (0-based).
 # Uses the prompt base row captured at mouse-press time from a synchronous
 # cursor-position query, so it remains correct even when the prompt is not on
-# the terminal's bottom row.
+# the terminal's bottom row. Handles explicit newlines and wrapped rows.
 # Returns result in REPLY; -1 if outside the buffer area.
 function _zes_screen_to_buffer_pos() {
-    local -i sx=$1 sy=$2    # 1-based screen coords
-    local -i pw=$_ZES_MOUSE_PROMPT_WIDTH
+    local -i sx=$1 sy=$2
     local -i tw=$COLUMNS
+    ((tw < 1)) && tw=1
     local -i base_row=$_ZES_MOUSE_PROMPT_BASE_ROW
     ((base_row < 1)) && base_row=1
-    local -i col=$((sx - 1))    # 0-based column
 
-    # Compute how many screen rows the current buffer occupies.
-    # First row: (tw - pw) available characters (after prompt)
-    # Subsequent rows: tw characters each
+    _ZES_MOUSE_LAST_HIT_REGION="outside"
+
+    # Compute first editable cell (prompt may itself wrap).
+    local -i first_row=$base_row
+    local -i first_col=$((_ZES_MOUSE_PROMPT_WIDTH + 1))
+    while ((first_col > tw)); do
+        ((first_row++))
+        ((first_col -= tw))
+    done
+
     local -i buf_len=${#BUFFER}
-    [[ $buf_len == 0 ]] && {
-        # Empty buffer: only the editable area to the right of the prompt
-        # on the prompt row maps to CURSOR position 0.
-        if ((sy == base_row && col >= pw)); then
-            REPLY=0
-        else
-            REPLY=-1
-        fi
-        return
-    }
+    local -a row_start_idx row_end_idx row_start_col
+    local -i row_count=0
 
-    local -i total_chars=$((pw + buf_len))
-    local -i buf_screen_rows=$(( (total_chars + tw - 1) / tw ))
-    ((buf_screen_rows < 1)) && buf_screen_rows=1
-
-    local -i bottom_row=$((base_row + buf_screen_rows - 1))
-    if ((bottom_row > LINES)); then
-        base_row=$((LINES - buf_screen_rows + 1))
-        ((base_row < 1)) && base_row=1
-    fi
-
-    local -i rel_row=$((sy - base_row))
-
-    # Click is above the buffer
-    if ((rel_row < 0)); then
-        REPLY=-1
-        return
-    fi
-
-    # Click is below the rendered editable buffer rows.
-    if ((rel_row >= buf_screen_rows)); then
-        REPLY=-1
-        return
-    fi
-
-    local -i pos
-    if ((rel_row == 0)); then
-        # Prompt area (left of editable buffer) is not part of BUFFER.
-        if ((col < pw)); then
-            REPLY=-1
-            return
-        fi
-        # First line of buffer (after prompt)
-        pos=$((col - pw))
+    if ((buf_len == 0)); then
+        row_count=1
+        row_start_idx[1]=0
+        row_end_idx[1]=0
+        row_start_col[1]=$first_col
     else
-        # Subsequent lines
-        pos=$((tw - pw + (rel_row - 1) * tw + col))
+        local -i row=$first_row
+        local -i start_idx=0
+        local -i start_col=$first_col
+        local -i i=0
+        local -i rem_len
+        local segment prefix
+        local -i nl_idx
+
+        # Optimized O(rows) chunking instead of O(N) character iteration
+        while (( i < buf_len )); do
+            rem_len=$(( tw - start_col + 1 ))
+            segment="${BUFFER:$i:$rem_len}"
+
+            if [[ "$segment" == *$'\n'* ]]; then
+                prefix="${segment%%$'\n'*}"
+                nl_idx=${#prefix}
+
+                ((row_count++))
+                row_start_idx[$row_count]=$start_idx
+                row_end_idx[$row_count]=$(( i + nl_idx ))
+                row_start_col[$row_count]=$start_col
+
+                ((row++))
+                start_col=1
+                i=$(( i + nl_idx + 1 ))
+                start_idx=$i
+            elif (( i + rem_len <= buf_len )); then
+                ((row_count++))
+                row_start_idx[$row_count]=$start_idx
+                row_end_idx[$row_count]=$(( i + rem_len ))
+                row_start_col[$row_count]=$start_col
+
+                ((row++))
+                start_col=1
+                i=$(( i + rem_len ))
+                start_idx=$i
+            else
+                break
+            fi
+        done
+
+        ((row_count++))
+        row_start_idx[$row_count]=$start_idx
+        row_end_idx[$row_count]=$buf_len
+        row_start_col[$row_count]=$start_col
     fi
 
-    # Clamp to valid range
-    ((pos < 0)) && pos=0
-    ((pos > buf_len)) && pos=$buf_len
-    REPLY=$pos
+    local -i row_index=$((sy - first_row + 1))
+    if ((row_index < 1 || row_index > row_count)); then
+        if ((row_index < 1)); then
+            _ZES_MOUSE_LAST_HIT_REGION="above"
+        else
+            _ZES_MOUSE_LAST_HIT_REGION="below"
+        fi
+        REPLY=-1
+        return
+    fi
+
+    local -i start=${row_start_idx[$row_index]}
+    local -i end=${row_end_idx[$row_index]}
+    local -i min_col=${row_start_col[$row_index]}
+
+    # Left of the editable region (prompt gutter on first row).
+    if ((sx < min_col)); then
+        _ZES_MOUSE_LAST_HIT_REGION="left"
+        REPLY=-1
+        return
+    fi
+
+    local -i offset=$((sx - min_col))
+    local -i max_offset=$((end - start))
+    ((offset > max_offset)) && offset=$max_offset
+
+    _ZES_MOUSE_LAST_HIT_REGION="inside"
+    REPLY=$((start + offset))
 }
 
 # ZLE widget: handle SGR mouse events.
@@ -483,6 +613,8 @@ function _zes_screen_to_buffer_pos() {
 # the terminal input to get button/column/row/press-or-release.
 function _zes_mouse_event_handler() {
     local buf="" c=""
+    local MATCH
+    local -a match mbegin mend
     # Read until obtaining M (press/motion) or m (release).
     # The SGR bytes are pre-buffered in ZLE's unget queue so read
     # returns immediately; -t 0.5 is a safety-net for broken sequences.
@@ -507,6 +639,11 @@ function _zes_mouse_event_handler() {
     local -i base_button=$((button & 3))      # 0=left, 1=mid, 2=right, 3=release
     local -i is_motion=$((button & 32))       # 32 = motion event
     local -i is_scroll=$(((button & 64) ? 1 : 0))
+
+    # Ignore motion-without-button events if the terminal emits them.
+    if ((is_motion)) && ((base_button == 3)); then
+        return
+    fi
 
     # Mouse wheel: scroll up/down navigates command history.
     if ((is_scroll)); then
@@ -537,7 +674,28 @@ function _zes_mouse_event_handler() {
         _zes_screen_to_buffer_pos $mx $my
         local -i buf_pos=$REPLY
         if ((buf_pos < 0)); then
-            # Click outside editable BUFFER area (e.g. prompt prefix or scrollback).
+            # Below-buffer clicks should place cursor at the end of BUFFER
+            # without suspending tracking.
+            if [[ "$_ZES_MOUSE_LAST_HIT_REGION" == "below" ]]; then
+                CURSOR=${#BUFFER}
+                REGION_ACTIVE=0
+                _ZES_MOUSE_SELECTION_START=-1
+                _ZES_MOUSE_SELECTION_LEN=0
+                zle -K main
+                zle -R
+                return
+            fi
+
+            # Above-buffer click/drag (scrollback): hand off to the native
+            # terminal selection flow and re-arm tracking on button release.
+            if [[ "$_ZES_MOUSE_LAST_HIT_REGION" == "above" ]]; then
+                if [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]]; then
+                    _zes_handoff_to_native_scrollback
+                fi
+                return
+            fi
+
+            # Click outside editable BUFFER area (prompt gutter / scrollback).
             if [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]]; then
                 if ((REGION_ACTIVE)) || [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
                     # An active ZLE or daemon selection exists: the user intends
@@ -572,14 +730,19 @@ function _zes_mouse_event_handler() {
             # DOUBLE-CLICK: select the word under the cursor.
             _ZES_MOUSE_SELECTING=0
             local -i wstart=$buf_pos wend=$buf_pos blen=${#BUFFER}
-            # Expand backwards over word characters
-            while ((wstart > 0)) && [[ "${BUFFER:$((wstart-1)):1}" == [a-zA-Z0-9_] ]]; do
-                ((wstart--))
-            done
-            # Expand forwards over word characters
-            while ((wend < blen)) && [[ "${BUFFER:$wend:1}" == [a-zA-Z0-9_] ]]; do
-                ((wend++))
-            done
+            local left_str="${BUFFER:0:$buf_pos}"
+            local right_str="${BUFFER:$buf_pos}"
+
+            # Efficient backward word matching using zsh pattern matching
+            if [[ "$left_str" =~ ([a-zA-Z0-9_]+)$ ]]; then
+                wstart=$((buf_pos - ${#MATCH}))
+            fi
+
+            # Efficient forward word matching using zsh pattern matching
+            if [[ "$right_str" =~ ^([a-zA-Z0-9_]+) ]]; then
+                wend=$((buf_pos + ${#MATCH}))
+            fi
+
             if ((wstart != wend)); then
                 MARK=$wstart
                 CURSOR=$wend
@@ -600,15 +763,26 @@ function _zes_mouse_event_handler() {
             # TRIPLE-CLICK: select the entire BUFFER line containing the cursor.
             _ZES_MOUSE_SELECTING=0
             _ZES_MOUSE_CLICK_COUNT=0   # reset so next click is single
-            local -i lstart=$buf_pos lend=$buf_pos blen=${#BUFFER}
-            # Find start of line (scan back for newline)
-            while ((lstart > 0)) && [[ "${BUFFER:$((lstart-1)):1}" != $'\n' ]]; do
-                ((lstart--))
-            done
-            # Find end of line (scan forward for newline)
-            while ((lend < blen)) && [[ "${BUFFER:$lend:1}" != $'\n' ]]; do
-                ((lend++))
-            done
+
+            local -i lstart lend blen=${#BUFFER}
+            local left_part="${BUFFER:0:$buf_pos}"
+            local right_part="${BUFFER:$buf_pos}"
+
+            # Find the start of the line (after the last newline in left_part)
+            if [[ "$left_part" == *$'\n'* ]]; then
+                local last_nl_prefix="${left_part%$'\n'*}"
+                lstart=$((${#last_nl_prefix} + 1))
+            else
+                lstart=0
+            fi
+
+            # Find the end of the line (before the first newline in right_part)
+            if [[ "$right_part" == *$'\n'* ]]; then
+                local first_nl_suffix="${right_part#*$'\n'}"
+                lend=$((buf_pos + ${#right_part} - ${#first_nl_suffix} - 1))
+            else
+                lend=$blen
+            fi
             MARK=$lstart
             CURSOR=$lend
             REGION_ACTIVE=1
@@ -690,10 +864,33 @@ function _zes_mouse_event_handler() {
 }
 zle -N _zes_mouse_event_handler
 
+# ZLE fd-callback for VS Code: fires when the user makes their next physical
+# mouse click after a scrollback selection.  At that point the selection has
+# persisted visibly; we now re-arm tracking (1000h) which clears the highlight
+# but the daemon already holds the text for type-to-replace.
+function _zes_vscode_rearm_fd_callback() {
+    local fd=$1
+    zle -F $fd 2>/dev/null
+    exec {fd}<&- 2>/dev/null
+    _ZES_VSCODE_REARM_FD=-1
+    [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]] || return
+    ((_ZES_MOUSE_AUTOSUSPENDED)) || return   # keypress already re-armed
+    ((_ZES_MOUSE_TRACKING)) && return        # already enabled
+    _zes_enable_mouse_tracking
+    zle -R 2>/dev/null
+}
+zle -N _zes_vscode_rearm_fd_callback
+
 # Enable WSL mouse tracking: install precmd hook and mouse keybinding.
 # Called from edit-select::apply-mouse-replacement-config when on WSL.
 function _zes_enable_mouse_tracking() {
     ((_ZES_MOUSE_TRACKING)) && return   # already enabled
+    # Tear down any open VS Code re-arm pipe (superseded by keypress).
+    if ((_ZES_VSCODE_REARM_FD >= 0)); then
+        zle -F $_ZES_VSCODE_REARM_FD 2>/dev/null
+        exec {_ZES_VSCODE_REARM_FD}<&- 2>/dev/null
+        _ZES_VSCODE_REARM_FD=-1
+    fi
     _ZES_MOUSE_TRACKING=1
     _ZES_MOUSE_AUTOSUSPENDED=0
     # Install precmd hook for cursor position tracking
@@ -738,6 +935,162 @@ function _zes_disable_mouse_tracking() {
     _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
     zle deactivate-region -w 2>/dev/null
     zle -K main 2>/dev/null
+}
+
+# Action-based native scrollback handoff:
+# 1) disable terminal mouse reporting,
+# 2) inject left-button down so the same user drag continues natively,
+# 3) on physical release, inject matching left-button up,
+# 4) re-enable reporting.
+function _zes_wsl_helper_supports_scrollback_handoff() {
+    [[ -s "$_ZES_WSL_HELPER_EXE" ]] || return 1
+    local helper_help=""
+    helper_help=$("$_ZES_WSL_HELPER_EXE" --help 2>&1) || true
+
+    if [[ "$helper_help" == *"--handoff-scrollback"* ]]; then
+        _ZES_WSL_HELPER_HANDOFF_MODE="atomic"
+        return 0
+    fi
+
+    [[ "$helper_help" == *"--inject-left-down"* ]] || return 1
+    [[ "$helper_help" == *"--inject-left-up"* ]] || return 1
+    [[ "$helper_help" == *"--wait-left-up"* ]] || return 1
+    _ZES_WSL_HELPER_HANDOFF_MODE="legacy"
+    return 0
+}
+
+function _zes_prepare_wsl_scrollback_handoff_helper() {
+    if ((_ZES_WSL_HELPER_HANDOFF_READY == 1)) && [[ -n "$_ZES_WSL_HELPER_HANDOFF_MODE" ]]; then
+        return 0
+    fi
+
+    if _zes_wsl_helper_supports_scrollback_handoff; then
+        _ZES_WSL_HELPER_HANDOFF_READY=1
+        return 0
+    fi
+
+    if ((!_ZES_WSL_HELPER_HANDOFF_REBUILD_TRIED)); then
+        _ZES_WSL_HELPER_HANDOFF_REBUILD_TRIED=1
+        local helper_dir="${_ZES_WSL_HELPER_EXE:h}"
+        if [[ -f "$helper_dir/Makefile" ]] && [[ -w "$helper_dir" ]]; then
+            ( cd "$helper_dir" && make >/dev/null 2>&1 )
+            if _zes_wsl_helper_supports_scrollback_handoff; then
+                _ZES_WSL_HELPER_HANDOFF_READY=1
+                return 0
+            fi
+        fi
+    fi
+
+    _ZES_WSL_HELPER_HANDOFF_READY=0
+    return 1
+}
+
+function _zes_handoff_to_native_scrollback() {
+    ((_ZES_MOUSE_TRACKING)) || return
+
+    # Gate synthetic handoff on helper capability to avoid sticky drag state
+    # with older helper builds that lack --inject-left-up.
+    if ! _zes_prepare_wsl_scrollback_handoff_helper; then
+        _zes_disable_mouse_tracking
+        _ZES_MOUSE_AUTOSUSPENDED=1
+        return
+    fi
+
+    # Turn off terminal reporting only; keep hooks/bindings intact.
+    printf '\e[?1000l\e[?1002l\e[?1006l' > /dev/tty 2>/dev/null
+    _ZES_MOUSE_SELECTING=0
+    _ZES_MOUSE_ANCHOR=-1
+    _ZES_MOUSE_AUTOSUSPENDED=1
+
+    # ── VS Code: click-triggered re-arm — selection preserved until next click ─
+    # VS Code's xterm.js clears the selection when DECSET 1000h is sent, so we
+    # cannot re-arm immediately on mouse-up.  Instead:
+    #   Phase 1: --handoff-scrollback handles the current drag (injects events,
+    #            waits for the physical release).
+    #   Phase 2: --wait-next-left-down blocks until the user clicks anywhere.
+    #            The click is processed natively (tracking is off), then the
+    #            process-sub exits, the ZLE fd-callback fires, and tracking is
+    #            re-armed via _zes_enable_mouse_tracking.
+    # Result: selection stays visible until the user clicks — no keypress needed.
+    # Fallback: if the helper doesn't support --wait-next-left-down (old binary)
+    #           it exits with code 1 immediately; the callback fires right away
+    #           (same as eager re-arm).  Also, typing a key re-arms via the
+    #           existing lazy-keypress path (_zes_resume_tracking_if_needed).
+    if ((_ZES_IS_VSCODE)); then
+        if ((_ZES_VSCODE_REARM_FD >= 0)); then
+            zle -F $_ZES_VSCODE_REARM_FD 2>/dev/null
+            exec {_ZES_VSCODE_REARM_FD}<&- 2>/dev/null
+            _ZES_VSCODE_REARM_FD=-1
+        fi
+        _ZES_MOUSE_TRACKING=0   # ensure lazy rearm guard fires too
+        local _zes_rfd=0
+        exec {_zes_rfd}< <(
+            # Phase 1: VS Code-safe drag handoff.
+            # Root cause of spurious dblclick: the physical LBUTTONDOWN (T0)
+            # is intercepted by tracking mode but Win32 still counts it for its
+            # dblclick timer.  A synthetic LBUTTONDOWN injected within
+            # GetDoubleClickTime() (~500ms) of T0 causes WM_LBUTTONDBLCLK →
+            # Chromium dblclick → VS Code word-selects instead of single-click.
+            #
+            # --handoff-scrollback-vscode (v0.6.7+) waits GetDoubleClickTime()
+            # before injecting, handling both quick-clicks and long drags.
+            # Old-binary fallback: shell sleeps 0.55 s first so that the
+            # subsequent --inject-left-down arrives at T0+~620 ms > 500 ms. ✓
+            if [[ "$_ZES_WSL_HELPER_HANDOFF_MODE" == "atomic" ]]; then
+                if ! "$_ZES_WSL_HELPER_EXE" --handoff-scrollback-vscode >/dev/null 2>&1; then
+                    # Old helper: sleep here to expire the Win32 dblclick window.
+                    sleep 0.55
+                    "$_ZES_WSL_HELPER_EXE" --inject-left-down >/dev/null 2>&1 || exit
+                    "$_ZES_WSL_HELPER_EXE" --wait-left-up    >/dev/null 2>&1
+                fi
+            else
+                # Legacy mode: same sleep-then-inject approach.
+                sleep 0.55
+                "$_ZES_WSL_HELPER_EXE" --inject-left-down >/dev/null 2>&1 || exit
+                "$_ZES_WSL_HELPER_EXE" --wait-left-up    >/dev/null 2>&1
+            fi
+            # Phase 2: wait for the user's next deliberate click
+            "$_ZES_WSL_HELPER_EXE" --wait-next-left-down >/dev/null 2>&1
+            [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]] && printf 'ok'
+        ) 2>/dev/null
+        if ((_zes_rfd > 0)); then
+            _ZES_VSCODE_REARM_FD=$_zes_rfd
+            zle -F $_zes_rfd _zes_vscode_rearm_fd_callback
+        fi
+        return
+    fi
+
+    # ── Windows Terminal (and VS Code pipe-setup-failed fallback) ──────────
+    if [[ "$_ZES_WSL_HELPER_HANDOFF_MODE" == "atomic" ]]; then
+        (
+            if ! "$_ZES_WSL_HELPER_EXE" --handoff-scrollback >/dev/null 2>&1; then
+                # Legacy fallback
+                "$_ZES_WSL_HELPER_EXE" --inject-left-down >/dev/null 2>&1 || return
+                "$_ZES_WSL_HELPER_EXE" --wait-left-up >/dev/null 2>&1
+                "$_ZES_WSL_HELPER_EXE" --inject-left-up >/dev/null 2>&1
+            fi
+            [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]] || return
+            ((_ZES_MOUSE_TRACKING)) || return
+            printf '\e[?1000h\e[?1002h\e[?1006h' > /dev/tty 2>/dev/null
+        ) &!
+        return
+    fi
+
+    "$_ZES_WSL_HELPER_EXE" --inject-left-down >/dev/null 2>&1 || {
+        _zes_disable_mouse_tracking
+        _ZES_MOUSE_AUTOSUSPENDED=1
+        return
+    }
+
+    # Re-arm tracking as soon as the physical left button is released.
+    (
+        "$_ZES_WSL_HELPER_EXE" --wait-left-up >/dev/null 2>&1
+        # Always release the injected synthetic DOWN to avoid sticky drag.
+        "$_ZES_WSL_HELPER_EXE" --inject-left-up >/dev/null 2>&1
+        [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]] || return
+        ((_ZES_MOUSE_TRACKING)) || return
+        printf '\e[?1000h\e[?1002h\e[?1006h' > /dev/tty 2>/dev/null
+    ) &!
 }
 
 # Zsh preexec hook: suspend mouse tracking before any command runs so that
