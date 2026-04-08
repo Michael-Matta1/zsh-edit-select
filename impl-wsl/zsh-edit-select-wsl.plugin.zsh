@@ -3,6 +3,19 @@
 #
 # WSL-native text selection and editing for Zsh command line.
 
+# Build WSL artifacts first so both the tailored and legacy WSL paths can use
+# the native helper binaries when needed.
+typeset -g _ZES_WSL_PLUGIN_ROOT="${0:A:h}"
+if [[ "${_ZES_WSL_ARTIFACTS_BOOTSTRAPPED_ROOT:-}" != "$_ZES_WSL_PLUGIN_ROOT" ]] && [[ -r "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh" ]]; then
+    source "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh"
+    _zes_loader_build_wsl_artifacts "$_ZES_WSL_PLUGIN_ROOT"
+    if [[ -x "$_ZES_WSL_PLUGIN_ROOT/backends/wsl/zes-wsl-selection-agent" ]] && [[ -s "$_ZES_WSL_PLUGIN_ROOT/backends/wsl/zes-wsl-clipboard-helper.exe" ]]; then
+        typeset -g _ZES_WSL_ARTIFACTS_BOOTSTRAPPED_ROOT="$_ZES_WSL_PLUGIN_ROOT"
+    fi
+    unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null
+fi
+unset _ZES_WSL_PLUGIN_ROOT
+
 # Prefer the WSL-tailored edited implementation split out under
 # impl-wsl/tailored-variants. Keep the legacy implementation in this file
 # as a fallback if tailored variant files are missing.
@@ -11,16 +24,6 @@ if [[ -r "$_ZES_WSL_TAILORED_PLUGIN" ]]; then
     source "$_ZES_WSL_TAILORED_PLUGIN"
     return $?
 fi
-
-# Build fallback WSL artifacts from inside impl-wsl so top-level loader
-# stays platform-agnostic.
-typeset -g _ZES_WSL_PLUGIN_ROOT="${0:A:h}"
-if [[ -r "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh" ]]; then
-    source "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh"
-    _zes_loader_build_wsl_artifacts "$_ZES_WSL_PLUGIN_ROOT"
-    unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null
-fi
-unset _ZES_WSL_PLUGIN_ROOT
 
 # Load zsh/stat for zero-fork file stat via zstat, and zsh/datetime for
 # EPOCHSECONDS / EPOCHREALTIME used in liveness probes and timing.
@@ -202,21 +205,20 @@ function _zes_detect_mouse_selection() {
     if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
         local sel="$_EDIT_SELECT_PENDING_SELECTION" sel_len=${#_EDIT_SELECT_PENDING_SELECTION}
         if [[ "$BUFFER" == *"$sel"* ]]; then
-            local idx=0
-            while ((idx <= ${#BUFFER} - sel_len)); do
-                if [[ "${BUFFER:$idx:$sel_len}" == "$sel" ]]; then
-                    local end_pos=$((idx + sel_len))
-                    if ((CURSOR >= idx && CURSOR <= end_pos)); then
-                        _EDIT_SELECT_ACTIVE_SELECTION="$sel"
-                        _EDIT_SELECT_PENDING_SELECTION=""
-                        zle -M ""
-                        zle -R
-                        return 0
-                    fi
-                    ((idx += sel_len))
-                else
-                    ((idx++))
+            local buf="$BUFFER" idx=0
+            while [[ "$buf" == *"$sel"* ]]; do
+                local prefix="${buf%%"$sel"*}"
+                idx=$((idx + ${#prefix}))
+                local end_pos=$((idx + sel_len))
+                if ((CURSOR >= idx && CURSOR <= end_pos)); then
+                    _EDIT_SELECT_ACTIVE_SELECTION="$sel"
+                    _EDIT_SELECT_PENDING_SELECTION=""
+                    zle -M ""
+                    zle -R
+                    return 0
                 fi
+                idx=$((idx + sel_len))
+                buf="${BUFFER:$idx}"
             done
         fi
         _EDIT_SELECT_PENDING_SELECTION=""
@@ -239,13 +241,12 @@ function _zes_delete_mouse_selection() {
 
     local -a positions=()
     local buf="$BUFFER" idx=0
-    while ((idx <= ${#buf} - sel_len)); do
-        if [[ "${buf:$idx:$sel_len}" == "$sel" ]]; then
-            positions+=($idx)
-            ((idx += sel_len))
-        else
-            ((idx++))
-        fi
+    while [[ "$buf" == *"$sel"* ]]; do
+        local prefix="${buf%%"$sel"*}"
+        idx=$((idx + ${#prefix}))
+        positions+=($idx)
+        idx=$((idx + sel_len))
+        buf="${BUFFER:$idx}"
     done
 
     local num_occurrences=${#positions[@]}
@@ -286,6 +287,29 @@ function edit-select::select-all() {
     MARK=0; CURSOR=${#BUFFER}; REGION_ACTIVE=1; zle -K edit-select;
 }
 zle -N edit-select::select-all
+
+function _zes_clear_selection_state() {
+    REGION_ACTIVE=0; _EDIT_SELECT_ACTIVE_SELECTION=""; _EDIT_SELECT_PENDING_SELECTION="";
+    _EDIT_SELECT_LAST_PRIMARY=""; _ZES_SELECTION_SET_TIME=0;
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0; _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1;
+    _zes_clear_primary; zle deactivate-region -w 2>/dev/null; zle -K main 2>/dev/null;
+}
+
+# Cancel any in-flight pending-selection disambiguation so the user is
+# never stuck in the blocking prompt.
+function edit-select::cancel-pending-or-escape() {
+    if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
+        _EDIT_SELECT_PENDING_SELECTION=""
+        _EDIT_SELECT_ACTIVE_SELECTION=""
+        _EDIT_SELECT_LAST_PRIMARY=""
+        _zes_clear_primary
+        zle -M ""
+        zle -R
+    elif [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
+        _zes_clear_selection_state
+    fi
+}
+zle -N edit-select::cancel-pending-or-escape
 
 function _zes_delete_selected_region() { zle kill-region -w; zle -K main; }
 zle -N edit-select::kill-region _zes_delete_selected_region
@@ -533,6 +557,9 @@ function edit-select::apply-mouse-replacement-config() {
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
         bindkey '\e[O' _zes_terminal_focus_out
+        # Ctrl-G cancels pending-selection disambiguation and clears active
+        # mouse selections so the user is never stuck in a blocking state.
+        bindkey -M emacs '^g' edit-select::cancel-pending-or-escape
     else
         bindkey -M emacs -R ' '-'~' self-insert
         bindkey -M emacs '^?' backward-delete-char

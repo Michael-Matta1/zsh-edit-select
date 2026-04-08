@@ -42,6 +42,10 @@ static char pid_path[560];
 /* X11/XWayland connection state and interned selection atoms. */
 /* X11/XWayland connection handle and root window. */
 static Display *dpy = NULL;
+/* Persistent window reused by daemon-mode selection reads to avoid
+   per-event XCreateSimpleWindow/XDestroyWindow round-trips.
+   Set once after daemon() in run_daemon(); NULL in short-lived modes. */
+static Window daemon_win = None;
 static Window root;
 /* Standard X11 selection and conversion atoms.
    XWayland runs an isolated per-session X server, so using xa_primary
@@ -181,7 +185,11 @@ static char *get_primary_selection(size_t *out_len) {
     return NULL;
   }
 
-  Window w = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+  /* Reuse the persistent daemon window when available; create a temp
+     window only in short-lived modes (--oneshot, --get-clipboard). */
+  bool ephemeral = (daemon_win == None);
+  Window w = ephemeral ? XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0)
+                       : daemon_win;
   XConvertSelection(dpy, xa_primary, xa_utf8_string, xa_primary, w,
                     CurrentTime);
   XFlush(dpy);
@@ -227,9 +235,13 @@ static char *get_primary_selection(size_t *out_len) {
       if (prop)
         XFree(prop);
     }
+    /* Delete the conversion property so it does not accumulate across
+       reuses of the persistent daemon window. */
+    XDeleteProperty(dpy, w, xa_primary);
   }
 
-  XDestroyWindow(dpy, w);
+  if (ephemeral)
+    XDestroyWindow(dpy, w);
   return data;
 }
 
@@ -284,7 +296,10 @@ static char *get_selection(Atom selection, size_t *out_len) {
     return NULL;
   }
 
-  Window w = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+  /* Reuse persistent daemon window when available. */
+  bool ephemeral = (daemon_win == None);
+  Window w = ephemeral ? XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0)
+                       : daemon_win;
   Atom prop_atom = (selection == xa_primary) ? xa_primary : xa_clipboard;
   XConvertSelection(dpy, selection, xa_utf8_string, prop_atom, w, CurrentTime);
   XFlush(dpy);
@@ -331,9 +346,12 @@ static char *get_selection(Atom selection, size_t *out_len) {
       if (prop)
         XFree(prop);
     }
+    /* Clean up conversion property on persistent window. */
+    XDeleteProperty(dpy, w, prop_atom);
   }
 
-  XDestroyWindow(dpy, w);
+  if (ephemeral)
+    XDestroyWindow(dpy, w);
   return data;
 }
 
@@ -546,6 +564,11 @@ static int run_daemon(const char *cache_dir_arg) {
   fd_primary = open(primary_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
   fd_seq = open(seq_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
 
+  /* Create a persistent window for selection conversion requests.
+     Reused by get_primary_selection() and get_selection() to avoid
+     per-event XCreateSimpleWindow/XDestroyWindow round-trips. */
+  daemon_win = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+
   /* XFixes is required for owner-change notifications.  Failure here
      typically means XWayland is not running, in which case the Wayland
      native agent should be used instead. */
@@ -609,6 +632,10 @@ static int run_daemon(const char *cache_dir_arg) {
     }
   }
 
+  if (daemon_win != None) {
+    XDestroyWindow(dpy, daemon_win);
+    daemon_win = None;
+  }
   if (fd_primary >= 0) {
     close(fd_primary);
     fd_primary = -1;

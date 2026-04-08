@@ -367,212 +367,596 @@ check_terminal_conflicts() {
 }
 
 
+_zes_compact_lower() {
+    local value="${1,,}"
+    value="${value//[[:space:]]/}"
+    printf '%s' "$value"
+}
+
+
+_zes_normalize_escape_value() {
+    local value="$( _zes_compact_lower "$1" )"
+    value="${value//$'\x1b'/\\x1b}"
+    value="${value//\\u001b/\\x1b}"
+    value="${value//\\e/\\x1b}"
+    printf '%s' "$value"
+}
+
+
+_zes_value_has_csi_code() {
+    local value
+    value="$(_zes_normalize_escape_value "$1")"
+    [[ "$value" == *"[$2"* ]]
+}
+
+
+_zes_value_is_interrupt_code() {
+    local value
+    value="$(_zes_normalize_escape_value "$1")"
+    [[ "$value" == *"\\x03"* ]] || [[ "$value" == *"\\u0003"* ]]
+}
+
+
+_zes_kitty_key_is_watched() {
+    local key="$1"
+    case "$key" in
+    ctrl+c | ctrl+shift+c | ctrl+shift+z | shift+left | shift+right | shift+up | shift+down | shift+home | shift+end | ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end)
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+
+_zes_kitty_binding_is_expected() {
+    local key="$1"
+    local action
+    action="$(_zes_normalize_escape_value "$2")"
+
+    case "$key" in
+    shift+left | shift+right | shift+up | shift+down | shift+home | shift+end | ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end)
+        [[ "$action" == "no_op" ]]
+        return
+        ;;
+    ctrl+shift+z)
+        [[ "$action" == send_textall* ]] && _zes_value_has_csi_code "$action" "90;6u"
+        return
+        ;;
+    ctrl+c)
+        [[ "$action" == send_textall* ]] && _zes_value_has_csi_code "$action" "67;6u"
+        return
+        ;;
+    ctrl+shift+c)
+        [[ "$action" == send_textall* ]] && {
+            _zes_value_has_csi_code "$action" "67;6u" || _zes_value_is_interrupt_code "$action"
+        }
+        return
+        ;;
+    esac
+
+    return 1
+}
+
+
 check_kitty_conflicts() {
     local config="$1"
     local line_num=0
-    # Track whether we are inside the block our installer wrote.
-    # The block starts at the "# Zsh Edit-Select" comment and may contain
-    # blank lines, comments, and map directives spread across several
-    # paragraphs.  We stay in the section as long as lines are blank,
-    # comments, or map directives; anything else means we have left it.
-    local in_zes_section=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
 
-        # Detect our section marker
-        if [[ "$line" == *"Zsh Edit-Select"* ]]; then
-            in_zes_section=1
-            continue
-        fi
-
-        # If inside our section, stay there for blank lines, comments,
-        # and map directives we wrote.  Anything else exits the section.
-        if [[ $in_zes_section -eq 1 ]]; then
-            local stripped_sec
-            stripped_sec="$(strip_line "$line")"
-            if [[ -z "${line//[[:space:]]/}" ]] ||
-                [[ "$stripped_sec" =~ ^# ]] ||
-                [[ "$stripped_sec" =~ ^map ]]; then
-                continue
-            fi
-            in_zes_section=0
-        fi
-
-        # Skip blank lines outside our section
-        [[ -z "${line//[[:space:]]/}" ]] && continue
-
         local stripped
         stripped="$(strip_line "$line")"
 
-        # Skip lines that don't look like valid config (length check)
-        [[ ${#stripped} -lt 3 || ${#stripped} -gt 200 ]] && continue
-
-        # Skip comment lines
+        # Skip empty and comment lines.
+        [[ -z "$stripped" ]] && continue
         [[ "$stripped" =~ ^# ]] && continue
 
-        # Flag map lines that conflict with our bindings, but only if they are
-        # NOT inside a block we wrote
-        if [[ "$stripped" =~ ^map.*(ctrl\+c|ctrl\+shift\+c|ctrl\+shift\+z|ctrl\+shift\+left|ctrl\+shift\+right|ctrl\+shift\+home|ctrl\+shift\+end|shift\+left|shift\+right|shift\+up|shift\+down|shift\+home|shift\+end) ]]; then
+        # Only evaluate map directives for watched keys.
+        if ! [[ "$stripped" =~ ^map[[:space:]]+([^[:space:]]+)[[:space:]]+(.+)$ ]]; then
+            continue
+        fi
+
+        local key="${BASH_REMATCH[1],,}"
+        local action="${BASH_REMATCH[2]}"
+
+        _zes_kitty_key_is_watched "$key" || continue
+
+        if ! _zes_kitty_binding_is_expected "$key" "$action"; then
             print_conflict "kitty.conf:$line_num" "$stripped" "May conflict with zsh-edit-select bindings"
         fi
     done <"$config"
 }
 
 
+_zes_unquote_value() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+
+    if [[ "$value" == \"*\" ]] && [[ "$value" == *\" ]]; then
+        value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' ]] && [[ "$value" == *\' ]]; then
+        value="${value:1:${#value}-2}"
+    fi
+
+    printf '%s' "$value"
+}
+
+
+_zes_mods_equals_any() {
+    local mods
+    mods="$(_zes_compact_lower "$1")"
+    shift
+
+    local candidate
+    for candidate in "$@"; do
+        [[ "$mods" == "$candidate" ]] && return 0
+    done
+
+    return 1
+}
+
+
+_zes_alacritty_binding_is_monitored() {
+    local key="${1,,}"
+    local mods="$2"
+
+    case "$key" in
+    c)
+        _zes_mods_equals_any "$mods" "control|shift" "shift|control" "control"
+        return
+        ;;
+    z)
+        _zes_mods_equals_any "$mods" "control|shift" "shift|control" "command" "command|shift" "shift|command"
+        return
+        ;;
+    home | end)
+        _zes_mods_equals_any "$mods" "shift"
+        return
+        ;;
+    a | v | x)
+        _zes_mods_equals_any "$mods" "command"
+        return
+        ;;
+    esac
+
+    return 1
+}
+
+
+_zes_alacritty_binding_is_expected() {
+    local key="${1,,}"
+    local mods="$2"
+    local chars="$3"
+    local action="$4"
+
+    local chars_norm
+    chars_norm="$(_zes_normalize_escape_value "$chars")"
+    local action_norm
+    action_norm="$(_zes_compact_lower "$action")"
+
+    if [[ "$key" == "c" ]] && _zes_mods_equals_any "$mods" "control|shift" "shift|control"; then
+        _zes_value_has_csi_code "$chars_norm" "67;6u" || _zes_value_is_interrupt_code "$chars_norm"
+        return
+    fi
+
+    if [[ "$key" == "c" ]] && _zes_mods_equals_any "$mods" "control"; then
+        _zes_value_has_csi_code "$chars_norm" "67;6u"
+        return
+    fi
+
+    if [[ "$key" == "z" ]] && _zes_mods_equals_any "$mods" "control|shift" "shift|control"; then
+        _zes_value_has_csi_code "$chars_norm" "90;6u"
+        return
+    fi
+
+    if [[ "$key" == "home" ]] && _zes_mods_equals_any "$mods" "shift"; then
+        [[ "$action_norm" == "receivechar" ]] || [[ "$action_norm" == "\"receivechar\"" ]]
+        return
+    fi
+
+    if [[ "$key" == "end" ]] && _zes_mods_equals_any "$mods" "shift"; then
+        [[ "$action_norm" == "receivechar" ]] || [[ "$action_norm" == "\"receivechar\"" ]]
+        return
+    fi
+
+    if [[ "$key" == "a" ]] && _zes_mods_equals_any "$mods" "command"; then
+        _zes_value_has_csi_code "$chars_norm" "97;9u"
+        return
+    fi
+
+    if [[ "$key" == "c" ]] && _zes_mods_equals_any "$mods" "command"; then
+        _zes_value_has_csi_code "$chars_norm" "99;9u"
+        return
+    fi
+
+    if [[ "$key" == "v" ]] && _zes_mods_equals_any "$mods" "command"; then
+        _zes_value_has_csi_code "$chars_norm" "118;9u"
+        return
+    fi
+
+    if [[ "$key" == "x" ]] && _zes_mods_equals_any "$mods" "command"; then
+        _zes_value_has_csi_code "$chars_norm" "120;9u"
+        return
+    fi
+
+    if [[ "$key" == "z" ]] && _zes_mods_equals_any "$mods" "command"; then
+        _zes_value_has_csi_code "$chars_norm" "122;9u"
+        return
+    fi
+
+    if [[ "$key" == "z" ]] && _zes_mods_equals_any "$mods" "command|shift" "shift|command"; then
+        _zes_value_has_csi_code "$chars_norm" "122;10u"
+        return
+    fi
+
+    return 1
+}
+
+
+_zes_alacritty_report_conflict_if_needed() {
+    local line_num="$1"
+    local key="$2"
+    local mods="$3"
+    local chars="$4"
+    local action="$5"
+    local display_line="$6"
+
+    _zes_alacritty_binding_is_monitored "$key" "$mods" || return 0
+    _zes_alacritty_binding_is_expected "$key" "$mods" "$chars" "$action" && return 0
+
+    if [[ -z "$display_line" ]]; then
+        display_line="key=$key mods=$mods chars=$chars action=$action"
+    fi
+
+    print_conflict "alacritty config:$line_num" "$display_line" "May conflict with zsh-edit-select bindings"
+}
+
+
 check_alacritty_conflicts() {
     local config="$1"
-    local is_yaml=0
-    [[ "$config" == *.yml ]] && is_yaml=1
+    local line_num=0
 
-    if [[ $is_yaml -eq 1 ]]; then
-        # YAML format: look for key-binding lines like  - { key: C, mods: Control|Shift, ... }
-        if grep -qE '(key:[[:space:]]*(C|Z|Home|End),)' "$config" 2>/dev/null; then
-            local our_section=0
-            local line_num=0
+    if [[ "$config" == *.yml ]]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            ((line_num++))
+            local stripped
+            stripped="$(strip_line "$line")"
+            [[ -z "$stripped" ]] && continue
+            [[ "$stripped" =~ ^# ]] && continue
 
-            while IFS= read -r line || [[ -n "$line" ]]; do
-                ((line_num++))
-                if [[ "$line" =~ "Zsh Edit-Select" ]]; then
-                    our_section=1
-                    continue
-                fi
-                if [[ $our_section -eq 1 ]]; then
-                    local stripped
-                    stripped="${line#"${line%%[![:space:]]*}"}"
-                    stripped="${stripped%"${stripped##*[![:space:]]}"}"
-                    # Stay in our section for blank lines, comments, and YAML
-                    # binding entries we wrote
-                    if [[ -z "$stripped" ]] ||
-                        [[ "$stripped" == "#"* ]] ||
-                        [[ "$stripped" == "key_bindings:"* ]] ||
-                        [[ "$stripped" == "- {"* ]]; then
-                        continue
-                    fi
-                    # Anything else means we've left our section
-                    our_section=0
-                fi
-                if [[ $our_section -eq 0 ]] && [[ "$line" =~ key:[[:space:]]*(C|Z|Home|End), ]]; then
-                    print_conflict "alacritty config:$line_num" "$(strip_line "$line")" "May conflict with zsh-edit-select bindings"
-                fi
-            done <"$config"
-        fi
-    else
-        # TOML format: look for key = "C" or key = "Z" or key = "Home" or key = "End" entries
-        if grep -qE 'key.*=.*"(C|Z|Home|End)"' "$config" 2>/dev/null; then
-            local our_section=0
-            local line_num=0
+            if [[ "$stripped" =~ ^-[[:space:]]*\{ ]]; then
+                local key=""
+                local mods=""
+                local chars=""
+                local action=""
 
-            while IFS= read -r line || [[ -n "$line" ]]; do
-                ((line_num++))
-                if [[ "$line" =~ "Zsh Edit-Select" ]]; then
-                    our_section=1
-                    continue
+                if [[ "$stripped" =~ key:[[:space:]]*([^,}]+) ]]; then
+                    key="$(_zes_unquote_value "${BASH_REMATCH[1]}")"
                 fi
-                if [[ $our_section -eq 1 ]]; then
-                    local stripped
-                    stripped="${line#"${line%%[![:space:]]*}"}"
-                    stripped="${stripped%"${stripped##*[![:space:]]}"}"
-                    # Stay in our section for blank lines, comments, and common
-                    # TOML keyboard binding entries we wrote
-                    if [[ -z "$stripped" ]] ||
-                        [[ "$stripped" == "#"* ]] ||
-                        [[ "$stripped" == "[[keyboard.bindings]]" ]] ||
-                        [[ "$stripped" =~ ^(key|mods|chars|action)[[:space:]]*= ]]; then
-                        continue
-                    fi
-                    # Anything else means we've left our section
-                    our_section=0
+                if [[ "$stripped" =~ mods:[[:space:]]*([^,}]+) ]]; then
+                    mods="$(_zes_unquote_value "${BASH_REMATCH[1]}")"
                 fi
-                if [[ $our_section -eq 0 ]] && [[ "$line" =~ key.*=.*\"(C|Z|Home|End)\" ]]; then
-                    print_conflict "alacritty config:$line_num" "$(strip_line "$line")" "May conflict with zsh-edit-select bindings"
+                if [[ "$stripped" =~ chars:[[:space:]]*([^,}]+) ]]; then
+                    chars="$(_zes_unquote_value "${BASH_REMATCH[1]}")"
                 fi
-            done <"$config"
-        fi
+                if [[ "$stripped" =~ action:[[:space:]]*([^,}]+) ]]; then
+                    action="$(_zes_unquote_value "${BASH_REMATCH[1]}")"
+                fi
+
+                _zes_alacritty_report_conflict_if_needed "$line_num" "$key" "$mods" "$chars" "$action" "$stripped"
+            fi
+        done <"$config"
+
+        return
     fi
+
+    local in_binding=0
+    local binding_start_line=0
+    local binding_key=""
+    local binding_mods=""
+    local binding_chars=""
+    local binding_action=""
+    local binding_display=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_num++))
+        local stripped
+        stripped="$(strip_line "$line")"
+
+        if [[ "$stripped" == "[[keyboard.bindings]]" ]]; then
+            if [[ $in_binding -eq 1 ]]; then
+                _zes_alacritty_report_conflict_if_needed "$binding_start_line" "$binding_key" "$binding_mods" "$binding_chars" "$binding_action" "$binding_display"
+            fi
+
+            in_binding=1
+            binding_start_line="$line_num"
+            binding_key=""
+            binding_mods=""
+            binding_chars=""
+            binding_action=""
+            binding_display="$stripped"
+            continue
+        fi
+
+        [[ $in_binding -eq 0 ]] && continue
+        [[ -z "$stripped" ]] && continue
+        [[ "$stripped" =~ ^# ]] && continue
+
+        binding_display+=" ${stripped}"
+
+        if [[ "$stripped" =~ ^key[[:space:]]*= ]]; then
+            binding_key="$(_zes_unquote_value "${stripped#*=}")"
+            continue
+        fi
+        if [[ "$stripped" =~ ^mods[[:space:]]*= ]]; then
+            binding_mods="$(_zes_unquote_value "${stripped#*=}")"
+            continue
+        fi
+        if [[ "$stripped" =~ ^chars[[:space:]]*= ]]; then
+            binding_chars="$(_zes_unquote_value "${stripped#*=}")"
+            continue
+        fi
+        if [[ "$stripped" =~ ^action[[:space:]]*= ]]; then
+            binding_action="$(_zes_unquote_value "${stripped#*=}")"
+        fi
+    done <"$config"
+
+    if [[ $in_binding -eq 1 ]]; then
+        _zes_alacritty_report_conflict_if_needed "$binding_start_line" "$binding_key" "$binding_mods" "$binding_chars" "$binding_action" "$binding_display"
+    fi
+}
+
+
+_zes_wezterm_binding_is_monitored() {
+    local key="${1,,}"
+    local mods="$2"
+
+    case "$key" in
+    c)
+        _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl" "ctrl" "cmd"
+        return
+        ;;
+    z)
+        _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl" "cmd" "cmd|shift" "shift|cmd"
+        return
+        ;;
+    leftarrow | rightarrow)
+        _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl" "cmd" "cmd|shift" "shift|cmd"
+        return
+        ;;
+    home | end)
+        _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"
+        return
+        ;;
+    uparrow | downarrow)
+        _zes_mods_equals_any "$mods" "cmd|shift" "shift|cmd"
+        return
+        ;;
+    a | v | x)
+        _zes_mods_equals_any "$mods" "cmd"
+        return
+        ;;
+    esac
+
+    return 1
+}
+
+
+_zes_wezterm_binding_is_expected() {
+    local key="${1,,}"
+    local mods="$2"
+    local action_blob
+    action_blob="$(_zes_normalize_escape_value "$3")"
+
+    if [[ "$key" == "c" ]] && _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"; then
+        (_zes_value_has_csi_code "$action_blob" "67;6u") || (_zes_value_is_interrupt_code "$action_blob")
+        return
+    fi
+
+    if [[ "$key" == "c" ]] && _zes_mods_equals_any "$mods" "ctrl"; then
+        _zes_value_has_csi_code "$action_blob" "67;6u"
+        return
+    fi
+
+    if [[ "$key" == "z" ]] && _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"; then
+        _zes_value_has_csi_code "$action_blob" "90;6u"
+        return
+    fi
+
+    if [[ "$key" == "leftarrow" ]] && _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"; then
+        [[ "$action_blob" == *"disabledefaultassignment"* ]]
+        return
+    fi
+
+    if [[ "$key" == "rightarrow" ]] && _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"; then
+        [[ "$action_blob" == *"disabledefaultassignment"* ]]
+        return
+    fi
+
+    if [[ "$key" == "home" ]] && _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"; then
+        [[ "$action_blob" == *"disabledefaultassignment"* ]]
+        return
+    fi
+
+    if [[ "$key" == "end" ]] && _zes_mods_equals_any "$mods" "ctrl|shift" "shift|ctrl"; then
+        [[ "$action_blob" == *"disabledefaultassignment"* ]]
+        return
+    fi
+
+    if [[ "$key" == "a" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "97;9u"
+        return
+    fi
+
+    if [[ "$key" == "c" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "99;9u"
+        return
+    fi
+
+    if [[ "$key" == "v" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "118;9u"
+        return
+    fi
+
+    if [[ "$key" == "x" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "120;9u"
+        return
+    fi
+
+    if [[ "$key" == "z" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "122;9u"
+        return
+    fi
+
+    if [[ "$key" == "z" ]] && _zes_mods_equals_any "$mods" "cmd|shift" "shift|cmd"; then
+        _zes_value_has_csi_code "$action_blob" "122;10u"
+        return
+    fi
+
+    if [[ "$key" == "leftarrow" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "1;9d"
+        return
+    fi
+
+    if [[ "$key" == "rightarrow" ]] && _zes_mods_equals_any "$mods" "cmd"; then
+        _zes_value_has_csi_code "$action_blob" "1;9c"
+        return
+    fi
+
+    if [[ "$key" == "leftarrow" ]] && _zes_mods_equals_any "$mods" "cmd|shift" "shift|cmd"; then
+        _zes_value_has_csi_code "$action_blob" "1;10d"
+        return
+    fi
+
+    if [[ "$key" == "rightarrow" ]] && _zes_mods_equals_any "$mods" "cmd|shift" "shift|cmd"; then
+        _zes_value_has_csi_code "$action_blob" "1;10c"
+        return
+    fi
+
+    if [[ "$key" == "uparrow" ]] && _zes_mods_equals_any "$mods" "cmd|shift" "shift|cmd"; then
+        _zes_value_has_csi_code "$action_blob" "1;10a"
+        return
+    fi
+
+    if [[ "$key" == "downarrow" ]] && _zes_mods_equals_any "$mods" "cmd|shift" "shift|cmd"; then
+        _zes_value_has_csi_code "$action_blob" "1;10b"
+        return
+    fi
+
+    return 1
+}
+
+
+_zes_wezterm_report_conflict_if_needed() {
+    local line_num="$1"
+    local key="$2"
+    local mods="$3"
+    local action_blob="$4"
+
+    _zes_wezterm_binding_is_monitored "$key" "$mods" || return 0
+    _zes_wezterm_binding_is_expected "$key" "$mods" "$action_blob" && return 0
+
+    print_conflict "wezterm.lua:$line_num" "$action_blob" "May conflict with zsh-edit-select bindings"
 }
 
 
 check_wezterm_conflicts() {
     local config="$1"
+    local line_num=0
 
-    # Check for conflicting WezTerm keybindings (Lua format)
-    # Our bindings use key = 'C'/'Z'/'c' with CTRL|SHIFT or CTRL modifiers,
-    # and LeftArrow/RightArrow with DisableDefaultAssignment
-    if grep -qE "(key.*=.*['\"][CZcz]['\"]|DisableDefaultAssignment)" "$config" 2>/dev/null; then
-        local our_section=0
-        local line_num=0
+    local in_binding=0
+    local binding_key=""
+    local binding_mods=""
+    local binding_start_line=0
+    local binding_blob=""
 
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            ((line_num++))
-            if [[ "$line" =~ "Zsh Edit-Select" ]]; then
-                our_section=1
-                continue
-            fi
-            if [[ $our_section -eq 1 ]]; then
-                local stripped
-                stripped="${line#"${line%%[![:space:]]*}"}"
-                stripped="${stripped%"${stripped##*[![:space:]]}"}"
-                # Stay in our section for blank lines, comments, and Lua
-                # keybinding entries we wrote
-                if [[ -z "$stripped" ]] ||
-                    [[ "$stripped" == "--"* ]] ||
-                    [[ "$stripped" == "config.keys"* ]] ||
-                    [[ "$stripped" == "config.mouse_bindings"* ]] ||
-                    [[ "$stripped" == "local zes_"* ]] ||
-                    [[ "$stripped" == "{"* ]] ||
-                    [[ "$stripped" == "}"* ]] ||
-                    [[ "$stripped" == "for "* ]] ||
-                    [[ "$stripped" == "end" ]]; then
-                    continue
-                fi
-                # Anything else means we've left our section
-                our_section=0
-            fi
-            if [[ $our_section -eq 0 ]]; then
-                # Ignore bindings generated by zsh-edit-select (legacy and
-                # current WezTerm managed blocks), even when section detection
-                # cannot fully track all Lua forms.
-                if [[ "$line" == *"zes_wezterm"* ]] || [[ "$line" == *"zes_linux_"* ]] || [[ "$line" == *"zes_macos_"* ]] || [[ "$line" == *"zes_act"* ]]; then
-                    continue
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_num++))
+        local stripped
+        stripped="$(strip_line "$line")"
+        local regex_line
+        regex_line="${stripped//\'/\"}"
+        [[ -z "$stripped" ]] && continue
+        [[ "$stripped" =~ ^-- ]] && continue
+
+        if [[ $in_binding -eq 0 ]]; then
+            if [[ "$regex_line" =~ key[[:space:]]*=[[:space:]]\"([^\"]+)\" ]]; then
+                in_binding=1
+                binding_start_line="$line_num"
+                binding_key="${BASH_REMATCH[1]}"
+                binding_mods=""
+                binding_blob="$stripped"
+
+                if [[ "$regex_line" =~ mods[[:space:]]*=[[:space:]]\"([^\"]+)\" ]]; then
+                    binding_mods="${BASH_REMATCH[1]}"
                 fi
 
-                # Check for key bindings that conflict with ours (C/Z with Ctrl modifiers)
-                if [[ "$line" =~ key.*=.*[\'\"](C|c|Z|z)[\'\"].*CTRL ]] ||
-                    [[ "$line" =~ key.*=.*[\'\"]LeftArrow[\'\"].*CTRL.*SHIFT ]] ||
-                    [[ "$line" =~ key.*=.*[\'\"]RightArrow[\'\"].*CTRL.*SHIFT ]] ||
-                    [[ "$line" =~ key.*=.*[\'\"]Home[\'\"].*CTRL.*SHIFT ]] ||
-                    [[ "$line" =~ key.*=.*[\'\"]End[\'\"].*CTRL.*SHIFT ]]; then
-                    print_conflict "wezterm.lua:$line_num" "$(strip_line "$line")" "May conflict with zsh-edit-select bindings"
+                if [[ "$stripped" == *"},"* ]]; then
+                    _zes_wezterm_report_conflict_if_needed "$binding_start_line" "$binding_key" "$binding_mods" "$binding_blob"
+                    in_binding=0
                 fi
             fi
-        done <"$config"
+            continue
+        fi
+
+        binding_blob+=" ${stripped}"
+
+        if [[ -z "$binding_mods" ]] && [[ "$regex_line" =~ mods[[:space:]]*=[[:space:]]\"([^\"]+)\" ]]; then
+            binding_mods="${BASH_REMATCH[1]}"
+        fi
+
+        if [[ "$stripped" == *"},"* ]] || [[ "$stripped" == "}" ]]; then
+            _zes_wezterm_report_conflict_if_needed "$binding_start_line" "$binding_key" "$binding_mods" "$binding_blob"
+            in_binding=0
+        fi
+    done <"$config"
+
+    if [[ $in_binding -eq 1 ]]; then
+        _zes_wezterm_report_conflict_if_needed "$binding_start_line" "$binding_key" "$binding_mods" "$binding_blob"
     fi
+}
+
+
+_zes_foot_text_binding_is_expected() {
+    local lhs="$1"
+    local rhs
+    rhs="$(_zes_compact_lower "$2")"
+
+    case "$rhs" in
+    control+shift+c)
+        _zes_value_has_csi_code "$lhs" "67;6u" || _zes_value_is_interrupt_code "$lhs"
+        return
+        ;;
+    control+c)
+        _zes_value_has_csi_code "$lhs" "67;6u"
+        return
+        ;;
+    control+shift+z)
+        _zes_value_has_csi_code "$lhs" "90;6u"
+        return
+        ;;
+    esac
+
+    return 1
 }
 
 
 check_foot_conflicts() {
     local config="$1"
-
-    # Check for conflicting key-bindings and text-bindings section entries
     local in_keybindings=0
     local in_textbindings=0
     local line_num=0
-    local our_section=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
         local stripped
         stripped="$(strip_line "$line")"
         [[ -z "$stripped" ]] && continue
-
-        if [[ "$stripped" == *"Zsh Edit-Select"* ]]; then
-            our_section=1
-            continue
-        fi
-        if [[ $our_section -eq 1 ]] && [[ "$stripped" =~ ^\[ ]]; then
-            our_section=0
-        fi
+        [[ "$stripped" =~ ^# ]] && continue
 
         if [[ "$stripped" == "[key-bindings]" ]]; then
             in_keybindings=1
@@ -589,14 +973,30 @@ check_foot_conflicts() {
             in_textbindings=0
         fi
 
-        if [[ $our_section -eq 0 ]]; then
-            if [[ $in_keybindings -eq 1 ]]; then
-                if [[ "$stripped" =~ ^(clipboard-copy|prompt-prev)= ]]; then
+        if [[ $in_keybindings -eq 1 ]] && [[ "$stripped" =~ ^([^=]+)=(.+)$ ]]; then
+            local key_name
+            key_name="$(_zes_compact_lower "${BASH_REMATCH[1]}")"
+            local key_value
+            key_value="$(_zes_compact_lower "${BASH_REMATCH[2]}")"
+
+            if [[ "$key_name" == "clipboard-copy" ]] || [[ "$key_name" == "prompt-prev" ]]; then
+                if [[ "$key_value" != "none" ]]; then
                     print_conflict "foot.ini:$line_num" "$stripped" "May conflict with zsh-edit-select bindings"
                 fi
             fi
-            if [[ $in_textbindings -eq 1 ]]; then
-                if [[ "$stripped" == *"Control+Shift+c"* ]] || [[ "$stripped" == *"Control+Shift+z"* ]]; then
+            continue
+        fi
+
+        if [[ $in_textbindings -eq 1 ]] && [[ "$stripped" =~ ^([^=]+)=(.+)$ ]]; then
+            local lhs
+            lhs="$(_zes_unquote_value "${BASH_REMATCH[1]}")"
+            local rhs
+            rhs="$(_zes_unquote_value "${BASH_REMATCH[2]}")"
+            local rhs_norm
+            rhs_norm="$(_zes_compact_lower "$rhs")"
+
+            if [[ "$rhs_norm" == "control+shift+c" ]] || [[ "$rhs_norm" == "control+c" ]] || [[ "$rhs_norm" == "control+shift+z" ]]; then
+                if ! _zes_foot_text_binding_is_expected "$lhs" "$rhs"; then
                     print_conflict "foot.ini:$line_num" "$stripped" "May conflict with zsh-edit-select text-bindings"
                 fi
             fi
@@ -605,35 +1005,103 @@ check_foot_conflicts() {
 }
 
 
+_zes_ghostty_binding_is_watched() {
+    local key="$1"
+    case "$key" in
+    ctrl+c | ctrl+shift+c | ctrl+shift+z | ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end | cmd+a | cmd+c | cmd+x | cmd+z | cmd+shift+z | shift+up | shift+down | cmd+shift+up | cmd+shift+down)
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+
+_zes_ghostty_binding_is_expected() {
+    local key="$1"
+    local value
+    value="$(_zes_normalize_escape_value "$2")"
+
+    case "$key" in
+    ctrl+shift+c)
+        [[ "$value" == "csi:67;6u" ]] || [[ "$value" == "text:\\x03" ]]
+        return
+        ;;
+    ctrl+c)
+        [[ "$value" == "csi:67;6u" ]]
+        return
+        ;;
+    ctrl+shift+z)
+        [[ "$value" == "csi:90;6u" ]]
+        return
+        ;;
+    ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end)
+        [[ "$value" == "unbind" ]]
+        return
+        ;;
+    cmd+a)
+        [[ "$value" == "csi:97;9u" ]]
+        return
+        ;;
+    cmd+c)
+        [[ "$value" == "csi:99;9u" ]]
+        return
+        ;;
+    cmd+x)
+        [[ "$value" == "csi:120;9u" ]]
+        return
+        ;;
+    cmd+z)
+        [[ "$value" == "csi:122;9u" ]]
+        return
+        ;;
+    cmd+shift+z)
+        [[ "$value" == "csi:122;10u" ]]
+        return
+        ;;
+    shift+up)
+        [[ "$value" == "csi:1;2a" ]]
+        return
+        ;;
+    shift+down)
+        [[ "$value" == "csi:1;2b" ]]
+        return
+        ;;
+    cmd+shift+up)
+        [[ "$value" == "csi:1;10a" ]]
+        return
+        ;;
+    cmd+shift+down)
+        [[ "$value" == "csi:1;10b" ]]
+        return
+        ;;
+    esac
+
+    return 1
+}
+
+
 check_ghostty_conflicts() {
     local config="$1"
     local line_num=0
-    local our_section=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
         local stripped
         stripped="$(strip_line "$line")"
         [[ -z "$stripped" ]] && continue
+        [[ "$stripped" =~ ^# ]] && continue
 
-        if [[ "$stripped" == *"Zsh Edit-Select"* ]]; then
-            our_section=1
-            continue
-        fi
+        if [[ "$stripped" =~ ^keybind[[:space:]]*= ]]; then
+            local payload
+            payload="$(_zes_compact_lower "${stripped#*=}")"
+            local binding_key="${payload%%=*}"
+            local binding_value="${payload#*=}"
 
-        if [[ $our_section -eq 1 ]]; then
-            # Stay in our section for comments and the entries we add.
-            # Anything else means we've left our managed block.
-            if [[ "$stripped" == "#"* ]] ||
-                [[ "$stripped" == keybind* ]] ||
-                [[ "$stripped" == copy-on-select* ]]; then
-                continue
-            fi
-            our_section=0
-        fi
+            _zes_ghostty_binding_is_watched "$binding_key" || continue
 
-        if [[ $our_section -eq 0 ]] && [[ "$stripped" =~ ^keybind[[:space:]]*= ]]; then
-            if [[ "$stripped" =~ (ctrl\+c|ctrl\+shift\+c|ctrl\+shift\+z|ctrl\+shift\+left|ctrl\+shift\+right|ctrl\+shift\+home|ctrl\+shift\+end|cmd\+a|cmd\+c|cmd\+x|cmd\+z|cmd\+shift\+z|shift\+up|shift\+down|cmd\+shift\+up|cmd\+shift\+down) ]]; then
+            if ! _zes_ghostty_binding_is_expected "$binding_key" "$binding_value"; then
                 print_conflict "ghostty config:$line_num" "$stripped" "May conflict with zsh-edit-select bindings"
             fi
         fi
@@ -641,15 +1109,142 @@ check_ghostty_conflicts() {
 }
 
 
+_zes_vscode_key_is_watched() {
+    local key="$1"
+    case "$key" in
+    ctrl+shift+c | ctrl+c | ctrl+z | ctrl+shift+z | shift+left | shift+right | shift+up | shift+down | shift+home | shift+end | ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end | cmd+a | cmd+c | cmd+v | cmd+x | cmd+z | cmd+shift+z | cmd+left | cmd+right | alt+left | alt+right | cmd+shift+left | cmd+shift+right | alt+shift+left | alt+shift+right | cmd+shift+up | cmd+shift+down)
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+
+_zes_vscode_when_targets_terminal() {
+    local when
+    when="$(_zes_compact_lower "$1")"
+
+    [[ -z "$when" ]] && return 0
+    [[ "$when" == *"!terminalfocus"* ]] && return 1
+    [[ "$when" == *"terminalfocus"* ]]
+}
+
+
+_zes_vscode_binding_is_expected() {
+    local key="$1"
+    local command="$2"
+    local text="$3"
+
+    if [[ "$command" != "workbench.action.terminal.sendSequence" ]]; then
+        return 1
+    fi
+
+    local text_norm
+    text_norm="$(_zes_normalize_escape_value "$text")"
+
+    case "$key" in
+    ctrl+shift+c)
+        _zes_value_has_csi_code "$text_norm" "67;6u" || _zes_value_is_interrupt_code "$text_norm"
+        ;;
+    ctrl+c)
+        _zes_value_has_csi_code "$text_norm" "67;6u"
+        ;;
+    ctrl+z)
+        [[ "$text_norm" == *"001a"* ]]
+        ;;
+    ctrl+shift+z)
+        _zes_value_has_csi_code "$text_norm" "90;6u"
+        ;;
+    shift+left)
+        _zes_value_has_csi_code "$text_norm" "1;2d"
+        ;;
+    shift+right)
+        _zes_value_has_csi_code "$text_norm" "1;2c"
+        ;;
+    shift+up)
+        _zes_value_has_csi_code "$text_norm" "1;2a"
+        ;;
+    shift+down)
+        _zes_value_has_csi_code "$text_norm" "1;2b"
+        ;;
+    shift+home)
+        _zes_value_has_csi_code "$text_norm" "1;2h"
+        ;;
+    shift+end)
+        _zes_value_has_csi_code "$text_norm" "1;2f"
+        ;;
+    ctrl+shift+left)
+        _zes_value_has_csi_code "$text_norm" "1;6d"
+        ;;
+    ctrl+shift+right)
+        _zes_value_has_csi_code "$text_norm" "1;6c"
+        ;;
+    ctrl+shift+home)
+        _zes_value_has_csi_code "$text_norm" "1;6h"
+        ;;
+    ctrl+shift+end)
+        _zes_value_has_csi_code "$text_norm" "1;6f"
+        ;;
+    cmd+a)
+        _zes_value_has_csi_code "$text_norm" "97;9u"
+        ;;
+    cmd+c)
+        _zes_value_has_csi_code "$text_norm" "99;9u"
+        ;;
+    cmd+v)
+        _zes_value_has_csi_code "$text_norm" "118;9u"
+        ;;
+    cmd+x)
+        _zes_value_has_csi_code "$text_norm" "120;9u"
+        ;;
+    cmd+z)
+        _zes_value_has_csi_code "$text_norm" "122;9u"
+        ;;
+    cmd+shift+z)
+        _zes_value_has_csi_code "$text_norm" "122;10u"
+        ;;
+    cmd+left)
+        _zes_value_has_csi_code "$text_norm" "1;9d"
+        ;;
+    cmd+right)
+        _zes_value_has_csi_code "$text_norm" "1;9c"
+        ;;
+    alt+left)
+        _zes_value_has_csi_code "$text_norm" "1;3d"
+        ;;
+    alt+right)
+        _zes_value_has_csi_code "$text_norm" "1;3c"
+        ;;
+    cmd+shift+left)
+        _zes_value_has_csi_code "$text_norm" "1;10d"
+        ;;
+    cmd+shift+right)
+        _zes_value_has_csi_code "$text_norm" "1;10c"
+        ;;
+    alt+shift+left)
+        _zes_value_has_csi_code "$text_norm" "1;4d"
+        ;;
+    alt+shift+right)
+        _zes_value_has_csi_code "$text_norm" "1;4c"
+        ;;
+    cmd+shift+up)
+        _zes_value_has_csi_code "$text_norm" "1;10a"
+        ;;
+    cmd+shift+down)
+        _zes_value_has_csi_code "$text_norm" "1;10b"
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+
 check_vscode_conflicts() {
     local config="$1"
     local line_num=0
-
-    # VS Code keybindings.json is a JSON array of objects.
-    # Each object spans multiple lines: { "key": ..., "command": ..., "args": ..., "when": ... }
-    # We collect each object's lines, then check the full object to decide
-    # whether it belongs to us (contains "Zsh Edit-Select" or our escape
-    # sequences) BEFORE flagging any "key" line as a conflict.
     local -a obj_lines=()
     local -a obj_line_nums=()
     local brace_depth=0
@@ -672,77 +1267,59 @@ check_vscode_conflicts() {
             obj_line_nums+=("$line_num")
         fi
 
-        if [[ "$stripped" == *"}"* ]] && [[ $brace_depth -gt 0 ]]; then
+        # Only treat structural object-closing lines as depth decrements.
+        # This avoids prematurely closing on nested inline braces such as:
+        #   "args": { "text": "..." }
+        if [[ "$stripped" =~ ^\}[[:space:]]*,?[[:space:]]*$ ]] && [[ $brace_depth -gt 0 ]]; then
             ((brace_depth--))
             if [[ $brace_depth -eq 0 ]]; then
-                # We have a complete JSON object — check it
                 local obj_text="${obj_lines[*]}"
 
-                # Skip objects that belong to our installer.
-                # configure_vscode() writes sendSequence bindings with specific
-                # ZES escape sequences.  VS Code JSON has no comment syntax, so
-                # we identify our objects by their "text" payload.  We require
-                # BOTH "sendSequence" (so a binding to the right key but the
-                # wrong command is still flagged) AND one of our known sequences.
-                local skip_obj=0
-                if [[ "$obj_text" == *"Zsh Edit-Select"* ]]; then
-                    skip_obj=1
-                elif [[ "$obj_text" == *"sendSequence"* ]]; then
-                    # Each sequence below corresponds to a value written by configure_vscode():
-                    #   67;6u  → Ctrl+Shift+C copy (CSI u)
-                    #   90;6u  → Ctrl+Shift+Z redo (CSI u)
-                    #   1;2D/C/A/B → Shift+Left/Right/Up/Down
-                    #   1;2H/F → Shift+Home/End
-                    #   1;6D/C → Ctrl+Shift+Left/Right
-                    #   1;6H/F → Ctrl+Shift+Home/End
-                    #   u001a  → Ctrl+Z undo (\u001a)
-                    #   u0003  → Ctrl+C interrupt (\u0003)
-                    if [[ "$obj_text" == *"67;6u"* ]] ||
-                        [[ "$obj_text" == *"90;6u"* ]] ||
-                        [[ "$obj_text" == *"1;2D"* ]] ||
-                        [[ "$obj_text" == *"1;2C"* ]] ||
-                        [[ "$obj_text" == *"1;2A"* ]] ||
-                        [[ "$obj_text" == *"1;2B"* ]] ||
-                        [[ "$obj_text" == *"1;2H"* ]] ||
-                        [[ "$obj_text" == *"1;2F"* ]] ||
-                        [[ "$obj_text" == *"1;6D"* ]] ||
-                        [[ "$obj_text" == *"1;6C"* ]] ||
-                        [[ "$obj_text" == *"1;6H"* ]] ||
-                        [[ "$obj_text" == *"1;6F"* ]] ||
-                        [[ "$obj_text" == *"u001a"* ]] ||
-                        [[ "$obj_text" == *"u0003"* ]]; then
-                        skip_obj=1
-                    fi
+                local key=""
+                local command=""
+                local text=""
+                local when_expr=""
+
+                if [[ "$obj_text" =~ \"key\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+                    key="${BASH_REMATCH[1],,}"
                 fi
-                if [[ $skip_obj -eq 1 ]]; then
+
+                _zes_vscode_key_is_watched "$key" || {
+                    obj_lines=()
+                    obj_line_nums=()
+                    continue
+                }
+
+                if [[ "$obj_text" =~ \"when\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+                    when_expr="${BASH_REMATCH[1]}"
+                fi
+
+                if ! _zes_vscode_when_targets_terminal "$when_expr"; then
                     obj_lines=()
                     obj_line_nums=()
                     continue
                 fi
 
-                # Check if any line in this object has a conflicting "key"
-                local idx
-                for idx in "${!obj_lines[@]}"; do
-                    local obj_stripped="${obj_lines[$idx]}"
-                    if [[ "$obj_stripped" =~ \"key\" ]]; then
-                        local lower_obj="${obj_stripped,,}"
-                        if [[ "$lower_obj" == *"ctrl+shift+c"* ]] ||
-                            [[ "$lower_obj" == *"ctrl+shift+z"* ]] ||
-                            [[ "$lower_obj" == *"ctrl+z"* ]] ||
-                            [[ "$lower_obj" == *"shift+left"* ]] ||
-                            [[ "$lower_obj" == *"shift+right"* ]] ||
-                            [[ "$lower_obj" == *"shift+up"* ]] ||
-                            [[ "$lower_obj" == *"shift+down"* ]] ||
-                            [[ "$lower_obj" == *"shift+home"* ]] ||
-                            [[ "$lower_obj" == *"shift+end"* ]] ||
-                            [[ "$lower_obj" == *"ctrl+shift+left"* ]] ||
-                            [[ "$lower_obj" == *"ctrl+shift+right"* ]] ||
-                            [[ "$lower_obj" == *"ctrl+shift+home"* ]] ||
-                            [[ "$lower_obj" == *"ctrl+shift+end"* ]]; then
-                            print_conflict "keybindings.json:${obj_line_nums[$idx]}" "$obj_stripped" "May conflict with zsh-edit-select bindings"
+                if [[ "$obj_text" =~ \"command\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+                    command="${BASH_REMATCH[1]}"
+                fi
+                if [[ "$obj_text" =~ \"text\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+                    text="${BASH_REMATCH[1]}"
+                fi
+
+                if ! _zes_vscode_binding_is_expected "$key" "$command" "$text"; then
+                    local key_line_num="${obj_line_nums[0]}"
+                    local idx
+                    for idx in "${!obj_lines[@]}"; do
+                        if [[ "${obj_lines[$idx]}" =~ \"key\" ]]; then
+                            key_line_num="${obj_line_nums[$idx]}"
+                            break
                         fi
-                    fi
-                done
+                    done
+
+                    print_conflict "keybindings.json:${key_line_num}" "$obj_text" "May conflict with zsh-edit-select bindings"
+                fi
+
                 obj_lines=()
                 obj_line_nums=()
             fi

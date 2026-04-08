@@ -191,21 +191,20 @@ function _zes_detect_mouse_selection() {
     if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
         local sel="$_EDIT_SELECT_PENDING_SELECTION" sel_len=${#_EDIT_SELECT_PENDING_SELECTION}
         if [[ "$BUFFER" == *"$sel"* ]]; then
-            local idx=0
-            while ((idx <= ${#BUFFER} - sel_len)); do
-                if [[ "${BUFFER:$idx:$sel_len}" == "$sel" ]]; then
-                    local end_pos=$((idx + sel_len))
-                    if ((CURSOR >= idx && CURSOR <= end_pos)); then
-                        _EDIT_SELECT_ACTIVE_SELECTION="$sel"
-                        _EDIT_SELECT_PENDING_SELECTION=""
-                        zle -M ""
-                        zle -R
-                        return 0
-                    fi
-                    ((idx += sel_len))
-                else
-                    ((idx++))
+            local buf="$BUFFER" idx=0
+            while [[ "$buf" == *"$sel"* ]]; do
+                local prefix="${buf%%"$sel"*}"
+                idx=$((idx + ${#prefix}))
+                local end_pos=$((idx + sel_len))
+                if ((CURSOR >= idx && CURSOR <= end_pos)); then
+                    _EDIT_SELECT_ACTIVE_SELECTION="$sel"
+                    _EDIT_SELECT_PENDING_SELECTION=""
+                    zle -M ""
+                    zle -R
+                    return 0
                 fi
+                idx=$((idx + sel_len))
+                buf="${BUFFER:$idx}"
             done
         fi
         _EDIT_SELECT_PENDING_SELECTION=""
@@ -248,13 +247,12 @@ function _zes_delete_mouse_selection() {
 
     local -a positions=()
     local buf="$BUFFER" idx=0
-    while ((idx <= ${#buf} - sel_len)); do
-        if [[ "${buf:$idx:$sel_len}" == "$sel" ]]; then
-            positions+=($idx)
-            ((idx += sel_len))
-        else
-            ((idx++))
-        fi
+    while [[ "$buf" == *"$sel"* ]]; do
+        local prefix="${buf%%"$sel"*}"
+        idx=$((idx + ${#prefix}))
+        positions+=($idx)
+        idx=$((idx + sel_len))
+        buf="${BUFFER:$idx}"
     done
 
     local num_occurrences=${#positions[@]}
@@ -303,7 +301,27 @@ function _zes_clear_selection_state() {
     _zes_clear_primary; zle deactivate-region -w 2>/dev/null; zle -K main 2>/dev/null;
 }
 
+# Cancel any in-flight pending-selection disambiguation.  When a mouse
+# selection matches multiple BUFFER occurrences, the user is prompted to
+# position the cursor; during that state ALL keystrokes are swallowed.
+# This widget provides an Escape-to-cancel escape hatch so the user is
+# never stuck in the disambiguation prompt.
+function edit-select::cancel-pending-or-escape() {
+    if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
+        _EDIT_SELECT_PENDING_SELECTION=""
+        _EDIT_SELECT_ACTIVE_SELECTION=""
+        _EDIT_SELECT_LAST_PRIMARY=""
+        _zes_clear_primary
+        zle -M ""
+        zle -R
+    elif [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
+        _zes_clear_selection_state
+    fi
+}
+zle -N edit-select::cancel-pending-or-escape
+
 function edit-select::copy-or-interrupt() {
+    _zes_resume_tracking_if_needed
     if ((REGION_ACTIVE)); then zle edit-select::copy-region
     elif [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
         _zes_copy_to_clipboard "$_EDIT_SELECT_ACTIVE_SELECTION" || {
@@ -482,6 +500,22 @@ function _zes_activate_region_and_dispatch() {
 }
 
 function _zes_terminal_focus_in() {
+    # During a scrollback handoff (_ZES_MOUSE_AUTOSUSPENDED=1), VS Code sends
+    # focus-in when the terminal pane re-asserts keyboard focus. Clearing
+    # selection state here would discard any daemon-detected primary selection
+    # the user just made in the scrollback. Update the mtime baseline so the
+    # next real selection event is detected correctly, but preserve the active
+    # selection state. Mouse tracking will be lazily re-armed on the next
+    # keypress via _zes_resume_tracking_if_needed.
+    if ((_ZES_MOUSE_AUTOSUSPENDED)); then
+        if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
+            local -a stat_info
+            if zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null; then
+                _EDIT_SELECT_LAST_MTIME=${stat_info[1]}; _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1;
+            fi
+        fi
+        return
+    fi
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         local -a stat_info
         if zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null; then
@@ -598,6 +632,9 @@ function edit-select::apply-mouse-replacement-config() {
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
         bindkey '\e[O' _zes_terminal_focus_out
+        # Ctrl-G cancels pending-selection disambiguation and clears active
+        # mouse selections so the user is never stuck in a blocking state.
+        bindkey -M emacs '^g' edit-select::cancel-pending-or-escape
         if ((_ZES_ON_WSL)); then _zes_apply_wsl_mouse_mode; fi
     else
         bindkey -M emacs -R ' '-'~' self-insert
@@ -771,6 +808,18 @@ function { emulate -L zsh
         mseq=${terminfo[$mti]:-$mesc}
         zle -N "edit-select-move::${mwid}" _zes_move_and_resume_tracking; bindkey -M emacs "$mseq" "edit-select-move::${mwid}"
     done
+
+    # Home / End → move to line start / end (plain navigation, no selection).
+    # Provide broad defaults covering normal, application, and rxvt/xterm modes
+    # so these keys work regardless of the terminal's key-reporting mode.
+    local _zes_k
+    for _zes_k in "${terminfo[khome]:-^[[H}" '^[[H' '^[OH' '^[[1~' '^[[7~'; do
+        bindkey -M emacs "$_zes_k" beginning-of-line
+    done
+    for _zes_k in "${terminfo[kend]:-^[[F}" '^[[F' '^[OF' '^[[4~' '^[[8~'; do
+        bindkey -M emacs "$_zes_k" end-of-line
+    done
+
     bindkey -M edit-select '\e[I' _zes_terminal_focus_in; bindkey -M edit-select '\e[O' _zes_terminal_focus_out
 }
 

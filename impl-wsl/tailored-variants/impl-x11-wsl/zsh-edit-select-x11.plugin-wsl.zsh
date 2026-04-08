@@ -87,9 +87,15 @@ function edit-select::load-config() {
 function _zes_sync_after_paste() {
     _EDIT_SELECT_ACTIVE_SELECTION=""
     _EDIT_SELECT_PENDING_SELECTION=""
+    _ZES_SELECTION_SET_TIME=0
     _EDIT_SELECT_LAST_PRIMARY=""
     _EDIT_SELECT_FOCUS_OUT_SEQ=""
     _zes_clear_primary
+    if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
+        _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+        local -a stat_info
+        zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null && _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
+    fi
 }
 
 # Determine whether a mouse text selection is currently active and populate
@@ -149,21 +155,20 @@ function _zes_detect_mouse_selection() {
     if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
         local sel="$_EDIT_SELECT_PENDING_SELECTION" sel_len=${#_EDIT_SELECT_PENDING_SELECTION}
         if [[ "$BUFFER" == *"$sel"* ]]; then
-            local idx=0
-            while ((idx <= ${#BUFFER} - sel_len)); do
-                if [[ "${BUFFER:$idx:$sel_len}" == "$sel" ]]; then
-                    local end_pos=$((idx + sel_len))
-                    if ((CURSOR >= idx && CURSOR <= end_pos)); then
-                        _EDIT_SELECT_ACTIVE_SELECTION="$sel"
-                        _EDIT_SELECT_PENDING_SELECTION=""
-                        zle -M ""
-                        zle -R
-                        return 0
-                    fi
-                    ((idx += sel_len))
-                else
-                    ((idx++))
+            local buf="$BUFFER" idx=0
+            while [[ "$buf" == *"$sel"* ]]; do
+                local prefix="${buf%%"$sel"*}"
+                idx=$((idx + ${#prefix}))
+                local end_pos=$((idx + sel_len))
+                if ((CURSOR >= idx && CURSOR <= end_pos)); then
+                    _EDIT_SELECT_ACTIVE_SELECTION="$sel"
+                    _EDIT_SELECT_PENDING_SELECTION=""
+                    zle -M ""
+                    zle -R
+                    return 0
                 fi
+                idx=$((idx + sel_len))
+                buf="${BUFFER:$idx}"
             done
         fi
         _EDIT_SELECT_PENDING_SELECTION=""
@@ -252,13 +257,12 @@ function _zes_delete_mouse_selection() {
 
     local -a positions=()
     local buf="$BUFFER" idx=0
-    while ((idx <= ${#buf} - sel_len)); do
-        if [[ "${buf:$idx:$sel_len}" == "$sel" ]]; then
-            positions+=($idx)
-            ((idx += sel_len))
-        else
-            ((idx++))
-        fi
+    while [[ "$buf" == *"$sel"* ]]; do
+        local prefix="${buf%%"$sel"*}"
+        idx=$((idx + ${#prefix}))
+        positions+=($idx)
+        idx=$((idx + sel_len))
+        buf="${BUFFER:$idx}"
     done
 
     local num_occurrences=${#positions[@]}

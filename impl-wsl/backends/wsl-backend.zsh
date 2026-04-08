@@ -87,7 +87,9 @@ function _zes_stop_monitor() {
     if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
         local pid
         pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
-        [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null
+        fi
         rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
     fi
     _EDIT_SELECT_DAEMON_ACTIVE=0
@@ -114,7 +116,7 @@ function _zes_get_primary() {
 # In SSH mode (_ZES_SSH_MODE=1), returns 1 — paste via terminal native keybinding.
 function _zes_get_clipboard() {
     ((_ZES_SSH_MODE)) && return 1
-    if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
+    if [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         "$_EDIT_SELECT_MONITOR_BIN" --get-clipboard 2>/dev/null
     else
         powershell.exe -NoProfile -Command 'Get-Clipboard' 2>/dev/null
@@ -148,7 +150,7 @@ function _zes_copy_to_clipboard() {
         return 0
     fi
     _ZES_SELF_WRITE_CONTENT="$1"
-    if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
+    if [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         printf '%s' "$1" | "$_EDIT_SELECT_MONITOR_BIN" --copy-clipboard 2>/dev/null
     else
         printf '%s' "$1" | clip.exe 2>/dev/null
@@ -157,15 +159,15 @@ function _zes_copy_to_clipboard() {
 
 # Clear the PRIMARY cache.  Windows has no PRIMARY selection; this only
 # clears the local cache files so the shell does not see stale text.
+# When the agent is available, --clear-primary atomically writes an empty
+# primary file and increments the seq counter.  When unavailable, the
+# cache file is truncated directly as a best-effort fallback.
 function _zes_clear_primary() {
-    if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
+    if [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         "$_EDIT_SELECT_MONITOR_BIN" --clear-primary 2>/dev/null
     else
-        # Without the agent, just truncate the cache files directly.
-        [[ -f "$_EDIT_SELECT_PRIMARY_FILE" ]] && : > "$_EDIT_SELECT_PRIMARY_FILE"
+        # Without the agent, truncate the cache file directly to avoid
+        # stale selection reuse before the next agent write.
+        [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && : > "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
     fi
-
-    # Always clear local cache immediately to avoid stale selection reuse
-    # before async monitor updates are observed by the shell.
-    [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && : > "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
 }

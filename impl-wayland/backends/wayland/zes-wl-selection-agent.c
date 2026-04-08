@@ -1,5 +1,4 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.6.4
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // Wayland clipboard integration agent for zsh-edit-select.
@@ -1758,7 +1757,7 @@ static int run_daemon(const char *cache_dir_arg) {
             ps_manager, wl_seat_obj);
         zwp_primary_selection_device_v1_add_listener(
             ps_device, &ps_device_listener, NULL);
-        
+
         /* Create permanent 1x1 transparent surface. GNOME < 47 without data-control
            requires the surface for Mutter to send events. */
         if (create_daemon_surface() != 0) {

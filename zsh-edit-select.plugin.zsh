@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Copyright (c) 2025 Michael Matta
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
-# Version: 0.6.46
+# Version: 0.6.47
 
 # zsh-edit-select — Unified platform loader
 # One-time detection, zero forks, sources correct implementation.
@@ -68,9 +68,9 @@ fi
 #      exactly as before (developer / offline path, unchanged).
 #   4. Both failed → print a diagnostic with the required package names.
 #
-# WSL is excluded here: its two artifacts (Linux ELF + Windows .exe) are
-# provisioned by _zes_loader_build_wsl_artifacts() in loader-build.wsl.zsh,
-# which is sourced by the WSL plugin and follows the same download-first logic.
+# WSL uses impl-wsl/loader-build.wsl.zsh, which provisions both required
+# artifacts (Linux ELF + Windows .exe) using the same download-first strategy.
+# Run it here so WSL users have binaries ready before the impl-wsl plugin loads.
 if [[ $_zes_impl == "wayland" ]]; then
 
   # 'local' is a no-op at script scope — these are plain assignments, cleaned
@@ -123,6 +123,30 @@ elif [[ $_zes_impl == "macos" ]]; then
       && print -u2 "zsh-edit-select: macOS agent unavailable. Run: xcode-select --install"
   fi
 
+elif [[ $_zes_impl == "wsl" ]]; then
+
+  _wsl_root="${_zes_dir}/impl-wsl"
+  _wsl_agent="${_wsl_root}/backends/wsl/zes-wsl-selection-agent"
+  _wsl_helper="${_wsl_root}/backends/wsl/zes-wsl-clipboard-helper.exe"
+  _wsl_helper_src="${_wsl_root}/backends/wsl/zes-wsl-clipboard-helper.c"
+
+  if [[ ! -x "$_wsl_agent" ]] || [[ ! -s "$_wsl_helper" ]] || { [[ -f "$_wsl_helper_src" ]] && [[ "$_wsl_helper_src" -nt "$_wsl_helper" ]]; }; then
+    if [[ -r "${_wsl_root}/loader-build.wsl.zsh" ]]; then
+      source "${_wsl_root}/loader-build.wsl.zsh" 2>/dev/null
+      if (( ${+functions[_zes_loader_build_wsl_artifacts]} )); then
+        _zes_loader_build_wsl_artifacts "$_wsl_root"
+        unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null
+      fi
+    fi
+  fi
+
+  # Internal one-session guard used by impl-wsl plugin to avoid duplicate
+  # provisioning when this top-level loader already completed it.
+  if [[ -x "$_wsl_agent" && -s "$_wsl_helper" ]] && \
+     { [[ ! -f "$_wsl_helper_src" ]] || [[ ! "$_wsl_helper_src" -nt "$_wsl_helper" ]]; }; then
+    typeset -g _ZES_WSL_ARTIFACTS_BOOTSTRAPPED_ROOT="$_wsl_root"
+  fi
+
 fi
 
 # Lazily compile the plugin .zsh files to bytecode on first load.
@@ -154,6 +178,8 @@ typeset -gr ZES_IMPL_PATH="${_zes_dir}/impl-${_zes_impl}"
 # unfunction is used — but only if fetch-agents.zsh was actually sourced
 # this session (i.e. at least one binary was absent on this load).
 unset _zes_dir _zes_impl _zes_reason _zes_plugin _zes_f _wl _xwl _x11 _macos
+unset _wsl_root _wsl_agent _wsl_helper _wsl_helper_src
+unset _ZES_WSL_ARTIFACTS_BOOTSTRAPPED_ROOT
 (( ${+functions[_zes_fetch_binary]} )) && unfunction _zes_fetch_binary _zes_asset_name
 
 return 0
