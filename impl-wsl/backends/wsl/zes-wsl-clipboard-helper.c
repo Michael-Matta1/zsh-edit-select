@@ -1,5 +1,4 @@
 // Copyright (c) 2025 Michael Matta
-// Version: 0.6.7
 // Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 //
 // Windows clipboard helper for zsh-edit-select WSL backend.

@@ -31,7 +31,6 @@ configure_kitty_macos() {
         "# Cmd editing shortcuts"
         "map cmd+a send_text all \\x1b[97;9u"
         "map cmd+c send_text all \\x1b[99;9u"
-        "map cmd+v send_text all \\x1b[118;9u"
         "map cmd+x send_text all \\x1b[120;9u"
         "map cmd+shift+z send_text all \\x1b[122;10u"
     )

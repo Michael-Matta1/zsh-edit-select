@@ -812,7 +812,6 @@ Add all of the following to `kitty.conf`:
 # Override Kitty's built-in clipboard actions so the plugin receives them.
 map cmd+a send_text all \x1b[97;9u
 map cmd+c send_text all \x1b[99;9u
-map cmd+v send_text all \x1b[118;9u
 map cmd+x send_text all \x1b[120;9u
 map cmd+shift+z send_text all \x1b[122;10u
 ```
@@ -1342,7 +1341,7 @@ Add the following to `keybindings.json` (usually located at `~/.config/Code/User
 <details>
 <summary><b>macOS configuration</b></summary>
 
-VS Code intercepts `Cmd+C`, `Cmd+V`, and `Cmd+A` for its own editor actions. The bindings below are scoped to `terminalFocus` so they only apply when the integrated terminal is active.
+VS Code intercepts `Cmd+C`, and `Cmd+A` for its own editor actions. The bindings below are scoped to `terminalFocus` so they only apply when the integrated terminal is active.
 
 Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcuts (JSON)"**, then add the following entries. If you already have a `[...]` array in the file, merge these entries into it rather than creating a second array.
 
@@ -1363,12 +1362,6 @@ Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcut
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001b[99;9u" },
     "when": "terminalFocus && isMac && !terminalTextSelected"
-  },
-  {
-    "key": "cmd+v",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[118;9u" },
-    "when": "terminalFocus && isMac"
   },
   {
     "key": "cmd+x",

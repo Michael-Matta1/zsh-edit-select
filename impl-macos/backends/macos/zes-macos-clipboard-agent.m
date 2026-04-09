@@ -18,7 +18,7 @@
 //       Fails: GPU terminals → kAXErrorAttributeUnsupported.
 //       No clipboard involvement.
 //
-//     UNIFIED ESCALATION (no terminal-specific routing):
+//     UNIFIED ESCALATION:
 //       1. Named PB instant check — captures immediately if terminal
 //          already wrote (e.g. Ghostty with copy-on-select=true).
 //       2. Start unified watcher:
@@ -26,7 +26,8 @@
 //          Phase 2 (tick 5):    inject Cmd+C (escalation).
 //          Phase 2+ (ticks 5+): check BOTH named PBs AND clipboard.
 //          React to FIRST change detected (action-driven).
-//       This covers all terminals without bundleIdentifier checks.
+//       This covers all terminals. Additionally, AX-empty returns can
+//       escalate for known Electron terminal hosts in ax_try().
 //
 //     NON-DEFINITE CLICK PROTECTION:
 //       Single clicks (no drag, click_count < 2) where the clipboard
@@ -71,6 +72,7 @@ extern char **environ;
 #define POLL_NS        (1 * NSEC_PER_MSEC)
 #define MAX_POLL_TICKS 300            /* 300 ms safety cap */
 #define ESCALATION_TICK 75            /* Wait 75ms before invasive Cmd+C inject */
+#define AX_ELECTRON    (-3)           /* AX-empty in Electron terminal host */
 #define MAX_SEL_SIZE   (4 * 1024 * 1024)
 #define MAX_CLIP_SIZE  (4 * 1024 * 1024)
 #define DEDUP_SIZE     4096
@@ -320,12 +322,23 @@ static void finalize_selection(const char *utf8, size_t len, bool delay_restore)
     }
 }
 
+/* Known hosts where AX often cannot expose canvas-rendered terminal selection.
+   In these hosts, AX failure/empty should escalate to Path B (Cmd+C watcher). */
+static bool host_prefers_cmdc_fallback(void) {
+    NSRunningApplication *app = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    NSString *bid = app.bundleIdentifier;
+    if (!bid) return false;
+    if ([bid hasPrefix:@"com.microsoft.VSCode"]) return true; /* Stable + Insiders */
+    if ([bid isEqualToString:@"com.todesktop.230313mzl4w4u92"]) return true; /* Cursor */
+    return false;
+}
+
 /* ─────────────────────────────────────────────────────────────────────
    PATH A — Accessibility API
    Returns:
       1  text captured.
       0  AX-capable + empty selection → primary cleared.
-     -1  kAXErrorAttributeUnsupported: GPU terminal → try Path B/C.
+         -1  fallback to Path B/C (unsupported AX or known AX-host failure/empty).
      -2  no focus / other error → do nothing.
    ───────────────────────────────────────────────────────────────────── */
 static int ax_try(void) {
@@ -337,7 +350,8 @@ static int ax_try(void) {
         AXError e = AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute,
                                                   (CFTypeRef *)&focused);
         CFRelease(sw);
-        if (e != kAXErrorSuccess || !focused) return -2;
+        if (e != kAXErrorSuccess || !focused)
+            return host_prefers_cmdc_fallback() ? -1 : -2;
 
         CFTypeRef val = NULL;
         e = AXUIElementCopyAttributeValue(focused, kAXSelectedTextAttribute, &val);
@@ -345,12 +359,22 @@ static int ax_try(void) {
 
         if (e == kAXErrorAttributeUnsupported || e == kAXErrorActionUnsupported)
             return -1;   /* GPU terminal */
-        if (e != kAXErrorSuccess || !val) return -2;
+        if (e != kAXErrorSuccess || !val)
+            return host_prefers_cmdc_fallback() ? -1 : -2;
 
         NSString *s = (__bridge_transfer NSString *)val;
-        if (!s || s.length == 0) { clear_primary_cache(); return 0; }
+        if (!s || s.length == 0) {
+            /* Electron-based terminals use Chromium AX. In VS Code/Cursor,
+               kAXSelectedTextAttribute may be "supported" but empty for
+               canvas-rendered xterm.js content. Escalate to Path B. */
+            if (host_prefers_cmdc_fallback()) {
+                return AX_ELECTRON;
+            }
+            clear_primary_cache();
+            return 0;
+        }
         const char *utf8 = [s UTF8String];
-        if (!utf8) return -2;
+        if (!utf8) return host_prefers_cmdc_fallback() ? -1 : -2;
         /* Path A: no clipboard involvement, no finalize_selection needed.
            We can use commit_selection directly (no clipboard to restore). */
         if (g_last_len == strlen(utf8) && strlen(utf8) < DEDUP_SIZE &&
@@ -444,10 +468,10 @@ static void inject_cmd_c(void) {
        Covers all terminals that respond to Cmd+C.
      Terminates on FIRST change detected (action-driven) or MAX_POLL_TICKS.
    ───────────────────────────────────────────────────────────────────── */
-static void start_unified_watcher(uint64_t gen) {
+static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre_cc) {
     __block int ticks = 0;
-    __block NSInteger cc_inject_before = -1;  /* set at escalation time */
-    __block bool injected = false;
+    __block NSInteger cc_inject_before = pre_injected ? pre_cc : -1;
+    __block bool injected = pre_injected;
 
     dispatch_source_t w = dispatch_source_create(
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
@@ -539,7 +563,7 @@ static void start_unified_watcher(uint64_t gen) {
 
 /* ─────────────────────────────────────────────────────────────────────
    handle_mouse_up()
-   Unified, terminal-agnostic handling.  No bundleIdentifier checks.
+    Unified handling. ax_try() may use host-specific AX-empty escalation.
    ───────────────────────────────────────────────────────────────────── */
 static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
     if (!g_running) return;
@@ -548,14 +572,15 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
 
     /* Path A — Accessibility API */
     int ax = ax_try();
-    if (ax != -1) {
+    if (ax != -1 && ax != AX_ELECTRON) {
         /* AX succeeded or terminal is AX-capable.  For non-definite
            clicks that are AX-capable, no clipboard protection needed
            (AX doesn't touch clipboard). */
         return;
     }
 
-    /* GPU terminal confirmed (AX returned -1). */
+    /* Path B fallback confirmed (AX returned -1 or AX_ELECTRON). */
+    bool is_electron = (ax == AX_ELECTRON);
     bool definite = (click_count >= 2) || (drag_pixels > DRAG_PX);
 
     if (!definite) {
@@ -585,8 +610,20 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
     /* Try named PBs immediately (fast path — terminal already wrote). */
     if (named_pb_try()) return;
 
+    if (is_electron) {
+        /* xterm.js can clear visual selection before delayed escalation fires.
+           Inject now and start watcher with mousedown baseline. */
+        NSInteger baseline = g_mousedown_cc;
+        if (baseline < 0) {
+            baseline = [[NSPasteboard generalPasteboard] changeCount];
+        }
+        inject_cmd_c();
+        start_unified_watcher(gen, true, baseline);
+        return;
+    }
+
     /* Unified escalation: named PBs → Cmd+C inject → first-change wins. */
-    start_unified_watcher(gen);
+    start_unified_watcher(gen, false, -1);
 }
 
 /* ─────────────────────────────────────────────────────────────────────

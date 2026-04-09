@@ -1032,7 +1032,7 @@ function _zes_handoff_to_native_scrollback() {
             # GetDoubleClickTime() (~500ms) of T0 causes WM_LBUTTONDBLCLK →
             # Chromium dblclick → VS Code word-selects instead of single-click.
             #
-            # --handoff-scrollback-vscode (v0.6.7+) waits GetDoubleClickTime()
+            # --handoff-scrollback-vscode waits GetDoubleClickTime()
             # before injecting, handling both quick-clicks and long drags.
             # Old-binary fallback: shell sleeps 0.55 s first so that the
             # subsequent --inject-left-down arrives at T0+~620 ms > 500 ms. ✓

@@ -151,12 +151,6 @@ configure_vscode() {
         "when": "terminalFocus && isMac && !terminalTextSelected"
     },
     {
-        "key": "cmd+v",
-        "command": "workbench.action.terminal.sendSequence",
-        "args": { "text": "\u001b[118;9u" },
-        "when": "terminalFocus && isMac"
-    },
-    {
         "key": "cmd+x",
         "command": "workbench.action.terminal.sendSequence",
         "args": { "text": "\u001b[120;9u" },

@@ -1112,7 +1112,7 @@ check_ghostty_conflicts() {
 _zes_vscode_key_is_watched() {
     local key="$1"
     case "$key" in
-    ctrl+shift+c | ctrl+c | ctrl+z | ctrl+shift+z | shift+left | shift+right | shift+up | shift+down | shift+home | shift+end | ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end | cmd+a | cmd+c | cmd+v | cmd+x | cmd+z | cmd+shift+z | cmd+left | cmd+right | alt+left | alt+right | cmd+shift+left | cmd+shift+right | alt+shift+left | alt+shift+right | cmd+shift+up | cmd+shift+down)
+    ctrl+shift+c | ctrl+c | ctrl+z | ctrl+shift+z | shift+left | shift+right | shift+up | shift+down | shift+home | shift+end | ctrl+shift+left | ctrl+shift+right | ctrl+shift+home | ctrl+shift+end | cmd+a | cmd+c | cmd+x | cmd+z | cmd+shift+z | cmd+left | cmd+right | alt+left | alt+right | cmd+shift+left | cmd+shift+right | alt+shift+left | alt+shift+right | cmd+shift+up | cmd+shift+down)
         return 0
         ;;
     *)
@@ -1192,9 +1192,6 @@ _zes_vscode_binding_is_expected() {
         ;;
     cmd+c)
         _zes_value_has_csi_code "$text_norm" "99;9u"
-        ;;
-    cmd+v)
-        _zes_value_has_csi_code "$text_norm" "118;9u"
         ;;
     cmd+x)
         _zes_value_has_csi_code "$text_norm" "120;9u"
