@@ -148,7 +148,7 @@ configure_vscode() {
         "key": "cmd+c",
         "command": "workbench.action.terminal.sendSequence",
         "args": { "text": "\u001b[99;9u" },
-        "when": "terminalFocus && isMac"
+        "when": "terminalFocus && isMac && !terminalTextSelected"
     },
     {
         "key": "cmd+v",
