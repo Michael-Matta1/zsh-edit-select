@@ -12,6 +12,109 @@
 [[ -n "${_ZES_MOD_DETECT_PLUGIN_LOADED:-}" ]] && return 0
 readonly _ZES_MOD_DETECT_PLUGIN_LOADED=1
 
+declare -a _ZES_FOUND_PLUGIN_DIRS=()
+
+_zes_normalize_plugin_dir_path() {
+    local dir="$1"
+    [[ -z "$dir" ]] && return 1
+
+    dir="${dir/#\~/$HOME}"
+    dir=$(printf '%s\n' "$dir" | sed 's#//*#/#g; s#/$##')
+    [[ -n "$dir" ]] || return 1
+
+    printf '%s\n' "$dir"
+}
+
+_zes_append_found_plugin_dir() {
+    local dir="$1"
+    local normalized=""
+    local existing=""
+
+    normalized="$(_zes_normalize_plugin_dir_path "$dir" 2>/dev/null || true)"
+    [[ -z "$normalized" ]] && return 1
+    [[ -f "$normalized/zsh-edit-select.plugin.zsh" ]] || return 1
+
+    for existing in "${_ZES_FOUND_PLUGIN_DIRS[@]}"; do
+        [[ "$existing" == "$normalized" ]] && return 0
+    done
+
+    _ZES_FOUND_PLUGIN_DIRS+=("$normalized")
+    return 0
+}
+
+_zes_guess_plugin_manager_for_dir() {
+    local dir="$1"
+
+    case "$dir" in
+    *"/.oh-my-zsh/"*"/plugins/zsh-edit-select") echo "oh-my-zsh" ;;
+    *"/zinit/"*"/plugins/"*) echo "zinit" ;;
+    *"/.zplug/"*"/repos/"*) echo "zplug" ;;
+    *"/.antigen/"*"/bundles/"*) echo "antigen" ;;
+    *"/.cache/antibody/"*) echo "antibody" ;;
+    *"/.zgenom/"*) echo "zgenom" ;;
+    *"/.zgen/"*) echo "zgen" ;;
+    *"/sheldon/repos/"*) echo "sheldon" ;;
+    *) echo "manual" ;;
+    esac
+}
+
+_zes_collect_installed_plugin_dirs() {
+    local zshrc="${ZDOTDIR:-$HOME}/.zshrc"
+    local standalone=""
+    local source_line=""
+    local source_dir=""
+    local root=""
+    local -a zinit_roots=(
+        "${ZINIT_HOME:-}"
+        "$HOME/.zinit"
+        "$HOME/.local/share/zinit"
+        "${XDG_DATA_HOME:-$HOME/.local/share}/zinit"
+    )
+
+    _ZES_FOUND_PLUGIN_DIRS=()
+
+    # Runtime hint and already-set location first.
+    _zes_append_found_plugin_dir "${ZES_PLUGIN_DIR_HINT:-}" || true
+    _zes_append_found_plugin_dir "${PLUGIN_INSTALL_DIR:-}" || true
+
+    # Known plugin manager installation roots.
+    _zes_append_found_plugin_dir "${ZSH_CUSTOM:-${ZSH:-$HOME/.oh-my-zsh}/custom}/plugins/zsh-edit-select" || true
+
+    for root in "${zinit_roots[@]}"; do
+        [[ -z "$root" ]] && continue
+        _zes_append_found_plugin_dir "$root/plugins/Michael-Matta1---zsh-edit-select" || true
+        _zes_append_found_plugin_dir "$root/plugins/zsh-edit-select" || true
+    done
+
+    _zes_append_found_plugin_dir "${ZPLUG_HOME:-$HOME/.zplug}/repos/Michael-Matta1/zsh-edit-select" || true
+    _zes_append_found_plugin_dir "$HOME/.antigen/bundles/Michael-Matta1/zsh-edit-select" || true
+    _zes_append_found_plugin_dir "$HOME/.cache/antibody/Michael-Matta1/zsh-edit-select" || true
+    _zes_append_found_plugin_dir "${ZGENOM_DIR:-$HOME/.zgenom}/Michael-Matta1/zsh-edit-select-master" || true
+    _zes_append_found_plugin_dir "${ZGEN_DIR:-$HOME/.zgen}/Michael-Matta1/zsh-edit-select-master" || true
+    _zes_append_found_plugin_dir "${XDG_DATA_HOME:-$HOME/.local/share}/sheldon/repos/github.com/Michael-Matta1/zsh-edit-select" || true
+
+    # Standalone/manual defaults.
+    standalone="$(_zes_detect_existing_standalone_plugin_dir 2>/dev/null || true)"
+    _zes_append_found_plugin_dir "$standalone" || true
+
+    # Explicit sourced paths from .zshrc.
+    if [[ -f "$zshrc" ]]; then
+        while IFS= read -r source_line || [[ -n "$source_line" ]]; do
+            [[ -z "$source_line" ]] && continue
+            source_line="${source_line%%#*}"
+            source_line=$(printf '%s\n' "$source_line" | sed -E 's/^[[:space:]]*(source|\.)[[:space:]]+//')
+            source_line="${source_line#\"}"
+            source_line="${source_line%\"}"
+            source_line="${source_line#\'}"
+            source_line="${source_line%\'}"
+            source_line="${source_line/#\~/$HOME}"
+            source_line=$(printf '%s\n' "$source_line" | sed 's#//*#/#g')
+            source_dir="${source_line%/zsh-edit-select.plugin.zsh}"
+            _zes_append_found_plugin_dir "$source_dir" || true
+        done < <(grep -E '^[[:space:]]*(source|\.)[[:space:]]+.*zsh-edit-select\.plugin\.zsh' "$zshrc" 2>/dev/null)
+    fi
+}
+
 _zes_detect_existing_standalone_plugin_dir() {
     local candidate=""
     local source_line=""
@@ -36,10 +139,10 @@ _zes_detect_existing_standalone_plugin_dir() {
     done
 
     if [[ -f "$zshrc" ]]; then
-        source_line=$(grep -E '^[[:space:]]*source[[:space:]]+.*zsh-edit-select\.plugin\.zsh' "$zshrc" 2>/dev/null | tail -n 1)
+        source_line=$(grep -E '^[[:space:]]*(source|\.)[[:space:]]+.*zsh-edit-select\.plugin\.zsh' "$zshrc" 2>/dev/null | tail -n 1)
         if [[ -n "$source_line" ]]; then
             source_line="${source_line%%#*}"
-            source_line=$(printf '%s\n' "$source_line" | sed -E 's/^[[:space:]]*source[[:space:]]+//')
+            source_line=$(printf '%s\n' "$source_line" | sed -E 's/^[[:space:]]*(source|\.)[[:space:]]+//')
 
             source_line="${source_line#\"}"
             source_line="${source_line%\"}"
@@ -92,6 +195,35 @@ detect_plugin_manager() {
         print_step "Detecting Zsh plugin manager..."
     fi
 
+    # Validate runtime hint (if provided) before passive discovery.
+    if [[ "$detection_mode" == "passive" ]] && [[ -n "${ZES_PLUGIN_DIR_HINT:-}" ]]; then
+        local hinted_dir="${ZES_PLUGIN_DIR_HINT/#\~/$HOME}"
+        hinted_dir=$(printf '%s\n' "$hinted_dir" | sed 's#//*#/#g; s#/$##')
+        if [[ ! -f "$hinted_dir/zsh-edit-select.plugin.zsh" ]]; then
+            log_message "DETECTION_WARNING: Runtime plugin hint is invalid: $hinted_dir"
+        fi
+    fi
+
+    if [[ "$detection_mode" == "passive" ]]; then
+        _zes_collect_installed_plugin_dirs
+
+        if [[ ${#_ZES_FOUND_PLUGIN_DIRS[@]} -gt 0 ]]; then
+            PLUGIN_INSTALL_DIR="${_ZES_FOUND_PLUGIN_DIRS[0]}"
+            DETECTED_PLUGIN_MANAGER="$(_zes_guess_plugin_manager_for_dir "$PLUGIN_INSTALL_DIR")"
+            print_success "Detected plugin installation at: $PLUGIN_INSTALL_DIR" "plugin_manager"
+
+            if [[ ${#_ZES_FOUND_PLUGIN_DIRS[@]} -gt 1 ]]; then
+                print_info "Multiple plugin installations detected; using the first match."
+                log_message "DETECTION_INFO: Multiple plugin installs detected: ${_ZES_FOUND_PLUGIN_DIRS[*]}"
+            fi
+            return
+        fi
+
+        print_info "No existing plugin installation found; probing standalone plugin paths."
+        _zes_set_standalone_plugin_path
+        return
+    fi
+
     # Check for Oh My Zsh (directory + env var)
     if [[ -d "${ZSH:-$HOME/.oh-my-zsh}" ]]; then
         # Verify it's actually Oh My Zsh
@@ -109,7 +241,7 @@ detect_plugin_manager() {
     if [[ -d "${ZINIT_HOME:-}" ]] || [[ -d "$HOME/.zinit" ]] || [[ -d "$HOME/.local/share/zinit" ]] ||
         [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/zinit" ]]; then
         DETECTED_PLUGIN_MANAGER="zinit"
-        PLUGIN_INSTALL_DIR="${ZINIT_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit}/plugins/zsh-edit-select"
+        PLUGIN_INSTALL_DIR="${ZINIT_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit}/plugins/Michael-Matta1---zsh-edit-select"
         print_success "Detected: Zinit" "plugin_manager"
         return
     fi
@@ -172,7 +304,7 @@ detect_plugin_manager() {
 
         if echo "$zshrc_content" | grep -qE "zinit|zi " 2>/dev/null; then
             DETECTED_PLUGIN_MANAGER="zinit"
-            PLUGIN_INSTALL_DIR="${ZINIT_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit}/plugins/zsh-edit-select"
+            PLUGIN_INSTALL_DIR="${ZINIT_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit}/plugins/Michael-Matta1---zsh-edit-select"
             print_success "Detected: Zinit (via .zshrc)" "plugin_manager"
             return
         elif echo "$zshrc_content" | grep -q "antigen" 2>/dev/null; then
@@ -206,13 +338,6 @@ detect_plugin_manager() {
             print_success "Detected: Sheldon (via .zshrc)" "plugin_manager"
             return
         fi
-    fi
-
-    # No plugin manager detected.
-    if [[ "$detection_mode" == "passive" ]]; then
-        print_info "No known Zsh plugin manager detected; probing standalone plugin paths."
-        _zes_set_standalone_plugin_path
-        return
     fi
 
     # Bootstrap mode: offer to install Oh My Zsh.

@@ -313,6 +313,17 @@ if [[ $_ZES_LOCAL_MODE -eq 1 ]]; then
         fi
         ;;
     esac
+
+    # If running from a local plugin tree, infer the plugin root so
+    # maintenance modes can target the active installation path directly.
+    if [[ -d "$_ZES_LOCAL_LIB_DIR" ]]; then
+        _zes_local_plugin_root=""
+        _zes_local_plugin_root="$(cd "$_ZES_LOCAL_LIB_DIR/../../.." 2>/dev/null && pwd -P)"
+        if [[ -n "$_zes_local_plugin_root" ]] && [[ -f "$_zes_local_plugin_root/zsh-edit-select.plugin.zsh" ]]; then
+            export ZES_PLUGIN_DIR_HINT="$_zes_local_plugin_root"
+        fi
+        unset _zes_local_plugin_root
+    fi
 fi
 
 # ── Download helper ────────────────────────────────────────────────────────

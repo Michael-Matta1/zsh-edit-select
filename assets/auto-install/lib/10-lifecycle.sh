@@ -195,29 +195,54 @@ run_uninstall() {
         done
     fi
 
-    # Step 2: Remove plugin directory
-    if [[ -n "$PLUGIN_INSTALL_DIR" ]] && [[ -d "$PLUGIN_INSTALL_DIR" ]]; then
-        print_step "Removing plugin directory: $PLUGIN_INSTALL_DIR"
+    # Step 2: Remove plugin directory/directories
+    local -a uninstall_targets=()
+    local target_dir=""
 
-        # Safety checks
-        if [[ "$PLUGIN_INSTALL_DIR" == "/" ]] || [[ "$PLUGIN_INSTALL_DIR" == "$HOME" ]] ||
-            [[ "$PLUGIN_INSTALL_DIR" == "$HOME/" ]] || [[ ! "$PLUGIN_INSTALL_DIR" == *"zsh-edit-select"* ]]; then
-            print_error "Refusing to remove unsafe path: $PLUGIN_INSTALL_DIR"
-        else
-            if ask_yes_no "Remove plugin directory $PLUGIN_INSTALL_DIR?" "y"; then
-                if rm -rf "$PLUGIN_INSTALL_DIR" 2>/dev/null; then
+    if [[ ${#_ZES_FOUND_PLUGIN_DIRS[@]} -gt 0 ]]; then
+        uninstall_targets=("${_ZES_FOUND_PLUGIN_DIRS[@]}")
+    elif [[ -n "$PLUGIN_INSTALL_DIR" ]]; then
+        uninstall_targets=("$PLUGIN_INSTALL_DIR")
+    fi
+
+    if [[ ${#uninstall_targets[@]} -eq 0 ]]; then
+        print_warning "Plugin directory not found or not set"
+    else
+        if [[ ${#uninstall_targets[@]} -gt 1 ]]; then
+            print_info "Detected multiple plugin installations; each path will be removed separately."
+        fi
+
+        for target_dir in "${uninstall_targets[@]}"; do
+            if [[ ! -d "$target_dir" ]]; then
+                print_warning "Plugin directory not found: $target_dir"
+                continue
+            fi
+
+            print_step "Removing plugin directory: $target_dir"
+
+            # Safety checks
+            if [[ "$target_dir" == "/" ]] || [[ "$target_dir" == "$HOME" ]] || [[ "$target_dir" == "$HOME/" ]]; then
+                print_error "Refusing to remove unsafe path: $target_dir"
+                continue
+            fi
+
+            if [[ "$target_dir" != *"zsh-edit-select"* ]] && [[ ! -f "$target_dir/zsh-edit-select.plugin.zsh" ]]; then
+                print_error "Refusing to remove path that does not look like zsh-edit-select: $target_dir"
+                continue
+            fi
+
+            if ask_yes_no "Remove plugin directory $target_dir?" "y"; then
+                if rm -rf "$target_dir" 2>/dev/null; then
                     print_success "Plugin directory removed" "uninstall_plugin_dir"
                     ((uninstall_success++))
                 else
                     print_error "Failed to remove plugin directory"
-                    FAILED_STEPS["uninstall_plugin_dir"]="Could not remove $PLUGIN_INSTALL_DIR"
+                    FAILED_STEPS["uninstall_plugin_dir"]="Could not remove $target_dir"
                 fi
             else
-                print_info "Skipped removing plugin directory"
+                print_info "Skipped removing plugin directory: $target_dir"
             fi
-        fi
-    else
-        print_warning "Plugin directory not found or not set"
+        done
     fi
 
     # Step 3: Remove zshrc entries
@@ -229,13 +254,15 @@ run_uninstall() {
             if grep -qF "zsh-edit-select" "$zshrc" 2>/dev/null; then
                 backup_file "$zshrc"
 
-                # First: clean the Oh My Zsh plugins array (remove just the plugin name, keep the line)
-                if grep -q "plugins=.*zsh-edit-select" "$zshrc" 2>/dev/null; then
-                    sed_inplace '/^[[:space:]]*plugins=/s/[[:space:]]zsh-edit-select[[:space:]]/ /g; /^[[:space:]]*plugins=/s/(zsh-edit-select[[:space:]]/(/' "$zshrc"
-                    # Clean up extra spaces in plugins array (only on plugins= lines)
-                    sed_inplace '/^[[:space:]]*plugins=/s/  */ /g' "$zshrc"
-                    # Clean up "( " or " )" left by removed plugin name (only on plugins= lines)
-                    sed_inplace '/^[[:space:]]*plugins=/s/( /(/g; /^[[:space:]]*plugins=/s/ )/)/g' "$zshrc"
+                # First: clean Oh My Zsh plugin array lines (plugins= and plugins+=).
+                if grep -qE '^[[:space:]]*plugins[+]*=.*zsh-edit-select' "$zshrc" 2>/dev/null; then
+                    sed_inplace '/^[[:space:]]*plugins[+]*=/s/zsh-edit-select//g' "$zshrc"
+                    # Clean up extra spaces in plugin declaration lines.
+                    sed_inplace '/^[[:space:]]*plugins[+]*=/s/  */ /g' "$zshrc"
+                    # Clean up "( " or " )" left by removed plugin name.
+                    sed_inplace '/^[[:space:]]*plugins[+]*=/s/( /(/g; /^[[:space:]]*plugins[+]*=/s/ )/)/g' "$zshrc"
+                    # Drop empty plugin declarations that can be left after removal.
+                    sed_inplace '/^[[:space:]]*plugins[+]*=[[:space:]]*([[:space:]]*)[[:space:]]*$/d' "$zshrc"
                     print_success "Removed from Oh My Zsh plugins array"
                 fi
 
@@ -250,8 +277,8 @@ run_uninstall() {
 
                 if [[ -n "$tmp_zshrc" ]]; then
                     while IFS= read -r line || [[ -n "$line" ]]; do
-                        # Keep lines that are part of the plugins=(…) array
-                        if [[ "$line" =~ ^[[:space:]]*plugins= ]]; then
+                        # Keep lines that are part of plugins= or plugins+=(...) declarations.
+                        if [[ "$line" =~ ^[[:space:]]*plugins[+]*= ]]; then
                             echo "$line" >>"$tmp_zshrc"
                             continue
                         fi
@@ -260,7 +287,7 @@ run_uninstall() {
                             continue
                         fi
                         # Skip orphan "# Zsh Edit-Select" comments (with or without suffix)
-                        if [[ "$line" == "# Zsh Edit-Select"* ]]; then
+                        if [[ "$line" =~ ^[[:space:]]*#\ Zsh\ Edit-Select ]]; then
                             continue
                         fi
                         echo "$line" >>"$tmp_zshrc"
@@ -466,29 +493,63 @@ PYTHON_UNINSTALL
     local sheldon_config="${XDG_CONFIG_HOME:-$HOME/.config}/sheldon/plugins.toml"
     if [[ -f "$sheldon_config" ]] && grep -qF "zsh-edit-select" "$sheldon_config" 2>/dev/null; then
         backup_file "$sheldon_config"
-        # Remove the plugin section
+        # Remove any [plugins.*] section that references zsh-edit-select.
         local tmp_sheldon
         tmp_sheldon=$(mktemp) || true
         if [[ -n "$tmp_sheldon" ]]; then
-            local in_section=0
-            while IFS= read -r line || [[ -n "$line" ]]; do
-                if [[ "$line" == "[plugins.zsh-edit-select]" ]]; then
-                    in_section=1
-                    continue
-                fi
-                if [[ $in_section -eq 1 ]]; then
-                    if [[ "$line" == "["* ]] && [[ "$line" != "[plugins.zsh-edit-select]" ]]; then
-                        in_section=0
-                        echo "$line" >>"$tmp_sheldon"
+            local line=""
+            local section_buffer=""
+            local section_is_plugins=0
+            local section_has_target=0
+            local removed_sections=0
+
+            _zes_flush_sheldon_section() {
+                if [[ -n "$section_buffer" ]]; then
+                    if [[ $section_is_plugins -eq 1 ]] && [[ $section_has_target -eq 1 ]]; then
+                        ((removed_sections++))
+                    else
+                        printf '%s' "$section_buffer" >>"$tmp_sheldon"
                     fi
-                    continue
                 fi
-                echo "$line" >>"$tmp_sheldon"
+                section_buffer=""
+                section_is_plugins=0
+                section_has_target=0
+            }
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ "$line" =~ ^\[[^]]+\]$ ]]; then
+                    _zes_flush_sheldon_section
+
+                    section_is_plugins=0
+                    section_has_target=0
+
+                    if [[ "$line" == "[plugins."* ]]; then
+                        section_is_plugins=1
+                        if [[ "$line" == *"zsh-edit-select"* ]]; then
+                            section_has_target=1
+                        fi
+                    fi
+                fi
+
+                if [[ $section_is_plugins -eq 1 ]] && [[ "$line" == *"zsh-edit-select"* ]]; then
+                    section_has_target=1
+                fi
+
+                section_buffer+="$line"
+                section_buffer+=$'\n'
             done <"$sheldon_config"
+
+            _zes_flush_sheldon_section
+            unset -f _zes_flush_sheldon_section
+
             copy_file_permissions "$sheldon_config" "$tmp_sheldon"
             if mv "$tmp_sheldon" "$sheldon_config" 2>/dev/null; then
-                print_success "Cleaned Sheldon config" "uninstall_sheldon"
-                ((uninstall_success++))
+                if [[ $removed_sections -gt 0 ]]; then
+                    print_success "Cleaned Sheldon config" "uninstall_sheldon"
+                    ((uninstall_success++))
+                else
+                    print_info "No matching Sheldon plugin section found to remove"
+                fi
             else
                 print_error "Failed to update Sheldon config"
                 rm -f "$tmp_sheldon"
