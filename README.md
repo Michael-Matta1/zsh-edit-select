@@ -21,7 +21,7 @@ support.
 >
 >---
 >
-- [Famous Terminals Configurations](#famous-terminals-configurations)
+- [Popular Terminals Configurations](#popular-terminals-configurations)
 - [SSH Support](#ssh-support)
 >
 >---
@@ -44,11 +44,10 @@ support.
 - ✅ **Paste-to-replace** — Paste clipboard content over selections
 - ✅ **Mouse integration** — Works with text selected by mouse
 - ✅ **Clipboard integration** — Works natively with X11, Wayland, WSL, and macOS
-- ✅ **Standard shortcuts** — Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Z
-  Ctrl+Shift+Z
-  (on **macOS**, the Ctrl key is replaced with the **Command (Cmd)** key)
+- ✅ **Standard shortcuts** — Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Z, Ctrl+Shift+Z
+  (on **macOS**, Ctrl is replaced with **Command (Cmd)**)
 
-> **Customization:** The plugin works after installation with editor-like defaults. Use the command
+> **Customization:** The plugin works with editor-like defaults after installation. Use the command
 > `edit-select config` to customize mouse behavior and keybindings.
 
 ---
@@ -70,27 +69,29 @@ Select text using familiar keyboard shortcuts:
 
 > **macOS:** Replace `Ctrl` with `Cmd` for whole-line/all-text shortcuts, and with `Option` for word-by-word selection.
 
-For the full keybindings check the [Default Key Bindings Reference](#default-key-bindings-reference).
+For the full keybindings, check the [Default Key Bindings Reference](#default-key-bindings-reference).
 
 
 ### Mouse Selection Integration
 
-The plugin intelligently integrates mouse selections:
+The plugin intelligently integrates mouse selections, but you can disable it using the [Configuration Wizard](#configuration-wizard):
 
 **When Mouse Replacement is Enabled (default):**
 
-- ✅ Copy mouse selections with Ctrl+C (or Ctrl+Shift+C if configured, Cmd+C on macOS)
-- ✅ Cut mouse selections with Ctrl+X (Cmd+X on macOS)
+- ✅ Copy mouse selections with Ctrl+C
+- ✅ Cut mouse selections with Ctrl+X
 - ✅ Type to replace mouse selections
 - ✅ Delete mouse selections with Backspace/Delete
-- ✅ Paste over mouse selections with Ctrl+V (Cmd+V on macOS)
+- ✅ Paste over mouse selections with Ctrl+V
 
 **When Mouse Replacement is Disabled:**
 
-- ✅ Copy mouse selections with Ctrl+C (or Ctrl+Shift+C if configured, Cmd+C on macOS)
-- ✅ Replacement/Deletion work with keyboard selections
+- ✅ Copy mouse selections with Ctrl+C
+- ✅ Replacement/Deletion work with keyboard selections only.
 
 > **Note:** Configure mouse behavior with the command `edit-select config` → Option 1
+>
+> On macOS, Cmd replaces Ctrl, and all keybindings can be customized to match your preferences.
 
 ### Type-to-Replace and Paste-to-Replace
 
@@ -103,9 +104,11 @@ Works with both keyboard and mouse selections (when mouse replacement is enabled
 
 Standard editing shortcuts:
 
-- **Ctrl + C** (or Ctrl+Shift+C if configured) (Cmd+C on macOS): Copy selected text
-- **Ctrl + X** (Cmd+X on macOS): Cut selected text
-- **Ctrl + V** (Cmd+V on macOS): Paste (replaces selection if any)
+- **Ctrl + C** (or Ctrl+Shift+C if configured): Copy selected text
+- **Ctrl + X**: Cut selected text
+- **Ctrl + V** : Paste (replaces selection if any)
+
+On macOS, Cmd is used instead of Ctrl for these bindings.
 
 > **Clipboard Managers Compatibility Note:** The plugin is fully compatible with clipboard history managers
 > like **CopyQ**, **GPaste**, **Maccy**, and others. If you use a clipboard manager (like CopyQ, GPaste, Maccy, etc.), the plugin will integrate with it automatically since it uses standard clipboard protocols on X11, Wayland, and macOS.
@@ -114,13 +117,16 @@ Standard editing shortcuts:
 
 Navigate through your command line editing history:
 
-- **Ctrl + Z** (Cmd+Z on macOS): Undo last edit
-- **Ctrl + Shift + Z** (Cmd+Shift+Z on macOS): Redo last undone edit
+- **Ctrl + Z**: Undo last edit
+- **Ctrl + Shift + Z**: Redo last undone edit
 
-> **Note:** The Ctrl+Z keybinding works seamlessly alongside the traditional suspend process functionality
+> **Note:** The `Ctrl+Z` keybinding works seamlessly alongside the traditional suspend process functionality
 > (Ctrl+Z suspends a running foreground process to background). The plugin intelligently handles undo
 > operations for command line editing while preserving the ability to suspend processes when needed.
+>
+> Also `Ctrl+X` works seamlessly for multi-key chords where it acts as a prefix key (for example, `Ctrl+X Ctrl+E`) in ZLE/Emacs keymaps
 
+On macOS, these bindings are `Cmd+Z` for Undo and `Cmd+Shift+Z` for Redo.
 
 ### Clipboard Integration
 
@@ -144,18 +150,20 @@ giving you instant clipboard response.
 
 Installation consists of two straightforward steps:
 
-1. install the plugin to your plugin manager
-2. configure your terminal
+1. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
+2. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
 
-Each documented with exact commands and copy-paste configurations.
+
+Each step is documented with exact commands and copy-paste configurations.
 
 - All instructions are organized in collapsed sections so you can expand only what applies to your specific
   setup and platform.
 
-The auto-installer is currently not recommended if you have a complex setup and complex config files. It's provided as a convenience for users who are less comfortable with terminal configuration
-or who prefer a fully guided, hands-off setup. It has been tested
-across multiple environments using virtual machines and Docker containers, and handles the most common
-configurations — but not every edge case can be guaranteed. If you encounter an issue, please
+The auto-installer is not recommended for complex setups or heavily customized config files. It is
+provided as a convenience for users who prefer a fully guided, hands-off setup or are less comfortable with
+terminal configuration. It has been tested across multiple environments using virtual machines and Docker
+containers and handles the most common configurations, but not every edge case can be guaranteed. If you
+encounter an issue, please
 [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) so it can be addressed.
 
 The auto-installer detects your environment,
@@ -243,11 +251,11 @@ The process consists of two steps:
 1. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
 2. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
 
-> **Pre-built Agents:** The plugin includes portable binaries generated via GitHub workflows. These binaries are automatically downloaded on the first load, which may take a few seconds in the first load only. You may also need to restart your terminal after the initial setup.
+> **Pre-built Agents:** The plugin includes portable binaries generated via GitHub workflows. These binaries are automatically downloaded on first load, which may take a few seconds. You may also need to restart your terminal after the initial setup.
 >
 > For a manual build and an optimized experience tailored to your specific hardware (e.g., using `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
 >
-In some cases, delays may occur due to temporary issues with GitHub infrastructure. If the first load takes longer than expected, please wait a few minutes and try again once the GitHub services are fully operational.
+In some cases, the **first** shell load may be delayed due to temporary GitHub infrastructure issues that may slow down the agent downloading process. This only affects **only** the **first** post-installation load. If the **first** startup takes longer than expected, wait a few minutes and try again once GitHub services are fully operational.
 
 > If you run into any difficulty at any step, please
 > [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) and it will be addressed.
@@ -349,7 +357,7 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 
 ### 2. Configure Your Terminal
 
-Some terminals need configuration to support selection and others need only configuration to support editing. See [Famous Terminals Configurations](#famous-terminals-configurations) for
+Some terminals require configuration for selection support, while others require only editing-related mappings. See [Popular Terminals Configurations](#popular-terminals-configurations) for
 details.
 
 
@@ -366,12 +374,12 @@ source ~/.zshrc
 
 ### 3.5 Enable Mouse Integration (macOS only)
 
-If you are using macOS you will need an extra step to enable mouse integration.
+If you are using macOS, you will need an extra step to enable mouse integration.
 
 <details>
 <summary><b>Click to expand</b></summary>
 
-To enable the mouse integration in macOS run the following command:
+To enable mouse integration on macOS, run the following command:
 
 ```bash
 edit-select setup-ax
@@ -392,7 +400,7 @@ Then restart your terminal. You may need to restart your device for the full int
 
 - Other GPU-based terminals use custom rendering pipelines, where mouse integration currently relies on a reactive `Cmd+C` mechanism. As a result, behavior may vary depending on the terminal version and runtime conditions, and the mouse integration for them is currently experimental.
 
-If you face any issue with mouse integration, disable it from the configuration wizard
+If you encounter any issues with mouse integration, disable it from the configuration wizard.
 
 #### tmux on macOS
 
@@ -434,10 +442,11 @@ For a full command list (including maintenance and platform-specific commands), 
 The wizard provides:
 
 1. **Mouse Replacement** — Enable/disable mouse selection integration
-2. **Key Bindings** — Customize Copy, Cut, Paste, Select All, Undo, Redo, and Word Navigation shortcuts
-3. **View Full Configuration** — See current settings
-4. **Reset to Defaults** — Restore factory settings
-5. **Exit Wizard** — Close the wizard
+2. **Instant Cut** — Optional Ctrl+X prefix-pruning for instant mouse-selection cut
+3. **Key Bindings** — Customize Copy, Cut, Paste, Select All, Undo, Redo, and Word Navigation shortcuts
+4. **View Full Configuration** — See current settings
+5. **Reset to Defaults** — Restore factory settings
+6. **Exit Wizard** — Close the wizard
 
 All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions. You can also view or edit this file manually at any time.
 
@@ -448,7 +457,7 @@ The plugin includes a smart safety feature to prevent accidental edits when usin
 
 **"Duplicate text: place cursor inside the occurrence you want to modify"**
 
-**Why is this a feature?**
+**Why this feature?**
 When text is selected via mouse, terminal emulators don't report the exact screen coordinates to the shell. If the same word appears twice, this protective safeguard ensures you don't accidentally replace the wrong occurrence.
 
 When prompted, simply place your cursor inside the specific occurrence you want to edit, then select and replace it.
@@ -483,30 +492,31 @@ edit-select config  # → Option 1: Mouse Replacement
 
 </details>
 
-<details>
-<summary><b> Keybinding Customization </b></summary>
 
-Customize the main editing shortcuts:
+<details>
+<summary><b>Instant Cut (Mouse Selection Cut)</b></summary>
+
+Instant Cut is an optional compatibility/performance toggle focused on **mouse-selection cut when the cut key is Ctrl+X**.
+
+- **Why this option exists:** In ZLE/Emacs keymaps, `Ctrl+X` acts as a prefix key for multi-key chords (for example, `Ctrl+X Ctrl+E`). During a mouse-selection cut, ZLE may briefly wait to determine whether another key will follow before executing the cut action. This introduces a small delay of a few milliseconds. While this latency is usually unnoticeable in most workflows, if you don’t use multi-key chords and prefer instant cuts, this option removes that delay.
+- **Keyboard-selection cut:** Already instant. This option is not required for keyboard-selection cut behavior.
+- **Default:** Disabled (safe default that preserves all existing prefix chords).
+- **When enabled:** The plugin prunes bindings that share the cut-key prefix, so `Ctrl+X` cut dispatches immediately for mouse selections.
+- **Trade-off:** Prefix chords that begin with the cut key (for example `Ctrl+X Ctrl+E`) are removed while enabled. You can disable it back whenever you want.
+- **Only relevant for Ctrl+X-like prefix keys:** If you remap Cut to a non-prefix escape sequence such as `Ctrl+Shift+X` (`^[[88;6u`), cut is already instant without enabling the `Instant Cut` option because ZLE does not need prefix disambiguation for that sequence.
+- **Scope:** This setting targets mouse-selection cut behavior; keyboard-selection cut behavior is unchanged.
+
+Enable or disable it from the wizard:
 
 ```bash
-edit-select config  # → Option 2: Key Bindings
+edit-select config  # → Option 2: Instant Cut
 ```
-
-**Default bindings:**
-
-- **Ctrl + A** (Cmd+A on macOS) — Select all
-- **Ctrl + V** (Cmd+V on macOS) — Paste
-- **Ctrl + X** (Cmd+X on macOS) — Cut
-- **Ctrl + Shift + C** (Cmd+C on macOS) — Copy
-- **Ctrl + Z** (Cmd+Z on macOS) — Undo
-- **Ctrl + Shift + Z** (Cmd+Shift+Z on macOS) — Redo
-- **Ctrl + ←** (Option+Left on macOS) — Word left
-- **Ctrl + →** (Option+Right on macOS) — Word right
 
 </details>
 
+
 <details>
-<summary><b>Custom Keybinding Notes (Terminal Configuration)</b></summary>
+<summary><b>Custom/Manual Keybinding Notes (Terminal Configuration)</b></summary>
 
 > **⚠️ Important:** When using custom keybindings (especially with Shift modifiers), you may need to configure
 > your terminal emulator to send the correct escape sequences.
@@ -518,7 +528,7 @@ edit-select config  # → Option 2: Key Bindings
 3. The terminal will display the escape sequence
 4. Use this sequence in your configuration
 
-For example, if you want to use `Ctrl + Shift + X` for cut add the following to your terminal dotfile:
+For example, if you want to use `Ctrl + Shift + X` for cut, add the following to your terminal dotfile:
 
 <details>
 <summary><b>Kitty</b></summary>
@@ -614,7 +624,7 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ---
 
-## Famous Terminals Configurations
+## Popular Terminals Configurations
 
 > [Open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you need help with a terminal
 > that is not covered.
@@ -627,7 +637,7 @@ This section provides complete, ready-to-paste configurations for each supported
 **CRITICAL:** While adding these mappings, remove or comment out any existing conflicting bindings
 
 
-**Note:** Comments inside each configuration block provide inline guidance. Some options are included but commented out — uncomment them to switch to an alternative behaviour. For example, by default the copy shortcut is `Ctrl+Shift+C` in linux (the traditional terminal convention, where `Ctrl+C` sends an interrupt signal); if you prefer GUI-style behaviour where `Ctrl+C` copies and `Ctrl+Shift+C` sends the interrupt, simply follow the instructions in the comments to swap to that option instead.
+**Note:** Comments inside each configuration block provide inline guidance. Some options are included but commented out; uncomment them to switch to an alternative behavior. For example, by default the copy shortcut is `Ctrl+Shift+C` on Linux (the traditional terminal convention, where `Ctrl+C` sends an interrupt signal). If you prefer GUI-style behavior where `Ctrl+C` copies and `Ctrl+Shift+C` sends the interrupt, follow the instructions in the comments to switch to that option.
 
 **Note (macOS):** Almost all macOS terminal emulators intercept `Cmd` keys by default, so explicit mappings are required. If you cannot or do not want to modify your terminal's bindings, run `edit-select config` and choose Ctrl fallback presets for **Cut** (`Ctrl+X`), **Paste** (`Ctrl+V`), **Undo** (`Ctrl+Z`), and **Select All** (`Ctrl+A`) — these work without any terminal configuration.
 
@@ -673,7 +683,7 @@ Use one of the following methods:
 <details>
 <summary><b>Disable copyOnSelect for optimal mouse integration</b></summary>
 
-By default, `"copyOnSelect"` is set to `false`. If you previously enabled `"copyOnSelect"`, it is recommended that you disable it for the best mouse integration experience.  To verify this setting, search for the following entry in your terminal settings:
+By default, `"copyOnSelect"` is set to `false`. If you previously enabled `"copyOnSelect"`, it is recommended that you disable it for the best mouse integration experience. To verify this setting, search for the following entry in your terminal settings:
 
 ```json
 "copyOnSelect": false
@@ -752,8 +762,8 @@ If these entries already exist, update their current values to match the above.
 </details>
 
 
-**Note:** Mouse integration is currently most compatible with Windows Terminal and the VS Code terminal. If you use another terminal, or encounter any issues, you can disable the mouse integration feature and restore your terminal’s default behavior by turning off mouse replacement through the configuration wizard (`edit-select config`) then choose the first option to configure mouse behaviour.
-> Mouse integration in VS Code terminal is currently unstable and under development. For intense use of VS Code terminal under WSL, It is recommended to temporarily disable this feature via the configuration wizard, or alternatively, hold Shift while selecting the terminal scrollback.
+**Note:** Mouse integration is currently most compatible with Windows Terminal and the VS Code terminal. If you use another terminal, or encounter issues, you can disable mouse integration and restore your terminal's default behavior by turning off mouse replacement through the configuration wizard (`edit-select config`), then choosing the first option to configure mouse behavior.
+> Mouse integration in the VS Code terminal is currently unstable and under development. For heavy use of the VS Code terminal under WSL, it is recommended to temporarily disable this feature via the configuration wizard, or alternatively, hold Shift while selecting the terminal scrollback.
 
 </details>
 
@@ -1341,7 +1351,7 @@ Add the following to `keybindings.json` (usually located at `~/.config/Code/User
 <details>
 <summary><b>macOS configuration</b></summary>
 
-VS Code intercepts `Cmd+C`, and `Cmd+A` for its own editor actions. The bindings below are scoped to `terminalFocus` so they only apply when the integrated terminal is active.
+VS Code intercepts `Cmd+C` and `Cmd+A` for its own editor actions. The bindings below are scoped to `terminalFocus` so they only apply when the integrated terminal is active.
 
 Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcuts (JSON)"**, then add the following entries. If you already have a `[...]` array in the file, merge these entries into it rather than creating a second array.
 
@@ -1503,7 +1513,7 @@ Foot uses `[key-bindings]` to disable built-in actions and `[text-bindings]` to 
 
 - `clipboard-copy` (defaults to `Control+Shift+c`) — must be unbound so the copy escape sequence reaches the shell instead of triggering Foot's clipboard action.
 - `prompt-prev` (defaults to `Control+Shift+z`) — must be unbound so the undo escape sequence reaches the shell instead of triggering Foot's prompt navigation.
-- Foot does not  reliably follow the primary-selection protocol: it does not release PRIMARY when you click to deselect text, so mouse replacement can stay latched to an old selection. That is a Foot-side limitation, not a plugin bug. For Foot, keep mouse replacement disabled in the Configuration Wizard (`edit-select config` → Option 1 → Disabled) and use keyboard selection instead.
+- Foot does not reliably follow the primary-selection protocol: it does not release PRIMARY when you click to deselect text, so mouse replacement can stay latched to an old selection. That is a Foot-side limitation, not a plugin bug. For Foot, keep mouse replacement disabled in the Configuration Wizard (`edit-select config` → Option 1 → Disabled) and use keyboard selection instead.
 
 Foot passes Shift+Arrow keys through to the terminal natively — **no additional configuration is needed for Shift selection.**
 
@@ -1726,7 +1736,7 @@ No `~/.zshrc` changes are needed on the Linux box. Just install the plugin norma
 
 <br>
 
-If you do not want the automatic SSH behaviour (e.g. you are SSH-ing between Linux machines and have `xclip` available via X11 forwarding), add this to your `~/.zshrc` on the remote machine **before** the plugin loads:
+If you do not want the automatic SSH behavior (e.g. you are SSH-ing between Linux machines and have `xclip` available via X11 forwarding), add this to your `~/.zshrc` on the remote machine **before** the plugin loads:
 
 ```zsh
 ZES_SSH_CLIPBOARD=0
@@ -1834,7 +1844,7 @@ Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shif
 
 <br>
 
-If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), you may need running this on the remote server:
+If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), you may need to run the following on the remote server:
 
 ```bash
 echo '[[ "$TERM" == "xterm-ghostty" ]] && export TERM=xterm-256color' >> ~/.zshrc
@@ -1873,7 +1883,7 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 
 **Note on Updates:** Use `edit-select update` command to update the plugin and agents, rather than running a simple `pull` manually or via the plugin manager. The `update` command re-initializes the agent runtime to ensure all agent binaries are refreshed from the latest releases.
 
-**Note on `edit-select integrate`:** This mode is **experimental** and not recommended for complex setups with heavily customized or complex terminal config files. It may interfere with existing keybinding configurations. Use the [Famous Terminals Configurations](#famous-terminals-configurations) section instead.
+**Note on `edit-select integrate`:** This mode is **experimental** and not recommended for complex setups with heavily customized terminal config files. It may interfere with existing keybinding configurations. Use the [Popular Terminals Configurations](#popular-terminals-configurations) section instead.
 
 **Note on `edit-select conflicts`:** This command should be treated as an indicator and a helper tool for detecting **potential** conflicts in your configuration. However, it may produce false positives, especially in configuration files with more structurally complex formats, such as `wezterm.lua`.
 
@@ -1960,7 +1970,7 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 <details>
 <summary><b>Shift selection doesn't work</b></summary>
 
-**Solution:** Configure your terminal to pass Shift key sequences. See [Famous Terminals Configurations](#famous-terminals-configurations).
+**Solution:** Configure your terminal to pass Shift key sequences. See [Popular Terminals Configurations](#popular-terminals-configurations).
 
 **Verify:** Run `cat` and press Shift+Left. You should see an escape sequence like `^[[1;2D`.
 
@@ -1996,8 +2006,8 @@ PRIMARY selection. See [Performance-Optimized Architecture](#performance-optimiz
 <summary><b>Ctrl+C / Cmd+C doesn't copy</b></summary>
 
 **Solution:** On Windows/Linux, configure your terminal to remap Ctrl+C. See the
-[Famous Terminals Configurations](#famous-terminals-configurations) section.
-On macOS, verify you have enabled CSI-u / kitty keyboard protocol support in your terminal to use Cmd+C. See [Famous Terminals Configurations](#famous-terminals-configurations).
+[Popular Terminals Configurations](#popular-terminals-configurations) section.
+On macOS, verify you have enabled CSI-u / kitty keyboard protocol support in your terminal to use Cmd+C. See [Popular Terminals Configurations](#popular-terminals-configurations).
 
 **Alternative:** Use Ctrl+Shift+C for copying (or configuring a fallback via `edit-select config` for macOS Terminal.app), or configure a custom keybinding with `edit-select config`, or
 use the 'Without Terminal Remapping' method if your terminal doesn't support key remapping.
@@ -2113,7 +2123,7 @@ These features work universally on X11, Wayland, XWayland, and WSL:
 
 On **macOS**, the same features are available via the Cmd equivalents
 (`Cmd+A`, `Cmd+C`, `Cmd+X`, `Cmd+V`, `Cmd+Z`, `Cmd+Shift+Z`) after
-[terminal configuration](#famous-terminals-configurations), or via
+[terminal configurations](#popular-terminals-configurations), or via
 Ctrl fallbacks set through `edit-select config`.
 
 
@@ -2703,7 +2713,7 @@ echo $XDG_SESSION_TYPE
 
 </details>
 
-The plugin naturally uses pre-built portable binaries. If you prefer to compile native agents yourself for an optimized build (`-march=native -mtune=native`), install the required build tools and libraries for your platform:
+The plugin uses pre-built portable binaries by default. If you prefer to compile native agents yourself for an optimized build (`-march=native -mtune=native`), install the required build tools and libraries for your platform:
 
 ### For X11 Users
 
@@ -2837,14 +2847,13 @@ cd "$PLUGIN_DIR/impl-wsl/backends/wsl" && make
 
 ## Contributing
 
-Contributions, suggestions, and recommendations are welcome. If you encounter a bug or unexpected behavior,
+Contributions and suggestions are welcome. If you encounter a bug or unexpected behavior,
 please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with a clear description and
 steps to reproduce.
 
 Pull requests are open for any meaningful improvement — bug fixes, new features, or compatibility with additional environments.
 
-If you have ideas for enhancements, feature requests, or recommendations to improve the plugin's functionality
-or documentation, feel free to share them.
+If you have ideas for enhancements, feature requests, or documentation improvements, feel free to share them.
 
 Your feedback helps shape the direction of the project and ensures
 it meets the needs of the community. If something does not work as expected, please report it — every issue report directly improves the plugin's

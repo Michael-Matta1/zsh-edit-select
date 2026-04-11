@@ -395,6 +395,11 @@ function _zesw_get_mouse_status() {
 	(( EDIT_SELECT_MOUSE_REPLACEMENT )) && printf "enabled" || printf "disabled"
 }
 
+# Return "enabled" or "disabled" reflecting the current EDIT_SELECT_INSTANT_CUT value.
+function _zesw_get_instant_cut_status() {
+	(( EDIT_SELECT_INSTANT_CUT )) && printf "enabled" || printf "disabled"
+}
+
 # Validate input
 function _zesw_validate_choice() {
 	local choice="$1"
@@ -475,6 +480,10 @@ function edit-select::apply-keybindings() {
 		bindkey -M edit-select "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
 	fi
 	if [[ -n $EDIT_SELECT_KEY_CUT ]]; then
+		if ((EDIT_SELECT_INSTANT_CUT)); then
+			bindkey -M emacs -rp "$EDIT_SELECT_KEY_CUT" 2>/dev/null
+			bindkey -rp "$EDIT_SELECT_KEY_CUT" 2>/dev/null
+		fi
 		bindkey -M emacs "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
 		bindkey -M edit-select "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
 		bindkey "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
@@ -518,16 +527,18 @@ function edit-select::show-menu() {
 	_zesw_section_header "Current Configuration"
 	_zesw_status_line "Platform" "X11"
 	_zesw_status_line "Mouse Replace" "$(_zesw_get_mouse_status)"
+	_zesw_status_line "Instant Cut" "$(_zesw_get_instant_cut_status)"
 
 	_zesw_section_header "Configuration Options"
 	_zesw_print_option 1 "Mouse Replacement     ${_ZESW_CLR_DIM}— Enable/disable mouse replacement${_ZESW_CLR_RESET}"
-	_zesw_print_option 2 "Key Bindings          ${_ZESW_CLR_DIM}— Customize Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X, ...${_ZESW_CLR_RESET}"
+	_zesw_print_option 2 "Instant Cut           ${_ZESW_CLR_DIM}— Optional prefix-pruning for instant Ctrl+X mouse cut dispatch${_ZESW_CLR_RESET}"
+	_zesw_print_option 3 "Key Bindings          ${_ZESW_CLR_DIM}— Customize Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X, ...${_ZESW_CLR_RESET}"
 	_zesw_separator
-	_zesw_print_option 3 "View Full Configuration"
-	_zesw_print_option 4 "Reset to Defaults"
-	_zesw_print_option 5 "Exit Wizard"
+	_zesw_print_option 4 "View Full Configuration"
+	_zesw_print_option 5 "Reset to Defaults"
+	_zesw_print_option 6 "Exit Wizard"
 
-	_zesw_input_prompt "Choose option (1-5):"
+	_zesw_input_prompt "Choose option (1-6):"
 }
 
 
@@ -581,6 +592,67 @@ function edit-select::configure-mouse-replacement() {
 		case "$choice" in
 			1) edit-select::set-mouse-replacement enabled ;;
 			2) edit-select::set-mouse-replacement disabled ;;
+			3) return ;;
+		esac
+	done
+}
+
+# Apply and persist an instant-cut enable/disable choice. Args: "enabled" | "disabled".
+function edit-select::set-instant-cut() {
+	local value
+	[[ $1 == enabled ]] && value=1 || value=0
+
+	_zesw_loading "Applying configuration" 2
+
+	edit-select::save-config "EDIT_SELECT_INSTANT_CUT" "$value"
+	typeset -gi EDIT_SELECT_INSTANT_CUT=$value
+	edit-select::apply-keybindings
+
+	if (( value )); then
+		_zesw_success "Instant cut enabled"
+	else
+		_zesw_success "Instant cut disabled"
+	fi
+	_zesw_prompt_continue
+}
+
+# Interactive loop to enable or disable prefix-pruning for instant cut-key dispatch.
+function edit-select::configure-instant-cut() {
+	while true; do
+		_zesw_banner
+
+		_zesw_section_header "Current Setting"
+		_zesw_status_line "Status" "$(_zesw_get_instant_cut_status)"
+
+		_zesw_info "Removes key bindings that share a prefix with your cut key"
+		_zesw_info "Eliminates ZLE disambiguation delay so cut dispatches instantly"
+		printf "\n  %s⚠%s  Any combo beginning with your cut key (for example Ctrl+X Ctrl+E, Ctrl+X Ctrl+X)\n" \
+			"$_ZESW_CLR_WARN" "$_ZESW_CLR_RESET"
+		printf "     will stop working while this option is enabled.\n"
+		printf "  %s ℹ%s  Disabled by default to preserve existing key-chord behavior.\n" \
+			"$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+		printf "  %s ℹ%s  Only relevant when Cut is a simple control character like Ctrl+X.\n" \
+			"$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
+		printf "     CSI-u sequences (for example Ctrl+Shift+X) are not prefixes and are unaffected.\n"
+
+		_zesw_section_header "Options"
+		_zesw_print_option 1 "Enable   ${_ZESW_CLR_DIM}— Prioritize instant cut dispatch${_ZESW_CLR_RESET}"
+		_zesw_print_option 2 "Disable  ${_ZESW_CLR_DIM}— Preserve all cut-key prefix chords${_ZESW_CLR_RESET}"
+		_zesw_separator
+		_zesw_print_option 3 "Back"
+
+		_zesw_input_prompt "Choose option (1-3):"
+		read -r choice
+
+		if ! _zesw_validate_choice "$choice" 1 3; then
+			_zesw_error "Invalid choice. Please enter a number between 1-3."
+			_zesw_prompt_continue
+			continue
+		fi
+
+		case "$choice" in
+			1) edit-select::set-instant-cut enabled; return ;;
+			2) edit-select::set-instant-cut disabled; return ;;
 			3) return ;;
 		esac
 	done
@@ -1255,6 +1327,7 @@ function edit-select::configure-keybindings() {
 		_zesw_status_line "Select All" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_SELECT_ALL${_ZESW_CLR_RESET}"
 		_zesw_status_line "Paste" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_PASTE${_ZESW_CLR_RESET}"
 		_zesw_status_line "Cut" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_CUT${_ZESW_CLR_RESET}"
+		_zesw_status_line "Instant Cut" "${_ZESW_CLR_HILITE}$(_zesw_get_instant_cut_status)${_ZESW_CLR_RESET}"
 		_zesw_status_line "Copy" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_COPY${_ZESW_CLR_RESET}"
 		_zesw_status_line "Undo" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_UNDO${_ZESW_CLR_RESET}"
 		_zesw_status_line "Redo" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_REDO${_ZESW_CLR_RESET}"
@@ -1269,22 +1342,23 @@ function edit-select::configure-keybindings() {
 		_zesw_print_option 1 "Select All    ${_ZESW_CLR_DIM}— Select entire command line${_ZESW_CLR_RESET}"
 		_zesw_print_option 2 "Paste         ${_ZESW_CLR_DIM}— Insert from clipboard${_ZESW_CLR_RESET}"
 		_zesw_print_option 3 "Cut           ${_ZESW_CLR_DIM}— Delete selection and copy to clipboard${_ZESW_CLR_RESET}"
-		_zesw_print_option 4 "Copy          ${_ZESW_CLR_DIM}— Copy selection to clipboard (may require terminal configuration)${_ZESW_CLR_RESET}"
-		_zesw_print_option 5 "Undo          ${_ZESW_CLR_DIM}— Undo last edit${_ZESW_CLR_RESET}"
-		_zesw_print_option 6 "Redo          ${_ZESW_CLR_DIM}— Redo last undone edit (may require terminal configuration)${_ZESW_CLR_RESET}"
-		_zesw_print_option 7 "Word Left     ${_ZESW_CLR_DIM}— Move cursor one word left (Ctrl+Left)${_ZESW_CLR_RESET}"
-		_zesw_print_option 8 "Word Right    ${_ZESW_CLR_DIM}— Move cursor one word right (Ctrl+Right)${_ZESW_CLR_RESET}"
-		_zesw_print_option 9 "Buffer Start  ${_ZESW_CLR_DIM}— Select to beginning of buffer (Ctrl+Shift+Home)${_ZESW_CLR_RESET}"
-		_zesw_print_option 10 "Buffer End    ${_ZESW_CLR_DIM}— Select to end of buffer (Ctrl+Shift+End)${_ZESW_CLR_RESET}"
+		_zesw_print_option 4 "Instant Cut   ${_ZESW_CLR_DIM}— Toggle prefix-pruning for instant cut dispatch${_ZESW_CLR_RESET}"
+		_zesw_print_option 5 "Copy          ${_ZESW_CLR_DIM}— Copy selection to clipboard (may require terminal configuration)${_ZESW_CLR_RESET}"
+		_zesw_print_option 6 "Undo          ${_ZESW_CLR_DIM}— Undo last edit${_ZESW_CLR_RESET}"
+		_zesw_print_option 7 "Redo          ${_ZESW_CLR_DIM}— Redo last undone edit (may require terminal configuration)${_ZESW_CLR_RESET}"
+		_zesw_print_option 8 "Word Left     ${_ZESW_CLR_DIM}— Move cursor one word left (Ctrl+Left)${_ZESW_CLR_RESET}"
+		_zesw_print_option 9 "Word Right    ${_ZESW_CLR_DIM}— Move cursor one word right (Ctrl+Right)${_ZESW_CLR_RESET}"
+		_zesw_print_option 10 "Buffer Start  ${_ZESW_CLR_DIM}— Select to beginning of buffer (Ctrl+Shift+Home)${_ZESW_CLR_RESET}"
+		_zesw_print_option 11 "Buffer End    ${_ZESW_CLR_DIM}— Select to end of buffer (Ctrl+Shift+End)${_ZESW_CLR_RESET}"
 		_zesw_separator
-		_zesw_print_option 11 "Reset All to Defaults"
-		_zesw_print_option 12 "Back to main menu"
+		_zesw_print_option 12 "Reset All to Defaults"
+		_zesw_print_option 13 "Back to main menu"
 
-		_zesw_input_prompt "Choose option (1-12):"
+		_zesw_input_prompt "Choose option (1-13):"
 		read -r choice
 
-		if ! _zesw_validate_choice "$choice" 1 12; then
-			_zesw_error "Invalid choice. Please enter a number between 1-12."
+		if ! _zesw_validate_choice "$choice" 1 13; then
+			_zesw_error "Invalid choice. Please enter a number between 1-13."
 			_zesw_prompt_continue
 			continue
 		fi
@@ -1293,15 +1367,16 @@ function edit-select::configure-keybindings() {
 			1) edit-select::configure-select-all ;;
 			2) edit-select::configure-paste ;;
 			3) edit-select::configure-cut ;;
-			4) edit-select::configure-copy ;;
-			5) edit-select::configure-undo ;;
-			6) edit-select::configure-redo ;;
-			7) edit-select::configure-word-left ;;
-			8) edit-select::configure-word-right ;;
-			9) edit-select::configure-buffer-start ;;
-			10) edit-select::configure-buffer-end ;;
-			11) edit-select::reset-keybindings ;;
-			12) return ;;
+			4) edit-select::configure-instant-cut ;;
+			5) edit-select::configure-copy ;;
+			6) edit-select::configure-undo ;;
+			7) edit-select::configure-redo ;;
+			8) edit-select::configure-word-left ;;
+			9) edit-select::configure-word-right ;;
+			10) edit-select::configure-buffer-start ;;
+			11) edit-select::configure-buffer-end ;;
+			12) edit-select::reset-keybindings ;;
+			13) return ;;
 		esac
 	done
 }
@@ -1319,6 +1394,7 @@ function edit-select::reset-config() {
 
 	_zesw_section_header "What Will Be Reset"
 	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Mouse replacement → Enabled\n"
+	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Instant cut → Disabled\n"
 	printf "  ${_ZESW_CLR_HILITE}•${_ZESW_CLR_RESET} Keybindings → Ctrl+A, Ctrl+V, Ctrl+X, Ctrl+Shift+C, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Left, Ctrl+Right, Ctrl+Shift+Home, Ctrl+Shift+End\n"
 
 	_zesw_confirm_prompt "Permanently delete configuration and reset to defaults?"
@@ -1343,6 +1419,7 @@ function edit-select::reset-config() {
 		done
 
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
+		typeset -gi EDIT_SELECT_INSTANT_CUT=0
 		typeset -g EDIT_SELECT_KEY_SELECT_ALL="$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL"
 		typeset -g EDIT_SELECT_KEY_PASTE="$_EDIT_SELECT_DEFAULT_KEY_PASTE"
 		typeset -g EDIT_SELECT_KEY_CUT="$_EDIT_SELECT_DEFAULT_KEY_CUT"
@@ -1391,6 +1468,12 @@ function edit-select::view-config() {
 	else
 		_zesw_status_line "  Status" "${_ZESW_CLR_DIM}Disabled${_ZESW_CLR_RESET}"
 	fi
+	local instant_cut_status="$(_zesw_get_instant_cut_status)"
+	if [[ $instant_cut_status == "enabled" ]]; then
+		_zesw_status_line "  Instant Cut" "${_ZESW_CLR_HILITE}Enabled ✓${_ZESW_CLR_RESET}"
+	else
+		_zesw_status_line "  Instant Cut" "${_ZESW_CLR_DIM}Disabled${_ZESW_CLR_RESET}"
+	fi
 
 	printf "\n  %sKeybindings:%s\n" "$_ZESW_CLR_ACCENT" "$_ZESW_CLR_RESET"
 	_zesw_status_line "  Select All" "${_ZESW_CLR_HILITE}$EDIT_SELECT_KEY_SELECT_ALL${_ZESW_CLR_RESET}"
@@ -1423,6 +1506,10 @@ function edit-select::config-wizard() {
 	if [[ -z $EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
 		typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 	fi
+	# Initialize instant cut if not set
+	if [[ -z $EDIT_SELECT_INSTANT_CUT ]]; then
+		typeset -gi EDIT_SELECT_INSTANT_CUT=0
+	fi
 
 	# Load current keybindings
 	edit-select::load-keybindings
@@ -1432,18 +1519,19 @@ function edit-select::config-wizard() {
 		edit-select::show-menu
 		read -r choice
 
-		if ! _zesw_validate_choice "$choice" 1 5; then
-			_zesw_error "Invalid choice. Please enter a number between 1-5."
+		if ! _zesw_validate_choice "$choice" 1 6; then
+			_zesw_error "Invalid choice. Please enter a number between 1-6."
 			_zesw_prompt_continue
 			continue
 		fi
 
 		case "$choice" in
 			1) edit-select::configure-mouse-replacement ;;
-			2) edit-select::configure-keybindings ;;
-			3) edit-select::view-config ;;
-			4) edit-select::reset-config ;;
-			5)
+			2) edit-select::configure-instant-cut ;;
+			3) edit-select::configure-keybindings ;;
+			4) edit-select::view-config ;;
+			5) edit-select::reset-config ;;
+			6)
 				# Exit with success box
 				printf '\033[2J\033[3J\033[H'
 				_zesw_success_box "Configuration Saved"

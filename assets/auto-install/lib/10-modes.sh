@@ -58,11 +58,13 @@ _zes_prompt_delete_mode_logs() {
         if rm -f "$LOG_FILE" 2>/dev/null; then
             # Avoid trap-time logging from re-creating the file.
             ZES_DELETE_LOG_ON_EXIT=1
-            print_success "Deleted log file: $LOG_FILE"
+            print_success "Deleted log file: $LOG_FILE" "mode_log_cleanup"
         else
             print_warning "Could not delete log file: $LOG_FILE"
         fi
     fi
+
+    return 0
 }
 
 _zes_normalize_mode() {
