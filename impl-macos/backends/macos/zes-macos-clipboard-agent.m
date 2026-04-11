@@ -19,13 +19,12 @@
 //       No clipboard involvement.
 //
 //     UNIFIED ESCALATION:
-//       1. Named PB instant check — captures immediately if terminal
-//          already wrote (e.g. Ghostty with copy-on-select=true).
-//       2. Start unified watcher:
-//          Phase 1 (ticks 0–4): check named PBs only (non-invasive).
-//          Phase 2 (tick 5):    inject Cmd+C (escalation).
-//          Phase 2+ (ticks 5+): check BOTH named PBs AND clipboard.
-//          React to FIRST change detected (action-driven).
+//       1. Start unified watcher after definite MouseUp.
+//          Phase 1 (ticks 0..ESCALATION_TICK-1): check named PB + native clipboard.
+//          Phase 2 (tick ESCALATION_TICK):       inject Cmd+C (escalation).
+//          Phase 2+ (ticks >= ESCALATION_TICK):  check named PB + clipboard.
+//       2. Commit only when candidate selection is stable for SETTLE_TICKS
+//          (last-stable-wins), or on timeout with the latest candidate.
 //       This covers all terminals. Additionally, AX-empty returns can
 //       escalate for known Electron terminal hosts in ax_try().
 //
@@ -70,8 +69,11 @@ extern char **environ;
 /* ── Tunables ────────────────────────────────────────────────────────── */
 #define DRAG_PX        5.0
 #define POLL_NS        (1 * NSEC_PER_MSEC)
-#define MAX_POLL_TICKS 300            /* 300 ms safety cap */
+#define MAX_POLL_TICKS 700            /* 700 ms safety cap for large multi-line copies */
 #define ESCALATION_TICK 75            /* Wait 75ms before invasive Cmd+C inject */
+#define SETTLE_TICKS   25             /* 25ms of quiescence before commit */
+#define DOUBLE_CLICK_GRACE_MS 120     /* Wait for possible third click before committing click_count=2 */
+#define TRIPLE_CLICK_GRACE_MS 80      /* Short settle window for click_count>=3 bursts */
 #define AX_ELECTRON    (-3)           /* AX-empty in Electron terminal host */
 #define MAX_SEL_SIZE   (4 * 1024 * 1024)
 #define MAX_CLIP_SIZE  (4 * 1024 * 1024)
@@ -110,6 +112,7 @@ static size_t g_last_len = 0;
 /* ── Mouse-down position ─────────────────────────────────────────────── */
 static CGFloat g_down_x = 0.0;
 static CGFloat g_down_y = 0.0;
+static uint64_t g_click_serial = 0;
 
 /* ── MouseDown clipboard backup ──────────────────────────────────────── */
 /* Captured at MouseDown, BEFORE any terminal copy-on-select or our inject.
@@ -131,15 +134,17 @@ static dispatch_source_t g_watcher = NULL;
    write_primary_content()
    Write ONLY the primary content file.  Does NOT update the seq file.
    Updates the dedup cache and increments g_seq.
-   Returns the length written, or 0 if deduped (identical content).
+    Returns:
+      0 for repeated empty no-op,
+      1 for deselection publish,
+      len for non-empty selection publish.
    ───────────────────────────────────────────────────────────────────── */
 static size_t write_primary_content(const char *utf8, size_t len) {
     if (!utf8) utf8 = "";
     if (len > MAX_SEL_SIZE) len = MAX_SEL_SIZE;
 
-    /* Dedup check */
-    if (len == g_last_len && len < DEDUP_SIZE &&
-        (len == 0 || (g_last[0] != '\0' && memcmp(g_last, utf8, len) == 0))) return 0;
+    /* Repeated empty selection is a no-op. */
+    if (len == 0 && g_last_len == 0) return 0;
 
     /* If previous was not empty and current is empty, return 1 to signal deselection */
     if (len == 0 && g_last_len > 0) {
@@ -169,7 +174,7 @@ static size_t write_primary_content(const char *utf8, size_t len) {
         int fd = open(g_primary_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0644);
         if (fd >= 0) { ssize_t r = write(fd, utf8, len); (void)r; close(fd); }
     }
-    return len > 0 ? len : 1;
+    return len;
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -260,48 +265,53 @@ static void delete_pending_marker(void) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   clipboard_restore_to_mousedown()
-   Restore generalPasteboard to the state captured at MouseDown.
+   clipboard_restore_snapshot(backup_items)
+   Restore generalPasteboard from a per-operation backup snapshot.
    This undoes both terminal copy-on-select AND our own Cmd+C inject.
    Uses TransientType so clipboard history managers ignore the write.
    UNCONDITIONAL: always restores, even if backup is empty (in which
    case it just clears the clipboard — correct, since it was empty).
    ───────────────────────────────────────────────────────────────────── */
-static void clipboard_restore_to_mousedown(void) {
+static void clipboard_restore_snapshot(NSArray *backup_items) {
     @autoreleasepool {
-        if (g_mousedown_bk == nil) return;
+        if (backup_items == nil) return;
         NSPasteboard *pb = [NSPasteboard generalPasteboard];
         [pb clearContents];
-        if (g_mousedown_bk.count > 0) {
+        if (backup_items.count > 0) {
             NSPasteboardItem *marker = [[NSPasteboardItem alloc] init];
             [marker setString:@"" forType:@"org.nspasteboard.TransientType"];
             NSMutableArray *all = [NSMutableArray arrayWithObject:marker];
-            [all addObjectsFromArray:g_mousedown_bk];
-            [pb writeObjects:all];
+            [all addObjectsFromArray:backup_items];
+            if (![pb writeObjects:all]) {
+                [pb clearContents];
+                (void)[pb writeObjects:backup_items];
+            }
         }
         /* If count == 0: clipboard was empty at MouseDown → clearContents is correct. */
     }
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   finalize_selection(utf8, len, delay_restore)
+    finalize_selection(utf8, len, delay_restore, restore_snapshot, gen)
    Central commit point used by ALL capture paths.
-   If delay_restore is true, wait 15ms before restoring clipboard & deleting
+   If delay_restore is true, wait 40ms before restoring clipboard & deleting
    pending marker. This sweeps up asynchronous clipboard pollution from
    terminals like Ghostty that copy-on-select to the system clipboard
    *after* writing the named PB.
    ───────────────────────────────────────────────────────────────────── */
-static void finalize_selection(const char *utf8, size_t len, bool delay_restore) {
+static void finalize_selection(const char *utf8, size_t len, bool delay_restore,
+                               NSArray *restore_snapshot, uint64_t gen) {
     size_t written = write_primary_content(utf8, len);
     if (!written && len > 0) {
-        /* Dedup: same content as last time. */
+        /* No-write fast path: restore clipboard and clear pending marker. */
         if (delay_restore) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-                clipboard_restore_to_mousedown();
+                if (!g_running || g_gen != gen) return;
+                clipboard_restore_snapshot(restore_snapshot);
                 delete_pending_marker();
             });
         } else {
-            clipboard_restore_to_mousedown();
+            clipboard_restore_snapshot(restore_snapshot);
             delete_pending_marker();
         }
         return;
@@ -310,16 +320,18 @@ static void finalize_selection(const char *utf8, size_t len, bool delay_restore)
     /* If written is 0 but len is 0, it means it's a deselection (already empty).
        We still want to flush seq and delete marker to be absolutely sure ZLE continues. */
     if (delay_restore) {
-        flush_seq(); /* Primary & seq written, ZLE has text immediately */
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-            clipboard_restore_to_mousedown();
+            if (!g_running || g_gen != gen) return;
+            clipboard_restore_snapshot(restore_snapshot);
+            flush_seq();
             delete_pending_marker();
         });
-    } else {
-        clipboard_restore_to_mousedown();   /* restore BEFORE seq write */
-        flush_seq();                        /* signal ZLE — safe now */
-        delete_pending_marker();
+        return;
     }
+
+    clipboard_restore_snapshot(restore_snapshot);  /* restore BEFORE seq write */
+    flush_seq();                                   /* signal ZLE — safe now */
+    delete_pending_marker();
 }
 
 /* Known hosts where AX often cannot expose canvas-rendered terminal selection.
@@ -375,13 +387,13 @@ static int ax_try(void) {
         }
         const char *utf8 = [s UTF8String];
         if (!utf8) return host_prefers_cmdc_fallback() ? -1 : -2;
-        /* Path A: no clipboard involvement, no finalize_selection needed.
-           We can use commit_selection directly (no clipboard to restore). */
-        if (g_last_len == strlen(utf8) && strlen(utf8) < DEDUP_SIZE &&
-            g_last[0] != '\0' && memcmp(g_last, utf8, strlen(utf8)) == 0) {
+        size_t len = strlen(utf8);
+        /* Path A keeps its prior publish semantics to avoid behavior drift in
+           AX-capable terminals while watcher paths use write_primary_content(). */
+        if (g_last_len == len && len < DEDUP_SIZE &&
+            g_last[0] != '\0' && memcmp(g_last, utf8, len) == 0) {
             return 1; /* dedup */
         }
-        size_t len = strlen(utf8);
         if (len < DEDUP_SIZE) { memcpy(g_last, utf8, len); g_last[len] = '\0'; }
         else                  { g_last[0] = '\0'; }
         g_last_len = len;
@@ -420,24 +432,6 @@ static void named_pb_snapshot(void) {
     }
 }
 
-/* Try to capture from named PBs immediately.  Returns true if captured. */
-static bool named_pb_try(void) {
-    @autoreleasepool {
-        for (int i = 0; i < g_num_named_pb; i++) {
-            NSInteger cur = g_named_pb[i].changeCount;
-            if (g_named_pb_cc[i] >= 0 && cur == g_named_pb_cc[i]) continue;
-            NSString *str = [g_named_pb[i] stringForType:NSPasteboardTypeString];
-            /* Allow empty strings (deselection) to be finalized. */
-            if (!str) str = @"";
-            const char *utf8 = [str UTF8String];
-            if (!utf8) utf8 = "";
-            finalize_selection(utf8, strlen(utf8), true);
-            return true;
-        }
-        return false;
-    }
-}
-
 /* ─────────────────────────────────────────────────────────────────────
    Cmd+C injection — used as escalation step in the unified watcher.
    ───────────────────────────────────────────────────────────────────── */
@@ -466,12 +460,22 @@ static void inject_cmd_c(void) {
      Phase 2+ (ticks > ESCALATION_TICK):
        Check BOTH named PBs AND clipboard changeCount.
        Covers all terminals that respond to Cmd+C.
-     Terminates on FIRST change detected (action-driven) or MAX_POLL_TICKS.
+        Commits only after the candidate selection is stable for SETTLE_TICKS,
+        or on timeout with the latest captured candidate.
    ───────────────────────────────────────────────────────────────────── */
-static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre_cc) {
+static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre_cc,
+                                  NSArray *restore_snapshot) {
     __block int ticks = 0;
     __block NSInteger cc_inject_before = pre_injected ? pre_cc : -1;
+    __block NSInteger cc_native_before = g_mousedown_cc;
     __block bool injected = pre_injected;
+    __block NSString *stable_candidate = nil;
+    __block bool saw_candidate = false;
+    __block int settle_ticks = 0;
+
+    if (cc_native_before < 0) {
+        cc_native_before = [[NSPasteboard generalPasteboard] changeCount];
+    }
 
     dispatch_source_t w = dispatch_source_create(
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
@@ -486,32 +490,32 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
                 return;
             }
 
+            bool changed_this_tick = false;
+            NSString *latest_candidate = nil;
+
             /* ── Check named PBs (all phases) ──────────────────────── */
             for (int i = 0; i < g_num_named_pb; i++) {
                 NSInteger cur = g_named_pb[i].changeCount;
                 if (g_named_pb_cc[i] >= 0 && cur == g_named_pb_cc[i]) continue;
+
+                g_named_pb_cc[i] = cur;
                 NSString *str = [g_named_pb[i] stringForType:NSPasteboardTypeString];
-                g_watcher = NULL;
-                dispatch_source_cancel(w);
-                /* Allow empty strings (deselection) to be finalized. */
-                const char *utf8 = (str && str.length > 0) ? [str UTF8String] : "";
-                if (!utf8) utf8 = "";
-                finalize_selection(utf8, strlen(utf8), true);
-                return;
+                if (str && str.length > 0) {
+                    latest_candidate = str;
+                    changed_this_tick = true;
+                }
             }
 
             /* ── Phase 1: Native Copy-On-Select (Instant clipboard catch) ── */
             if (!injected) {
                 NSPasteboard *pb = [NSPasteboard generalPasteboard];
                 NSInteger cur = pb.changeCount;
-                if (g_mousedown_cc >= 0 && cur != g_mousedown_cc) {
+                if (cur != cc_native_before) {
+                    cc_native_before = cur;
                     NSString *str = [pb stringForType:NSPasteboardTypeString];
                     if (str && str.length > 0) {
-                        g_watcher = NULL;
-                        dispatch_source_cancel(w);
-                        const char *utf8 = [str UTF8String];
-                        finalize_selection(utf8, strlen(utf8), true);
-                        return;
+                        latest_candidate = str;
+                        changed_this_tick = true;
                     }
                     /* Terminal bumped changeCount but hasn't provided text yet. Wait. */
                 }
@@ -529,15 +533,28 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
                 NSPasteboard *pb = [NSPasteboard generalPasteboard];
                 NSInteger cur = pb.changeCount;
                 if (cur != cc_inject_before) {
+                    cc_inject_before = cur;
                     NSString *str = [pb stringForType:NSPasteboardTypeString];
                     if (str && str.length > 0) {
-                        g_watcher = NULL;
-                        dispatch_source_cancel(w);
-                        const char *utf8 = [str UTF8String];
-                        finalize_selection(utf8, strlen(utf8), true);
-                        return;
+                        latest_candidate = str;
+                        changed_this_tick = true;
                     }
                     /* Terminal bumped changeCount but hasn't provided text yet. Wait. */
+                }
+            }
+
+            if (changed_this_tick) {
+                stable_candidate = [latest_candidate copy];
+                saw_candidate = true;
+                settle_ticks = 0;
+            } else if (saw_candidate) {
+                if (++settle_ticks >= SETTLE_TICKS) {
+                    g_watcher = NULL;
+                    dispatch_source_cancel(w);
+                    const char *utf8 = [stable_candidate UTF8String];
+                    if (!utf8) utf8 = "";
+                    finalize_selection(utf8, strlen(utf8), true, restore_snapshot, gen);
+                    return;
                 }
             }
 
@@ -545,7 +562,15 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
             if (++ticks >= MAX_POLL_TICKS) {
                 g_watcher = NULL;
                 dispatch_source_cancel(w);
-                clipboard_restore_to_mousedown();
+
+                if (saw_candidate && stable_candidate.length > 0) {
+                    const char *utf8 = [stable_candidate UTF8String];
+                    if (!utf8) utf8 = "";
+                    finalize_selection(utf8, strlen(utf8), true, restore_snapshot, gen);
+                    return;
+                }
+
+                clipboard_restore_snapshot(restore_snapshot);
                 delete_pending_marker();
 
                 /* DESELECTION FALLBACK:
@@ -569,6 +594,7 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
     if (!g_running) return;
     cancel_watcher();
     g_gen++;
+    NSArray *restore_snapshot = g_mousedown_bk ? [g_mousedown_bk copy] : nil;
 
     /* Path A — Accessibility API */
     int ax = ax_try();
@@ -576,6 +602,7 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
         /* AX succeeded or terminal is AX-capable.  For non-definite
            clicks that are AX-capable, no clipboard protection needed
            (AX doesn't touch clipboard). */
+        delete_pending_marker();
         return;
     }
 
@@ -584,13 +611,15 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
     bool definite = (click_count >= 2) || (drag_pixels > DRAG_PX);
 
     if (!definite) {
+        /* Defensive cleanup in case a previous in-flight operation was canceled. */
+        delete_pending_marker();
         /* Non-definite click: restore clipboard if terminal's mouse-Up
            handler copied to clipboard (copy-on-any-click protection).
            Compares changeCount to detect unwanted clipboard writes. */
         @autoreleasepool {
             NSInteger cur = [[NSPasteboard generalPasteboard] changeCount];
             if (g_mousedown_cc >= 0 && cur != g_mousedown_cc) {
-                clipboard_restore_to_mousedown();
+                clipboard_restore_snapshot(restore_snapshot);
             }
         }
         /* DESELECTION FALLBACK: If a terminal is frontmost and no selection was found
@@ -607,23 +636,39 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
     uint64_t gen = g_gen;
     create_pending_marker();
 
-    /* Try named PBs immediately (fast path — terminal already wrote). */
-    if (named_pb_try()) return;
-
     if (is_electron) {
-        /* xterm.js can clear visual selection before delayed escalation fires.
-           Inject now and start watcher with mousedown baseline. */
-        NSInteger baseline = g_mousedown_cc;
-        if (baseline < 0) {
-            baseline = [[NSPasteboard generalPasteboard] changeCount];
+        /* VS Code/Cursor can publish the selection to clipboard before this
+           branch runs. Prefer that native publish and avoid redundant Cmd+C,
+           which can trigger "no selection to copy" when selection has already
+           been consumed by the host. */
+        @autoreleasepool {
+            NSPasteboard *pb = [NSPasteboard generalPasteboard];
+            NSInteger cur = pb.changeCount;
+            if (g_mousedown_cc >= 0 && cur != g_mousedown_cc) {
+                NSString *str = [pb stringForType:NSPasteboardTypeString];
+                if (str && str.length > 0) {
+                    const char *utf8 = [str UTF8String];
+                    if (!utf8) utf8 = "";
+                    finalize_selection(utf8, strlen(utf8), true, restore_snapshot, gen);
+                    return;
+                }
+            }
         }
+
+        /* xterm.js can clear visual selection before delayed escalation fires.
+           Inject now and start watcher. We MUST sample changeCount immediately
+           before injection rather than relying on g_mousedown_cc, to ensure we
+           actually wait for this Cmd+C injection to complete, rather than
+           early-exiting on a drag-time copy-on-select (which would leave the
+           delayed Cmd+C copy pending, ultimately polluting the clipboard). */
+        NSInteger baseline = [[NSPasteboard generalPasteboard] changeCount];
         inject_cmd_c();
-        start_unified_watcher(gen, true, baseline);
+        start_unified_watcher(gen, true, baseline, restore_snapshot);
         return;
     }
 
-    /* Unified escalation: named PBs → Cmd+C inject → first-change wins. */
-    start_unified_watcher(gen, false, -1);
+    /* Unified escalation: named PBs/native clipboard → Cmd+C inject → settle. */
+    start_unified_watcher(gen, false, -1, restore_snapshot);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -645,29 +690,51 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
     if (!g_running) return event;
 
     if (type == kCGEventLeftMouseDown) {
+        g_click_serial++;
         CGPoint p = CGEventGetLocation(event);
         g_down_x = p.x; g_down_y = p.y;
+        NSInteger cc_down = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
+        NSInteger c_down = cc_down;
         dispatch_async(dispatch_get_main_queue(), ^{
             @autoreleasepool {
-                /* Snapshot named-PBs AND take clipboard backup.
-                   Both must happen BEFORE any terminal write. */
+                /* New click burst started: cancel any prior in-flight watcher so
+                   only the final completed mouseup in the burst can commit. */
+                if (g_watcher) {
+                    cancel_watcher();
+                    g_gen++;
+                    delete_pending_marker();
+                }
+
+                /* Refresh detection baselines per click in a burst so click #3
+                   doesn't consume stale click #2 clipboard changes. */
                 named_pb_snapshot();
                 NSPasteboard *pb = [NSPasteboard generalPasteboard];
                 g_mousedown_cc = pb.changeCount;
-                NSArray<NSPasteboardItem *> *items = pb.pasteboardItems;
-                if (!items.count) {
-                    g_mousedown_bk = @[];
-                } else {
-                    NSMutableArray *bk = [NSMutableArray arrayWithCapacity:items.count];
-                    for (NSPasteboardItem *item in items) {
-                        NSPasteboardItem *copy = [[NSPasteboardItem alloc] init];
-                        for (NSString *t in item.types) {
-                            NSData *d = [item dataForType:t];
-                            if (d) [copy setData:[d copy] forType:t];
+
+                /* Preserve restore snapshot from first click in burst. */
+                /* While pending exists, keep the existing backup snapshot so
+                   rapid successive replaces restore the true pre-selection
+                   clipboard instead of transient copy-on-select content. */
+                bool keep_existing_backup =
+                    (g_mousedown_bk != nil) && (access(g_pending_path, F_OK) == 0);
+                bool refresh_burst_backup =
+                    !keep_existing_backup && ((c_down <= 1) || (g_mousedown_bk == nil));
+                if (refresh_burst_backup) {
+                    NSArray<NSPasteboardItem *> *items = pb.pasteboardItems;
+                    if (!items.count) {
+                        g_mousedown_bk = @[];
+                    } else {
+                        NSMutableArray *bk = [NSMutableArray arrayWithCapacity:items.count];
+                        for (NSPasteboardItem *item in items) {
+                            NSPasteboardItem *copy = [[NSPasteboardItem alloc] init];
+                            for (NSString *t in item.types) {
+                                NSData *d = [item dataForType:t];
+                                if (d) [copy setData:[d copy] forType:t];
+                            }
+                            [bk addObject:copy];
                         }
-                        [bk addObject:copy];
+                        g_mousedown_bk = [bk copy];
                     }
-                    g_mousedown_bk = [bk copy];
                 }
             }
         });
@@ -679,6 +746,48 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
         NSInteger cc   = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
         CGFloat   d    = drag;
         NSInteger c    = cc;
+
+                bool allow_click_grace = !host_prefers_cmdc_fallback();
+
+                if (allow_click_grace && c == 2 && d <= DRAG_PX) {
+            uint64_t serial = g_click_serial;
+            /* Mark capture pending immediately so fast first keypresses do not
+               bypass replacement while waiting for possible triple-click. */
+            create_pending_marker();
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, DOUBLE_CLICK_GRACE_MS * NSEC_PER_MSEC),
+                           dispatch_get_main_queue(), ^{
+                if (!g_running) {
+                    delete_pending_marker();
+                    return;
+                }
+                if (serial != g_click_serial) {
+                    /* Triple-click continued; ignore 2nd-click commit. */
+                    delete_pending_marker();
+                    return;
+                }
+                handle_mouse_up(c, d);
+            });
+            return event;
+        }
+
+        if (allow_click_grace && c >= 3 && d <= DRAG_PX) {
+            uint64_t serial = g_click_serial;
+            create_pending_marker();
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, TRIPLE_CLICK_GRACE_MS * NSEC_PER_MSEC),
+                           dispatch_get_main_queue(), ^{
+                if (!g_running) {
+                    delete_pending_marker();
+                    return;
+                }
+                if (serial != g_click_serial) {
+                    delete_pending_marker();
+                    return;
+                }
+                handle_mouse_up(c, d);
+            });
+            return event;
+        }
+
         dispatch_async(dispatch_get_main_queue(), ^{ handle_mouse_up(c, d); });
     }
     return event;

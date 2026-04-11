@@ -211,25 +211,11 @@ function _zes_copy_to_clipboard() {
 # IMPORTANT: Does NOT call [NSPasteboard clearContents].
 # Clearing NSPasteboard would destroy content the user copied from
 # other apps. Only the local seq/primary files are cleared.
-#
-# The double-clear pattern (agent --clear-primary + truncate locally)
-# ensures the shell sees the cleared state immediately, before any
-# async agent update is observable via zstat.
 # ─────────────────────────────────────────────────────────────────────
 function _zes_clear_primary() {
-    # Increment sequence file purely in zsh to avoid forking the daemon binary
-    if [[ -w "$_EDIT_SELECT_SEQ_FILE" ]]; then
-        local current_seq=0
-        [[ -r "$_EDIT_SELECT_SEQ_FILE" ]] && current_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
-        # Strip any non-numeric bytes before arithmetic (guards against encoding
-        # edge cases where the seq file contains unexpected characters).
-        current_seq="${current_seq//[^0-9]/}"
-        [[ -z "$current_seq" ]] && current_seq=0
-        ((current_seq++))
-        printf '%d\n' "$current_seq" > "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null
-    fi
-
-    # Truncate locally immediately for instant visibility.
+    # Do not touch the seq counter here.
+    # The daemon owns sequence progression; local seq writes can desync
+    # daemon g_seq from seq-file state and cause every-other-event misses.
     [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && [[ -d "${_EDIT_SELECT_PRIMARY_FILE:h}" ]] && \
         : >"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
 }

@@ -23,6 +23,9 @@ cleanup() {
             echo -e "${YELLOW}Backups saved to: $BACKUP_DIR${NC}"
         fi
     fi
+    if [[ "${ZES_DELETE_LOG_ON_EXIT:-0}" == "1" ]]; then
+        rm -f "$LOG_FILE" 2>/dev/null
+    fi
     # Restore cursor if hidden? (optional)
 }
 
@@ -34,6 +37,9 @@ trap 'echo -e "\n${RED}Quit detected${NC}"; exit 131' QUIT
 
 log_message() {
     local message="$1"
+    if [[ "${ZES_DELETE_LOG_ON_EXIT:-0}" == "1" ]]; then
+        return 0
+    fi
     # Attempt to write to log file, fallback to stderr if it fails
     if ! echo "[$(date '+%Y-%m-%d %H:%M:%S')] $message" >>"$LOG_FILE" 2>/dev/null; then
         # If log write fails, output to stderr as fallback

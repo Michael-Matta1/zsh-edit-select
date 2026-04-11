@@ -18,6 +18,53 @@ _zes_warn_if_zsh_missing_for_mode() {
     fi
 }
 
+_zes_get_log_file_size_bytes() {
+    if [[ "$LOG_FILE" == "/dev/null" ]] || [[ -z "${LOG_FILE:-}" ]] || [[ ! -f "$LOG_FILE" ]]; then
+        echo "0"
+        return 0
+    fi
+
+    local size_bytes
+    size_bytes=$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d '[:space:]')
+    if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
+        echo "$size_bytes"
+    else
+        echo "0"
+    fi
+}
+
+_zes_prompt_delete_mode_logs() {
+    local mode_label="$1"
+    local size_before="${2:-0}"
+
+    if [[ "$LOG_FILE" == "/dev/null" ]]; then
+        return 0
+    fi
+
+    if [[ ! "$size_before" =~ ^[0-9]+$ ]]; then
+        size_before=0
+    fi
+
+    local size_after
+    size_after="$(_zes_get_log_file_size_bytes)"
+    if [[ ! "$size_after" =~ ^[0-9]+$ ]] || ((size_after <= size_before)); then
+        return 0
+    fi
+
+    local added_bytes=$((size_after - size_before))
+    local question
+    question="Delete logs created during ${mode_label}? (${added_bytes} bytes at $LOG_FILE)"
+    if ask_yes_no "$question" "n"; then
+        if rm -f "$LOG_FILE" 2>/dev/null; then
+            # Avoid trap-time logging from re-creating the file.
+            ZES_DELETE_LOG_ON_EXIT=1
+            print_success "Deleted log file: $LOG_FILE"
+        else
+            print_warning "Could not delete log file: $LOG_FILE"
+        fi
+    fi
+}
+
 _zes_normalize_mode() {
     local raw_mode="${1:-}"
     local mode_lc="${raw_mode,,}"
@@ -353,6 +400,9 @@ run_build_agents_only() {
     check_essential_commands
     acquire_lock
 
+    local mode_log_size_before=0
+    mode_log_size_before="$(_zes_get_log_file_size_bytes)"
+
     # Detection
     print_header "Phase 1: System Detection"
     detect_os
@@ -367,6 +417,7 @@ run_build_agents_only() {
         print_error "Plugin directory not found: ${PLUGIN_INSTALL_DIR:-<not set>}"
         print_info "Please run Full Install first to install the plugin."
         print_info "Log file: $LOG_FILE"
+        _zes_prompt_delete_mode_logs "build mode" "$mode_log_size_before"
         return
     fi
 
@@ -378,6 +429,7 @@ run_build_agents_only() {
     fi
 
     _zes_print_mode_completion "Build agents mode" "$mode_status"
+    _zes_prompt_delete_mode_logs "build mode" "$mode_log_size_before"
 }
 
 show_main_menu() {

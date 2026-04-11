@@ -20,6 +20,8 @@ run_plugin_update() {
     acquire_lock
 
     local mode_status="success"
+    local mode_log_size_before=0
+    mode_log_size_before="$(_zes_get_log_file_size_bytes)"
 
     # Detect plugin location
     print_step "Detecting plugin installation..."
@@ -29,6 +31,7 @@ run_plugin_update() {
         print_error "Could not determine plugin installation directory"
         print_info "Plugin installation path detection failed. Please run Full Install first."
         _zes_print_mode_completion "Plugin update mode" "warning"
+        _zes_prompt_delete_mode_logs "update mode" "$mode_log_size_before"
         return
     fi
 
@@ -36,6 +39,7 @@ run_plugin_update() {
         print_error "Plugin directory does not exist: $PLUGIN_INSTALL_DIR"
         print_info "Please run Full Install to install the plugin first."
         _zes_print_mode_completion "Plugin update mode" "warning"
+        _zes_prompt_delete_mode_logs "update mode" "$mode_log_size_before"
         return
     fi
 
@@ -45,6 +49,7 @@ run_plugin_update() {
         print_info "The plugin may have been installed manually or is corrupted."
         print_info "Recommendation: Run Full Install to reinstall from git."
         _zes_print_mode_completion "Plugin update mode" "warning"
+        _zes_prompt_delete_mode_logs "update mode" "$mode_log_size_before"
         return
     fi
 
@@ -56,6 +61,7 @@ run_plugin_update() {
         print_error "No network connectivity - cannot update plugin"
         print_info "Please check your internet connection and try again."
         _zes_print_mode_completion "Plugin update mode" "warning"
+        _zes_prompt_delete_mode_logs "update mode" "$mode_log_size_before"
         return
     fi
 
@@ -152,6 +158,7 @@ run_plugin_update() {
     fi
 
     _zes_print_mode_completion "Plugin update mode" "$mode_status"
+    _zes_prompt_delete_mode_logs "update mode" "$mode_log_size_before"
 }
 
 run_uninstall() {

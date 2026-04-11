@@ -30,6 +30,7 @@ typeset -gi _EDIT_SELECT_DAEMON_ACTIVE=0
 typeset -gi _EDIT_SELECT_NEW_SELECTION_EVENT=0
 typeset -gi _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
 typeset -gi _ZES_LAST_PID_CHECK=0
+typeset -gi _ZES_LAST_MONITOR_RESTART=0
 typeset -gF _ZES_SELECTION_SET_TIME=0
 
 # ── Cache directory and file paths ────────────────────────────────────
@@ -106,6 +107,7 @@ function edit-select::load-config() {
 function _zes_sync_after_paste() {
     _EDIT_SELECT_ACTIVE_SELECTION=""
     _EDIT_SELECT_PENDING_SELECTION=""
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
     _ZES_SELECTION_SET_TIME=0
     _EDIT_SELECT_LAST_PRIMARY=""
     _zes_clear_primary
@@ -115,32 +117,90 @@ function _zes_sync_after_paste() {
     fi
 }
 
+# Centralized reset for transient mouse-selection operation state.
+function _zes_reset_mouse_selection_state() {
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
+    _EDIT_SELECT_LAST_PRIMARY=""
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+    _ZES_SELECTION_SET_TIME=0
+}
+
+# Best-effort monitor self-heal so mouse operations recover without a terminal restart.
+function _zes_try_restart_monitor() {
+    (( EPOCHSECONDS <= _ZES_LAST_MONITOR_RESTART + 1 )) && return 1
+    _ZES_LAST_MONITOR_RESTART=$EPOCHSECONDS
+
+    _zes_start_monitor
+    ((!_EDIT_SELECT_DAEMON_ACTIVE)) && return 1
+
+    [[ -r "$_EDIT_SELECT_SEQ_FILE" ]] && _EDIT_SELECT_LAST_SEQ=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
+    [[ -r "$_EDIT_SELECT_PRIMARY_FILE" ]] && _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+    _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
+    _ZES_SELECTION_SET_TIME=0
+    return 0
+}
+
 # ─────────────────────────────────────────────────────────────────────
-# _zes_sync_selection_state  [x11 PATTERN — already correct for macOS]
-# Called by ZLE widgets before acting on a keypress.
-# Reads seq mtime via zstat (1 stat syscall, no fork).
-# On mtime change: reads primary file, sets NEW_SELECTION_EVENT.
-# On same mtime: suppresses event if EVENT_FIRED_FOR_MTIME.
+# _zes_wait_for_reactive_capture
+# Block until the reactive Cmd+C watcher has finished publishing selection
+# state (pending marker removed). This avoids proceeding with stale/empty
+# selection state when the user types immediately after a mouse drag.
 #
-# NO SUPPRESSION BLOCK: Unlike WSL, no _ZES_SELF_WRITE_CONTENT check is
-# needed. The daemon only watches mouse button releases. Plugin copies
-# write to NSPasteboard but produce zero daemon events.
+# If capture does not complete (dead daemon or stuck marker), fail closed
+# by disabling daemon-backed handling for this cycle and resetting transient
+# mouse-selection state.
+# ─────────────────────────────────────────────────────────────────────
+function _zes_wait_for_reactive_capture() {
+    [[ ! -f "$_EDIT_SELECT_PENDING_FILE" ]] && return 0
+
+    local _zes_pid _zes_start=$EPOCHREALTIME
+    while [[ -f "$_EDIT_SELECT_PENDING_FILE" ]]; do
+        if (( EPOCHREALTIME - _zes_start > 1.0 )); then
+            _EDIT_SELECT_DAEMON_ACTIVE=0
+            rm -f "$_EDIT_SELECT_PENDING_FILE" 2>/dev/null
+            _zes_reset_mouse_selection_state
+            _zes_try_restart_monitor >/dev/null 2>&1
+            return 1
+        fi
+
+        _zes_pid=""
+        [[ -r "$_EDIT_SELECT_PID_FILE" ]] && _zes_pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
+        if [[ -n "$_zes_pid" ]] && ! kill -0 "$_zes_pid" 2>/dev/null; then
+            _EDIT_SELECT_DAEMON_ACTIVE=0
+            rm -f "$_EDIT_SELECT_PENDING_FILE" 2>/dev/null
+            _zes_reset_mouse_selection_state
+            _zes_try_restart_monitor >/dev/null 2>&1
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────
+# _zes_sync_selection_state
+# Called by ZLE widgets before acting on a keypress.
+# Reads seq value and primary snapshot from cache files.
+# On seq change: reads primary file, sets NEW_SELECTION_EVENT.
+# On unchanged seq: preserves state so a published selection cannot be
+# consumed before the action widget (delete/type/paste/cut) processes it.
+#
+# No _ZES_SELF_WRITE_CONTENT suppression is needed: the daemon watches
+# mouse button releases only, and plugin clipboard writes do not emit
+# daemon selection events.
 # ─────────────────────────────────────────────────────────────────────
 function _zes_sync_selection_state() {
-    ((!_EDIT_SELECT_DAEMON_ACTIVE)) && return
-
-    # Wait for any active agent capture/restore to finish.
-    # Eliminates race conditions with type-to-replace and paste-to-replace
-    # by pausing ZLE until the background capture is complete.
-    if [[ -f "$_EDIT_SELECT_PENDING_FILE" ]]; then
-        local _zes_start=$EPOCHREALTIME
-        while [[ -f "$_EDIT_SELECT_PENDING_FILE" ]]; do
-            # Wait up to 350ms. The macOS agent allows up to 300ms for Cmd+C copy
-            # injection to complete. If ZLE breaks out earlier, it risks reading
-            # the clipboard before the background restore has finished.
-            if (( EPOCHREALTIME - _zes_start > 0.35 )); then break; fi
-        done
+    if ((!_EDIT_SELECT_DAEMON_ACTIVE)); then
+        _zes_try_restart_monitor || return
     fi
+
+    # For reactive Cmd+C capture, do not continue until agent publish/restore
+    # has completed. This removes timing-dependent keypress behavior.
+    _zes_wait_for_reactive_capture || return
 
     local current_seq=$(<"$_EDIT_SELECT_SEQ_FILE" 2>/dev/null)
     [[ -z "$current_seq" ]] && return
@@ -163,17 +223,59 @@ function _zes_sync_selection_state() {
         fi
     elif [[ -z "$_EDIT_SELECT_LAST_SEQ" ]]; then
         _EDIT_SELECT_LAST_SEQ="$current_seq"
-    else
-        # Seq unchanged — no new selection event.
-        if ((_EDIT_SELECT_EVENT_FIRED_FOR_SEQ)); then
-            _EDIT_SELECT_NEW_SELECTION_EVENT=0
-            if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
-                _EDIT_SELECT_ACTIVE_SELECTION=""
-                _EDIT_SELECT_PENDING_SELECTION=""
-                _ZES_SELECTION_SET_TIME=0
-            fi
-        fi
     fi
+}
+
+# Try to resolve a terminal-captured selection string against BUFFER.
+# Returns the best matching span on stdout, or nothing if no viable match.
+function _zes_match_selection_in_buffer() {
+    local source="$1"
+    [[ -z "$source" ]] && return 1
+    (( ${#BUFFER} == 0 )) && return 1
+
+    if [[ "$BUFFER" == *"$source"* ]]; then
+        print -r -- "$source"
+        return 0
+    fi
+
+    local source_len=${#source}
+    local buf_len=${#BUFFER}
+    local min_len=1
+    local max_trim=512
+    local min_total_trim=0
+    (( max_trim > source_len - min_len )) && max_trim=$((source_len - min_len))
+    (( max_trim < 0 )) && return 1
+    (( source_len > buf_len )) && min_total_trim=$((source_len - buf_len))
+    (( min_total_trim > (2 * max_trim) )) && return 1
+
+    local best=""
+    local -i best_len=0
+    local -i left right len total_trim
+    local candidate
+
+    # Two-sided trimming handles prompt/padding noise on both ends,
+    # which is common in partial first/last-line mouse drags.
+    for ((left = 0; left <= max_trim; left++)); do
+        for ((right = 0; right <= max_trim; right++)); do
+            total_trim=$((left + right))
+            (( total_trim < min_total_trim )) && continue
+            len=$((source_len - left - right))
+            ((len <= best_len || len < min_len)) && continue
+            candidate="${source:$left:$len}"
+            if [[ "$BUFFER" == *"$candidate"* ]]; then
+                best="$candidate"
+                best_len=$len
+                ((best_len == source_len || best_len == buf_len)) && {
+                    print -r -- "$best"
+                    return 0
+                }
+            fi
+        done
+    done
+
+    [[ -n "$best" ]] || return 1
+    print -r -- "$best"
+    return 0
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -193,6 +295,8 @@ function _zes_detect_mouse_selection() {
                 return 0
             fi
             _EDIT_SELECT_ACTIVE_SELECTION=""
+            _EDIT_SELECT_PENDING_SELECTION=""
+            _ZES_SELECTION_SET_TIME=0
             return 1
         fi
         return 0
@@ -215,34 +319,76 @@ function _zes_detect_mouse_selection() {
     fi
 
     if ((is_new_selection)); then
-        # GPU terminal selections: strip trailing whitespace.
-        # GPU terminals (Alacritty, WezTerm, Ghostty) often append a trailing
-        # newline or space when dragging to end-of-line.  Without stripping,
-        # "hello\n" from primary does not match "hello" in $BUFFER.
-        # setopt localoptions: changes are local to this block, auto-restored.
-        { setopt localoptions extendedglob
-          mouse_sel="${mouse_sel%%[[:space:]]#}" }
+        setopt localoptions extendedglob
 
-        _EDIT_SELECT_LAST_PRIMARY="$mouse_sel"
+        # 1. Normalize CR to LF (macOS terminals often use \r for multi-line)
+        mouse_sel="${mouse_sel//$'\r'/$'\n'}"
+
+        # GPU terminal selections: strip trailing whitespace padding.
+        # GPU terminals (Alacritty, WezTerm, Ghostty) often append spaces out to the right
+        # edge of the screen when dragging across multiple lines. This prevents exact matching.
+        local -a lines
+        lines=("${(@f)mouse_sel}")
+        local i
+        for ((i = 1; i <= ${#lines[@]}; i++)); do
+            # Standard zsh extendedglob to strip trailing spaces per line
+            lines[i]="${lines[i]%%[[:space:]]#}"
+        done
+        # Rejoin with newlines
+        local clean_sel="${(F)lines}"
+        # Finally strip overall terminal padding
+        clean_sel="${clean_sel%%[[:space:]]#}"
+
+        # macOS paths sometimes add leading prompts or trailing UI garbage in drags.
+        # If the exact unpadded string matches, accept it. otherwise, attempt to slide
+        # prefixes/suffixes to find true overlap.
+
+        _EDIT_SELECT_LAST_PRIMARY="$clean_sel"
         if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             zle -M ""
             zle -R
         fi
         _EDIT_SELECT_PENDING_SELECTION=""
         _EDIT_SELECT_ACTIVE_SELECTION=""
-        if [[ -n "$mouse_sel" ]] && \
-           ((${#mouse_sel} <= ${#BUFFER})) && \
-           [[ "$BUFFER" == *"$mouse_sel"* ]]; then
-            _EDIT_SELECT_ACTIVE_SELECTION="$mouse_sel"
-            _ZES_SELECTION_SET_TIME=$EPOCHREALTIME
-            return 0
+
+        if [[ -n "$clean_sel" ]]; then
+            local matched_sel=""
+            matched_sel="$(_zes_match_selection_in_buffer "$clean_sel")"
+
+            # Visual-wrap fallback: terminal may insert \n for wrapped display
+            # while BUFFER keeps a single logical line.
+            if [[ -z "$matched_sel" && "$clean_sel" == *$'\n'* ]]; then
+                local nowrap_sel="${clean_sel//$'\n'/}"
+                if [[ -n "$nowrap_sel" ]]; then
+                    matched_sel="$(_zes_match_selection_in_buffer "$nowrap_sel")"
+                fi
+            fi
+
+            if [[ -n "$matched_sel" ]]; then
+                _EDIT_SELECT_ACTIVE_SELECTION="$matched_sel"
+                _ZES_SELECTION_SET_TIME=$EPOCHREALTIME
+                return 0
+            fi
+
+            # Fail closed for this keypress when a fresh selection cannot be
+            # resolved yet. This prevents immediate fallback key behavior from
+            # clearing visual selection state in GPU terminals.
+            _EDIT_SELECT_PENDING_SELECTION="$clean_sel"
         fi
-        return 1
+
+        # Do not return yet. Attempt pending-resolution immediately in this
+        # same keypress so type-to-replace does not require a second try.
     fi
 
     if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
-        local sel="$_EDIT_SELECT_PENDING_SELECTION" \
-              sel_len=${#_EDIT_SELECT_PENDING_SELECTION}
+        local sel="$_EDIT_SELECT_PENDING_SELECTION"
+        if [[ "$BUFFER" != *"$sel"* ]]; then
+            local resolved_sel
+            resolved_sel="$(_zes_match_selection_in_buffer "$sel")"
+            [[ -n "$resolved_sel" ]] && sel="$resolved_sel"
+        fi
+
+        local sel_len=${#sel}
         if [[ "$BUFFER" == *"$sel"* ]]; then
             local idx=0
             while ((idx <= ${#BUFFER} - sel_len)); do
@@ -284,10 +430,14 @@ function _zes_delete_mouse_selection() {
           sel_len=${#_EDIT_SELECT_ACTIVE_SELECTION}
     ((sel_len > ${#BUFFER})) && {
         _EDIT_SELECT_ACTIVE_SELECTION=""
+        _EDIT_SELECT_PENDING_SELECTION=""
+        _ZES_SELECTION_SET_TIME=0
         return 1
     }
     [[ "$BUFFER" != *"$sel"* ]] && {
         _EDIT_SELECT_ACTIVE_SELECTION=""
+        _EDIT_SELECT_PENDING_SELECTION=""
+        _ZES_SELECTION_SET_TIME=0
         return 1
     }
 
@@ -357,7 +507,12 @@ function edit-select::delete-mouse-or-backspace() {
     zle -c
     if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
         _zes_sync_selection_state
-        if _zes_detect_mouse_selection && _zes_delete_mouse_selection; then
+        if _zes_detect_mouse_selection; then
+            if _zes_delete_mouse_selection; then
+                return
+            fi
+            [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]] && return
+            _zes_reset_mouse_selection_state
             return
         elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             return
@@ -371,7 +526,12 @@ function edit-select::delete-mouse-or-delete() {
     zle -c
     if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
         _zes_sync_selection_state
-        if _zes_detect_mouse_selection && _zes_delete_mouse_selection; then
+        if _zes_detect_mouse_selection; then
+            if _zes_delete_mouse_selection; then
+                return
+            fi
+            [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]] && return
+            _zes_reset_mouse_selection_state
             return
         elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             return
@@ -391,6 +551,8 @@ function edit-select::handle-char() {
                 return
             fi
             # Block typing on failure (disambiguation pending).
+            [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]] && return
+            _zes_reset_mouse_selection_state
             return
         elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             return
@@ -453,13 +615,61 @@ function edit-select::cut-region() {
         if _zes_detect_mouse_selection; then
             local sel="$_EDIT_SELECT_ACTIVE_SELECTION"
             # Delete FIRST for instant visual feedback, THEN copy async.
-            _zes_delete_mouse_selection && _zes_copy_to_clipboard "$sel"
+            if _zes_delete_mouse_selection; then
+                _zes_copy_to_clipboard "$sel"
+                return
+            fi
+            [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]] && return
+            _zes_reset_mouse_selection_state
+            return
+        elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
+            return
         fi
     fi
 }
 zle -N edit-select::cut-region
 
+# Read clipboard for paste operations with a short bounded retry window.
+# When avoid_value is provided, prefer a value different from avoid_value
+# during retries (helps avoid transient copy-on-select races).
+function _zes_get_clipboard_for_paste() {
+    local avoid_value="$1"
+    local content
+    local last_nonempty=""
+    local -i attempt
+
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        content="$(_zes_get_clipboard 2>/dev/null)"
+        if [[ -n "$content" ]]; then
+            last_nonempty="$content"
+            if [[ -n "$avoid_value" && "$content" == "$avoid_value" && attempt < 20 ]]; then
+                sleep 0.01
+                continue
+            fi
+            print -r -- "$content"
+            return 0
+        fi
+        (( attempt < 20 )) && sleep 0.01
+    done
+
+    if [[ -n "$avoid_value" ]]; then
+        [[ -n "$last_nonempty" && "$last_nonempty" != "$avoid_value" ]] && print -r -- "$last_nonempty" && return 0
+        return 1
+    fi
+
+    [[ -n "$last_nonempty" ]] && print -r -- "$last_nonempty" && return 0
+    return 1
+}
+
 function edit-select::paste-clipboard() {
+    local pre_buffer="$BUFFER"
+    local pre_cursor=$CURSOR
+    local pre_mark=$MARK
+    local pre_region=$REGION_ACTIVE
+    local -i did_delete=0
+    local -i did_mouse_delete=0
+    local deleted_sel=""
+
     if ((REGION_ACTIVE)); then
         local start=$((MARK < CURSOR ? MARK : CURSOR))
         local len=$((MARK > CURSOR ? MARK - CURSOR : CURSOR - MARK))
@@ -467,24 +677,62 @@ function edit-select::paste-clipboard() {
         CURSOR=$start
         REGION_ACTIVE=0
         zle -K main
+        did_delete=1
     elif ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
         _zes_sync_selection_state
         if _zes_detect_mouse_selection; then
+            deleted_sel="$_EDIT_SELECT_ACTIVE_SELECTION"
             if _zes_delete_mouse_selection; then
                 :  # deletion succeeded; fall through to paste
+                did_delete=1
+                did_mouse_delete=1
             else
+                [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]] && return
+                _zes_reset_mouse_selection_state
                 return  # disambiguation pending; abort paste
             fi
         elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             return
         fi
     fi
+
     local clipboard_content
-    clipboard_content=$(_zes_get_clipboard) || return
-    [[ -n "$clipboard_content" ]] && LBUFFER="${LBUFFER}${clipboard_content}"
+    local clipboard_avoid=""
+    if ((did_mouse_delete)) && [[ -n "$deleted_sel" ]]; then
+        clipboard_avoid="$deleted_sel"
+    fi
+
+    if ! clipboard_content=$(_zes_get_clipboard_for_paste "$clipboard_avoid"); then
+        if ((did_delete)); then
+            BUFFER="$pre_buffer"
+            CURSOR=$pre_cursor
+            MARK=$pre_mark
+            REGION_ACTIVE=$pre_region
+            zle -R
+        fi
+        return
+    fi
+
+    LBUFFER="${LBUFFER}${clipboard_content}"
     _zes_sync_after_paste
 }
 zle -N edit-select::paste-clipboard
+
+# Consume an incoming bracketed paste block without mutating BUFFER.
+function _zes_discard_bracketed_paste_payload() {
+    local saved_buffer="$BUFFER"
+    local saved_cursor=$CURSOR
+    local saved_mark=$MARK
+    local saved_region=$REGION_ACTIVE
+
+    zle .bracketed-paste
+
+    BUFFER="$saved_buffer"
+    CURSOR=$saved_cursor
+    MARK=$saved_mark
+    REGION_ACTIVE=$saved_region
+    zle -R
+}
 
 function edit-select::bracketed-paste-replace() {
     if ((REGION_ACTIVE)); then
@@ -500,9 +748,13 @@ function edit-select::bracketed-paste-replace() {
             if _zes_delete_mouse_selection; then
                 :
             else
+                _zes_discard_bracketed_paste_payload
+                [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]] && return
+                _zes_reset_mouse_selection_state
                 return
             fi
         elif [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
+            _zes_discard_bracketed_paste_payload
             return
         fi
     fi
@@ -516,6 +768,22 @@ zle -N beginning-of-buffer _zes_beginning_of_buffer
 
 function _zes_end_of_buffer() { CURSOR=${#BUFFER} }
 zle -N end-of-buffer _zes_end_of_buffer
+
+function _zes_up_line_or_history_reset() {
+    _zes_reset_mouse_selection_state
+    REGION_ACTIVE=0
+    zle deactivate-region -w 2>/dev/null
+    zle .up-line-or-history -w
+}
+zle -N up-line-or-history _zes_up_line_or_history_reset
+
+function _zes_down_line_or_history_reset() {
+    _zes_reset_mouse_selection_state
+    REGION_ACTIVE=0
+    zle deactivate-region -w 2>/dev/null
+    zle .down-line-or-history -w
+}
+zle -N down-line-or-history _zes_down_line_or_history_reset
 
 function _zes_activate_region_and_dispatch() {
     zle -c
@@ -534,13 +802,13 @@ function _zes_terminal_focus_in() {
             _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         fi
     fi
-    _EDIT_SELECT_NEW_SELECTION_EVENT=0
-    _EDIT_SELECT_ACTIVE_SELECTION=""
-    _EDIT_SELECT_PENDING_SELECTION=""
+    _zes_reset_mouse_selection_state
 }
 zle -N _zes_terminal_focus_in
 
-function _zes_terminal_focus_out() { : }
+function _zes_terminal_focus_out() {
+    _zes_reset_mouse_selection_state
+}
 zle -N _zes_terminal_focus_out
 
 # ─────────────────────────────────────────────────────────────────────
@@ -559,10 +827,7 @@ zle -N _zes_terminal_focus_out
 #   end)
 # ─────────────────────────────────────────────────────────────────────
 function _zes_wezterm_mousedown_clear() {
-    _EDIT_SELECT_NEW_SELECTION_EVENT=0
-    _EDIT_SELECT_ACTIVE_SELECTION=""
-    _EDIT_SELECT_PENDING_SELECTION=""
-    _ZES_SELECTION_SET_TIME=0
+    _zes_reset_mouse_selection_state
 }
 zle -N _zes_wezterm_mousedown_clear
 bindkey -M emacs '\e[>62300u' _zes_wezterm_mousedown_clear
