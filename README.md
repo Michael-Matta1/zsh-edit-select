@@ -434,10 +434,11 @@ For a full command list (including maintenance and platform-specific commands), 
 The wizard provides:
 
 1. **Mouse Replacement** — Enable/disable mouse selection integration
-2. **Key Bindings** — Customize Copy, Cut, Paste, Select All, Undo, Redo, and Word Navigation shortcuts
-3. **View Full Configuration** — See current settings
-4. **Reset to Defaults** — Restore factory settings
-5. **Exit Wizard** — Close the wizard
+2. **Instant Cut** — Optional Ctrl+X prefix-pruning for instant mouse-selection cut
+3. **Key Bindings** — Customize Copy, Cut, Paste, Select All, Undo, Redo, and Word Navigation shortcuts
+4. **View Full Configuration** — See current settings
+5. **Reset to Defaults** — Restore factory settings
+6. **Exit Wizard** — Close the wizard
 
 All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions. You can also view or edit this file manually at any time.
 
@@ -483,30 +484,31 @@ edit-select config  # → Option 1: Mouse Replacement
 
 </details>
 
-<details>
-<summary><b> Keybinding Customization </b></summary>
 
-Customize the main editing shortcuts:
+<details>
+<summary><b>Instant Cut (Mouse Selection Cut)</b></summary>
+
+Instant Cut is an optional compatibility/performance toggle focused on **mouse-selection cut when the cut key is Ctrl+X**.
+
+- **Why this option exists:** In ZLE/emacs keymaps, `Ctrl+X` is a prefix key for multi-key chords (for example `Ctrl+X Ctrl+E`). During mouse-selection cut, ZLE may wait for prefix disambiguation before dispatching cut.
+- **Keyboard-selection cut:** Already instant. This option is not required for keyboard-selection cut behavior.
+- **Default:** Disabled (safe default that preserves all existing prefix chords).
+- **When enabled:** The plugin prunes bindings that share the cut-key prefix, so `Ctrl+X` cut dispatches immediately for mouse selections.
+- **Trade-off:** Prefix chords that begin with the cut key (for example `Ctrl+X Ctrl+E`) are removed while enabled.
+- **Only relevant for Ctrl+X-like prefix keys:** If you remap Cut to a non-prefix escape sequence such as `Ctrl+Shift+X` (`^[[88;6u`), cut is already instant without enabling the `Instant Cut` option because ZLE does not need prefix disambiguation for that sequence.
+- **Scope:** This setting targets mouse-selection cut behavior; keyboard-selection cut behavior is unchanged.
+
+Enable or disable it from the wizard:
 
 ```bash
-edit-select config  # → Option 2: Key Bindings
+edit-select config  # → Option 2: Instant Cut
 ```
-
-**Default bindings:**
-
-- **Ctrl + A** (Cmd+A on macOS) — Select all
-- **Ctrl + V** (Cmd+V on macOS) — Paste
-- **Ctrl + X** (Cmd+X on macOS) — Cut
-- **Ctrl + Shift + C** (Cmd+C on macOS) — Copy
-- **Ctrl + Z** (Cmd+Z on macOS) — Undo
-- **Ctrl + Shift + Z** (Cmd+Shift+Z on macOS) — Redo
-- **Ctrl + ←** (Option+Left on macOS) — Word left
-- **Ctrl + →** (Option+Right on macOS) — Word right
 
 </details>
 
+
 <details>
-<summary><b>Custom Keybinding Notes (Terminal Configuration)</b></summary>
+<summary><b>Custom/Manual Keybinding Notes (Terminal Configuration)</b></summary>
 
 > **⚠️ Important:** When using custom keybindings (especially with Shift modifiers), you may need to configure
 > your terminal emulator to send the correct escape sequences.

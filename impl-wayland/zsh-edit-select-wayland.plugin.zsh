@@ -18,6 +18,9 @@ typeset -g _EDIT_SELECT_ACTIVE_SELECTION=""
 typeset -g _EDIT_SELECT_PENDING_SELECTION=""
 # Public config: 1 enables mouse-selection-aware typing (type-to-replace); 0 disables.
 typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
+# Public config: 1 enables prefix-pruning for instant cut-key dispatch; 0 preserves
+# all prefix key chords and disables pruning (default, no regression behavior).
+typeset -gi EDIT_SELECT_INSTANT_CUT=0
 # Path to the user's persistent configuration file (sourced at startup).
 typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select/config"
 # Absolute directory of this plugin file; used to locate backend scripts.
@@ -62,6 +65,7 @@ typeset -g _EDIT_SELECT_PID_FILE="$_EDIT_SELECT_CACHE_DIR/agent.pid"
 # set. Defaults are declared read-only above so they cannot be overridden by
 # the config file; user values shadow them via the := operator.
 function edit-select::apply-key-defaults() {
+    EDIT_SELECT_INSTANT_CUT="${EDIT_SELECT_INSTANT_CUT:-0}"
     EDIT_SELECT_KEY_SELECT_ALL="${EDIT_SELECT_KEY_SELECT_ALL:-$_EDIT_SELECT_DEFAULT_KEY_SELECT_ALL}"
     EDIT_SELECT_KEY_PASTE="${EDIT_SELECT_KEY_PASTE:-$_EDIT_SELECT_DEFAULT_KEY_PASTE}"
     EDIT_SELECT_KEY_CUT="${EDIT_SELECT_KEY_CUT:-$_EDIT_SELECT_DEFAULT_KEY_CUT}"
@@ -858,6 +862,10 @@ function { emulate -L zsh
     [[ -n "$EDIT_SELECT_KEY_SELECT_ALL" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_SELECT_ALL" edit-select::select-all
     [[ -n "$EDIT_SELECT_KEY_COPY" ]] && bindkey -M emacs "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
     if [[ -n "$EDIT_SELECT_KEY_CUT" ]]; then
+        if ((EDIT_SELECT_INSTANT_CUT)); then
+            bindkey -M emacs -rp "$EDIT_SELECT_KEY_CUT" 2>/dev/null
+            bindkey -rp "$EDIT_SELECT_KEY_CUT" 2>/dev/null
+        fi
         bindkey -M emacs "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
         bindkey "$EDIT_SELECT_KEY_CUT" edit-select::cut-region
     fi
