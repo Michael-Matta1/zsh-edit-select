@@ -402,7 +402,7 @@ Then restart your terminal. You may need to restart your device for the full int
 
 If you encounter any issues with mouse integration, disable it from the configuration wizard.
 
-#### tmux on macOS
+##### tmux on macOS
 
 If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
   ```bash
@@ -411,7 +411,17 @@ If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
 
 </details>
 
+### Important Note (Wayland Users only)
 
+<details>
+<summary><b>Click to expand</b></summary>
+
+If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to function correctly under Wayland.
+
+XWayland is **enabled by default** on most systems, so **no action is needed** unless you have explicitly disabled it.
+
+**Important:** Desktop environments expose Wayland in different ways, and the plugin supports all Wayland compositors by shipping multiple Wayland and XWayland backends and supporting multiple protocols. In rare cases, auto-detection may pick the wrong backend for your setup. If you encounter issues (such as the inability to copy scrollback, or if you notice a blank or non-focusable window appearing in your taskbar when you copy text), please [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) and include your desktop environment, compositor, terminal, and whether XWayland is enabled and the detected platform you see when you run `edit-select config`. This helps us redirect you to the correct protocol or backend (native Wayland or XWayland) for your setup.
+</details>
 
 ### 4. (Optional) Customize Settings
 
