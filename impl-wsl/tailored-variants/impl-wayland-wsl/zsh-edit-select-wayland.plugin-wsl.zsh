@@ -500,13 +500,10 @@ function _zes_activate_region_and_dispatch() {
 }
 
 function _zes_terminal_focus_in() {
-    # During a scrollback handoff (_ZES_MOUSE_AUTOSUSPENDED=1), VS Code sends
-    # focus-in when the terminal pane re-asserts keyboard focus. Clearing
-    # selection state here would discard any daemon-detected primary selection
-    # the user just made in the scrollback. Update the mtime baseline so the
-    # next real selection event is detected correctly, but preserve the active
-    # selection state. Mouse tracking will be lazily re-armed on the next
-    # keypress via _zes_resume_tracking_if_needed.
+    # Focus-in can arrive immediately after a terminal-native selection path.
+    # Clearing state here would discard a daemon-detected selection before the
+    # next widget can act on it, so autosuspended handoffs only refresh the
+    # seq-file baseline and leave selection ownership unchanged.
     if ((_ZES_MOUSE_AUTOSUSPENDED)); then
         if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
             local -a stat_info

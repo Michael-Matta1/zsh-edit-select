@@ -3,7 +3,7 @@
 //
 // Windows clipboard helper for zsh-edit-select WSL backend.
 // Cross-compiled from WSL with MinGW:
-//   x86_64-w64-mingw32-gcc -O2 -o zes-wsl-clipboard-helper.exe \
+//   x86_64-w64-mingw32-gcc -O2 -o zes-wsl-clipboard-helper.exe
 //       zes-wsl-clipboard-helper.c -luser32
 //
 // Modes (first matching flag wins):
@@ -15,9 +15,8 @@
 //   --inject-left-down Inject synthetic left mouse button DOWN via SendInput.
 //   --inject-left-up  Inject synthetic left mouse button UP via SendInput.
 //   --wait-left-up    Block until physical left mouse button is released.
-//   --wait-next-left-down Block until the next physical left-button press.
 //   --handoff-scrollback Inject DOWN, wait for physical LEFT UP, inject UP.
-//   --handoff-scrollback-vscode VS Code-safe handoff: avoids Win32 double-click.
+//   --handoff-scrollback-vscode-shift VS Code xterm.js Shift-selection handoff.
 //   --help / -h       Print usage to stderr and exit.
 
 #ifndef UNICODE
@@ -408,6 +407,111 @@ static int run_inject_left_up(void) {
     return (sent == 1) ? 0 : 1;
 }
 
+/* VS Code drag recovery uses UP->DOWN to leave xterm.js's already-consumed
+   tracking gesture and begin a fresh native Shift-selection drag. */
+static int run_inject_left_up_down(void) {
+    INPUT in[2];
+    memset(in, 0, sizeof(in));
+
+    in[0].type = INPUT_MOUSE;
+    in[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+
+    in[1].type = INPUT_MOUSE;
+    in[1].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+
+    UINT sent = SendInput(2, in, sizeof(INPUT));
+    return (sent == 2) ? 0 : 1;
+}
+
+static LONG normalize_absolute_coord(int value, int origin, int span) {
+    if (span <= 1)
+        return 0;
+    return (LONG)(((value - origin) * 65535LL) / (span - 1));
+}
+
+static int fill_absolute_move(INPUT *in, POINT pt) {
+    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (vw <= 0 || vh <= 0)
+        return 1;
+
+    memset(in, 0, sizeof(*in));
+    in->type = INPUT_MOUSE;
+    in->mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+    in->mi.dx = normalize_absolute_coord(pt.x, vx, vw);
+    in->mi.dy = normalize_absolute_coord(pt.y, vy, vh);
+    return 0;
+}
+
+/* VS Code drag startup can lag behind the physical press. Replaying the
+   synthetic DOWN at the helper's first observed point preserves the earliest
+   anchor available without a global hook or a resident recorder. */
+static int run_inject_left_up_down_at_anchor(POINT anchor, POINT current) {
+    INPUT in[4];
+    memset(in, 0, sizeof(in));
+
+    in[0].type = INPUT_MOUSE;
+    in[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+
+    if (fill_absolute_move(&in[1], anchor) != 0)
+        return run_inject_left_up_down();
+
+    in[2].type = INPUT_MOUSE;
+    in[2].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+
+    if (fill_absolute_move(&in[3], current) != 0)
+        return run_inject_left_up_down();
+
+    UINT sent = SendInput(4, in, sizeof(INPUT));
+    if (sent != 4) {
+        (void)run_inject_left_up();
+        return 1;
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Synthetic Shift key helpers for VS Code's xterm.js path only.      */
+/*                                                                    */
+/*  xterm.js deliberately lets Shift+mouse use native terminal         */
+/*  selection even while DECSET mouse tracking is enabled. The shell   */
+/*  uses these helpers only for the VS Code handoff mode so Windows    */
+/*  Terminal keeps using its existing mouse-event replay path.          */
+/* ------------------------------------------------------------------ */
+static int run_shift_key(BOOL down) {
+    INPUT in;
+    memset(&in, 0, sizeof(in));
+    in.type = INPUT_KEYBOARD;
+    in.ki.wVk = VK_SHIFT;
+    if (!down)
+        in.ki.dwFlags = KEYEVENTF_KEYUP;
+
+    UINT sent = SendInput(1, &in, sizeof(INPUT));
+    return (sent == 1) ? 0 : 1;
+}
+
+static int run_shift_down(void) {
+    return run_shift_key(TRUE);
+}
+
+static int run_shift_up(void) {
+    return run_shift_key(FALSE);
+}
+
+static BOOL key_is_down(int vk) {
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
+
+static int abs_int(int v) {
+    return (v < 0) ? -v : v;
+}
+
+static int max_int(int a, int b) {
+    return (a > b) ? a : b;
+}
+
 /* ------------------------------------------------------------------ */
 /*  --wait-left-up: block until physical left button is released.     */
 /* ------------------------------------------------------------------ */
@@ -418,52 +522,6 @@ static int run_wait_left_up(void) {
         if (elapsed >= LEFT_UP_WAIT_TIMEOUT_MS)
             return 1;  /* Timed out — avoid infinite spin. */
         Sleep(1);
-    }
-    return 0;
-}
-
-/* ------------------------------------------------------------------ */
-/*  --wait-next-left-down: block until the next physical left click.  */
-/*                                                                    */
-/*  Waits for:  current UP (if held)  →  gap  →  next DOWN  →  UP.   */
-/*                                                                    */
-/*  Waiting for the full DOWN+UP instead of just DOWN ensures that    */
-/*  the ZLE callback fires AFTER the user's next mouse interaction    */
-/*  is fully complete, preventing two problems:                       */
-/*  1. 1000h sent mid-drag: would switch VS Code back to tracking mode*/
-/*     and interrupt the new drag the user intended.                  */
-/*  2. Double-click selection auto-cleared: the re-arm callback used  */
-/*     to fire while the user held the re-arm click, clearing the     */
-/*     word selection before they could act on it.                    */
-/*  By firing only after button-up, native interactions finish first. */
-/* ------------------------------------------------------------------ */
-static int run_wait_next_left_down(void) {
-    #define NEXT_DOWN_TIMEOUT_MS 30000
-    DWORD start = GetTickCount();
-
-    /* If button is currently held (mid-interaction), wait for release. */
-    while (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
-        if (GetTickCount() - start >= NEXT_DOWN_TIMEOUT_MS) return 1;
-        Sleep(5);
-    }
-
-    /* 150 ms gap: lets double-click word selections settle and remain
-       visible long enough for the user to read / Ctrl+C before any
-       accidental micro-movement triggers the next phase. */
-    Sleep(150);
-
-    /* Wait for the next press. */
-    while (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
-        if (GetTickCount() - start >= NEXT_DOWN_TIMEOUT_MS) return 1;
-        Sleep(5);
-    }
-
-    /* Wait for the press to COMPLETE (button released) before signalling
-       ZLE.  This prevents 1000h from being sent while the button is held,
-       which would interrupt drags or clear visible selections. */
-    while (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
-        if (GetTickCount() - start >= NEXT_DOWN_TIMEOUT_MS) return 1;
-        Sleep(5);
     }
     return 0;
 }
@@ -573,101 +631,104 @@ static int run_handoff_scrollback(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  --handoff-scrollback-vscode: VS Code-safe scrollback handoff.     */
+/*  --handoff-scrollback-vscode-shift: VS Code native-selection path.  */
 /*                                                                    */
-/*  No WH_MOUSE_LL hook: hooks require the installing thread to pump  */
-/*  Win32 messages; sleeping without a message loop causes a system-  */
-/*  wide mouse freeze.  GetAsyncKeyState at 1 ms is sufficient.       */
+/*  VS Code's xterm.js clears visible selection when mouse tracking is */
+/*  re-enabled. Rather than toggling DECSET 1000/1002/1006 off and on, */
+/*  this mode keeps tracking armed and temporarily holds Shift, which  */
+/*  is xterm.js's built-in "force native selection" override.          */
 /*                                                                    */
-/*  PATH 1 — DRAG: button held at entry, cursor moves > SM_CXDRAG.   */
-/*    Inject DOWN immediately; drag duration exceeds dblclick window. */
-/*    Wait for physical UP. Skip synthetic UP.                        */
-/*                                                                    */
-/*  PATH 2 — MULTI-CLICK: rising edge (UP→DOWN) detected within      */
-/*    GetDoubleClickTime() after UP1.  Win32 generated WM_LBUTTONDBLCLK*/
-/*    natively; VS Code already word/line selected.  Inject nothing.  */
-/*                                                                    */
-/*  PATH 3 — SINGLE CLICK: no second DOWN in the dblclick window.    */
-/*    Inject DOWN+UP now — window has expired, no spurious dblclick.  */
+/*  The first physical click has already been consumed by mouse        */
+/*  tracking before the shell calls this helper. Replaying a tap would */
+/*  add one to Chromium's click count, so taps are never replayed. For */
+/*  drags, a synthetic UP resets xterm.js's tracked button state before */
+/*  a synthetic Shift+DOWN starts a native browser selection. For      */
+/*  double/triple-clicks, Shift is held across the native follow-up    */
+/*  clicks, matching the user's manual Shift-selection workaround.      */
 /* ------------------------------------------------------------------ */
-static int run_handoff_scrollback_vscode(void) {
-    DWORD t_entry     = GetTickCount();
+static int run_handoff_scrollback_vscode_shift(void) {
+    DWORD start = GetTickCount();
     DWORD dblclick_ms = GetDoubleClickTime();
+    if (dblclick_ms < 100) dblclick_ms = 100;
+    if (dblclick_ms > 1000) dblclick_ms = 1000;
 
-    POINT p0;
-    GetCursorPos(&p0);
+    POINT origin;
+    GetCursorPos(&origin);
 
-    /* ---- PATH 1 probe: watch for drag while button is held ---- */
-    if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
-        for (;;) {
-            POINT p1;
-            GetCursorPos(&p1);
-            int dx = p1.x - p0.x; if (dx < 0) dx = -dx;
-            int dy = p1.y - p0.y; if (dy < 0) dy = -dy;
-            /* Inject as soon as ANY cursor movement is detected.
-               p0 is recorded at process-start (~65ms after physical DOWN),
-               so the cursor has already moved past SM_CXDOUBLECLK relative
-               to the original press — injecting at p0+1 px is therefore
-               outside Win32's double-click zone and safe from dblclick.
-               Using dx > 0 (not dx > SM_CXDRAG) removes the extra ~5 px
-               threshold shift that caused "ello" to be selected instead of
-               "hello".  The remaining ~13 px startup-delay shift is the
-               unavoidable architectural minimum. */
-            if (dx > 0 || dy > 0) {
-                /* PATH 1 — DRAG */
-                if (run_inject_left_down() != 0) return 1;
-                run_wait_left_up();   /* poll-based wait, no hook needed */
-                return 0;
+    BOOL shift_was_down = key_is_down(VK_SHIFT);
+    BOOL sent_shift = FALSE;
+    BOOL synthetic_down = FALSE;
+    int rc = 0;
+    int drag_tolerance_x = max_int(GetSystemMetrics(SM_CXDRAG), 2);
+    int drag_tolerance_y = max_int(GetSystemMetrics(SM_CYDRAG), 2);
+
+    if (!shift_was_down) {
+        if (run_shift_down() != 0)
+            return 1;
+        sent_shift = TRUE;
+    }
+
+    /* Drag handoff: movement is the proof that this is not a stationary tap.
+       VS Code/xterm.js already handled the physical DOWN as a tracking event,
+       so an UP->DOWN pair under Shift gives native selection a fresh start
+       without adding an extra click to simple single/double/triple clicks. */
+    if (key_is_down(VK_LBUTTON)) {
+        while (key_is_down(VK_LBUTTON)) {
+            POINT cur;
+            GetCursorPos(&cur);
+            int dx = abs_int(cur.x - origin.x);
+            int dy = abs_int(cur.y - origin.y);
+
+            if (!synthetic_down && (dx > drag_tolerance_x || dy > drag_tolerance_y)) {
+                /* VS Code drag startup is latency-sensitive. Installing a
+                   WH_MOUSE_LL hook at this point can briefly stall Chromium's
+                   mouse pipeline; polling the physical release preserves the
+                   same UP->DOWN->UP handoff without entering that hook path. */
+                if (run_inject_left_up_down_at_anchor(origin, cur) != 0) {
+                    rc = 1;
+                    goto done;
+                }
+                synthetic_down = TRUE;
             }
-            if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
-                break;      /* UP1 detected */
-            Sleep(1);       /* 1 ms: fine position sampling, no message pump needed */
+
+            if (GetTickCount() - start >= LEFT_UP_WAIT_TIMEOUT_MS) {
+                rc = 1;
+                goto done;
+            }
+            Sleep(1);
+        }
+
+        if (synthetic_down) {
+            if (run_inject_left_up() != 0 && rc == 0)
+                rc = 1;
+            goto done;
         }
     }
 
-    /* ---- PATH 2 probe: rising-edge detection for multi-click ---- */
-    /* 1 ms polling catches UP1+DOWN2 transitions even if they occur   */
-    /* within the same 5 ms window that coarser polling would miss.    */
-    DWORD deadline  = t_entry + dblclick_ms + 10;
-    BOOL  prev_down = FALSE;
-    BOOL  multi     = FALSE;
-
-    while (GetTickCount() < deadline) {
-        BOOL cur_down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-
-        if (!prev_down && cur_down) {
-            /* Rising edge: second (or third) physical press detected. */
-            multi = TRUE;
-            /* Drain second click UP. */
-            while (GetAsyncKeyState(VK_LBUTTON) & 0x8000) Sleep(1);
-            /* Drain optional triple-click within 150 ms (not a full
-               dblclick_ms — that 500 ms wait delays Phase 2 start and
-               shortens the visible selection window unnecessarily). */
-            DWORD d3   = GetTickCount() + 150;
-            BOOL  p3   = FALSE;
-            while (GetTickCount() < d3) {
-                BOOL c3 = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-                if (!p3 && c3)
-                    while (GetAsyncKeyState(VK_LBUTTON) & 0x8000) Sleep(1);
-                p3 = c3;
+    /* Multi-click handoff: keep Shift pressed until the double-click window
+       goes quiet. Each real follow-up click extends the window, so triple
+       click can still promote word selection to line selection. */
+    DWORD deadline = GetTickCount() + dblclick_ms + 20;
+    DWORD hard_deadline = start + (2 * dblclick_ms) + 250;
+    BOOL was_down = key_is_down(VK_LBUTTON);
+    while (GetTickCount() < deadline && GetTickCount() < hard_deadline) {
+        BOOL down = key_is_down(VK_LBUTTON);
+        if (down && !was_down) {
+            while (key_is_down(VK_LBUTTON)) {
+                if (GetTickCount() >= hard_deadline)
+                    break;
                 Sleep(1);
             }
-            break;
+            deadline = GetTickCount() + dblclick_ms + 20;
         }
-
-        prev_down = cur_down;
+        was_down = down;
         Sleep(1);
     }
 
-    if (multi) {
-        /* PATH 2 — MULTI-CLICK: native handling already applied. */
-        return 0;
-    }
-
-    /* PATH 3 — SINGLE CLICK: dblclick window expired, safe to inject. */
-    int rc = run_inject_left_down();
-    if (rc != 0) return rc;
-    return run_inject_left_up();
+done:
+    if (sent_shift)
+        run_shift_up();
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -681,9 +742,8 @@ int main(int argc, char *argv[]) {
     int mode_inject_left_down = 0;
     int mode_inject_left_up = 0;
     int mode_wait_left_up = 0;
-    int mode_wait_next_left_down = 0;
     int mode_handoff_scrollback = 0;
-    int mode_handoff_scrollback_vscode = 0;
+    int mode_handoff_scrollback_vscode_shift = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--daemon") == 0)
@@ -700,15 +760,13 @@ int main(int argc, char *argv[]) {
             mode_inject_left_up = 1;
         else if (strcmp(argv[i], "--wait-left-up") == 0)
             mode_wait_left_up = 1;
-        else if (strcmp(argv[i], "--wait-next-left-down") == 0)
-            mode_wait_next_left_down = 1;
         else if (strcmp(argv[i], "--handoff-scrollback") == 0)
             mode_handoff_scrollback = 1;
-        else if (strcmp(argv[i], "--handoff-scrollback-vscode") == 0)
-            mode_handoff_scrollback_vscode = 1;
+        else if (strcmp(argv[i], "--handoff-scrollback-vscode-shift") == 0)
+            mode_handoff_scrollback_vscode_shift = 1;
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             fprintf(stderr,
-                "Usage: %s [--daemon|--get-clipboard|--set-clipboard|--get-seq|--inject-left-down|--inject-left-up|--wait-left-up|--wait-next-left-down|--handoff-scrollback]\n"
+                "Usage: %s [--daemon|--get-clipboard|--set-clipboard|--get-seq|--inject-left-down|--inject-left-up|--wait-left-up|--handoff-scrollback|--handoff-scrollback-vscode-shift]\n"
                 "Windows clipboard helper for zsh-edit-select WSL backend.\n\n"
                 "  --daemon          Monitor clipboard (event-driven, stdout protocol)\n"
                 "  --get-clipboard   Print clipboard text to stdout\n"
@@ -717,9 +775,8 @@ int main(int argc, char *argv[]) {
                 "  --inject-left-down Inject synthetic left-button down\n"
                 "  --inject-left-up  Inject synthetic left-button up\n"
                 "  --wait-left-up    Wait until physical left button is released\n"
-                "  --wait-next-left-down Wait for next physical left-button press\n"
                 "  --handoff-scrollback Atomic down/wait-physical-up/up gesture handoff\n"
-                "  --handoff-scrollback-vscode VS Code-safe handoff (avoids dblclick)\n",
+                "  --handoff-scrollback-vscode-shift VS Code Shift-selection handoff\n",
                 argv[0]);
             return 0;
         } else {
@@ -742,12 +799,10 @@ int main(int argc, char *argv[]) {
         return run_inject_left_up();
     if (mode_wait_left_up)
         return run_wait_left_up();
-    if (mode_wait_next_left_down)
-        return run_wait_next_left_down();
     if (mode_handoff_scrollback)
         return run_handoff_scrollback();
-    if (mode_handoff_scrollback_vscode)
-        return run_handoff_scrollback_vscode();
+    if (mode_handoff_scrollback_vscode_shift)
+        return run_handoff_scrollback_vscode_shift();
 
     /* Default (no args): daemon mode. */
     return run_daemon();

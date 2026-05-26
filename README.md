@@ -772,8 +772,9 @@ If these entries already exist, update their current values to match the above.
 </details>
 
 
-**Note:** Mouse integration is currently most compatible with Windows Terminal and the VS Code terminal. If you use another terminal, or encounter issues, you can disable mouse integration and restore your terminal's default behavior by turning off mouse replacement through the configuration wizard (`edit-select config`), then choosing the first option to configure mouse behavior.
-> Mouse integration in the VS Code terminal is currently unstable and under development. For heavy use of the VS Code terminal under WSL, it is recommended to temporarily disable this feature via the configuration wizard, or alternatively, hold Shift while selecting the terminal scrollback.
+**Note:** Mouse integration is currently most compatible with Windows 11 Terminal and the VS Code terminal. If you use another terminal, or encounter issues, you can **disable mouse integration and restore your terminal's default behavior** by turning off mouse replacement through the configuration wizard (`edit-select config`), then choosing the first option to configure mouse behavior.
+
+> Known Limitation in VS Code: With Mouse integration enabled, **Extremely** fast VS Code scrollback drags may still show a very small startup offset due to the currently unavoidable shell/helper handoff latency (planned to be optimized in future releases).
 
 </details>
 

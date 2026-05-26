@@ -117,17 +117,12 @@ if [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && { local pv="$(
     _ZES_ON_WSL=1
 fi
 
-# Detect VS Code terminal. VS Code clears the terminal's visual text selection
-# whenever mouse-tracking mode (DECSET 1000h) is enabled, unlike Windows
-# Terminal which preserves the selection through tracking mode changes.
-# To achieve functional parity we use a zle -F pipe-callback: a background
-# subshell waits for the physical mouse button to be released (via the helper
-# binary), then signals the parent ZLE loop through a zsystem pipe FD so that
-# _zes_enable_mouse_tracking runs fully in the parent context — re-installing
-# the \e[< binding and re-sending DECSET 1000h only after the selection has
-# been captured by the daemon. Fallback: lazy re-arm on the next keypress.
+# Detect VS Code terminal. VS Code's xterm.js clears visible selections when
+# mouse tracking is toggled back on, but it preserves native selection when
+# Shift is held. The VS Code path therefore uses a helper-side Shift override
+# instead of DECSET off/on toggling, keeping tracking ready immediately.
 typeset -gi _ZES_IS_VSCODE=0
-[[ "${TERM_PROGRAM:-}" == "vscode" ]] && _ZES_IS_VSCODE=1
+[[ "${TERM_PROGRAM:-}" == "vscode" || -n "${VSCODE_INJECTION:-}" ]] && _ZES_IS_VSCODE=1
 
 # Start the background selection agent and wait until it signals readiness.
 # The agent writes an initial seq file immediately after daemonising; waiting
@@ -363,8 +358,8 @@ typeset -gF _ZES_MOUSE_MULTI_CLICK_THRESHOLD=0.4  # seconds
 typeset -gi _ZES_WSL_HELPER_HANDOFF_READY=-1      # -1 unknown, 0 no, 1 yes
 typeset -gi _ZES_WSL_HELPER_HANDOFF_REBUILD_TRIED=0
 typeset -g _ZES_WSL_HELPER_HANDOFF_MODE=""       # atomic | legacy
-# Read FD for the VS Code scrollback re-arm pipe (-1 = none open).
-typeset -gi _ZES_VSCODE_REARM_FD=-1
+typeset -gi _ZES_WSL_HELPER_VSCODE_HANDOFF_READY=-1
+typeset -gi _ZES_WSL_HELPER_VSCODE_HANDOFF_REBUILD_TRIED=0
 
 # Select the WSL mouse strategy.
 # WSL mouse strategy:
@@ -864,33 +859,10 @@ function _zes_mouse_event_handler() {
 }
 zle -N _zes_mouse_event_handler
 
-# ZLE fd-callback for VS Code: fires when the user makes their next physical
-# mouse click after a scrollback selection.  At that point the selection has
-# persisted visibly; we now re-arm tracking (1000h) which clears the highlight
-# but the daemon already holds the text for type-to-replace.
-function _zes_vscode_rearm_fd_callback() {
-    local fd=$1
-    zle -F $fd 2>/dev/null
-    exec {fd}<&- 2>/dev/null
-    _ZES_VSCODE_REARM_FD=-1
-    [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]] || return
-    ((_ZES_MOUSE_AUTOSUSPENDED)) || return   # keypress already re-armed
-    ((_ZES_MOUSE_TRACKING)) && return        # already enabled
-    _zes_enable_mouse_tracking
-    zle -R 2>/dev/null
-}
-zle -N _zes_vscode_rearm_fd_callback
-
 # Enable WSL mouse tracking: install precmd hook and mouse keybinding.
 # Called from edit-select::apply-mouse-replacement-config when on WSL.
 function _zes_enable_mouse_tracking() {
     ((_ZES_MOUSE_TRACKING)) && return   # already enabled
-    # Tear down any open VS Code re-arm pipe (superseded by keypress).
-    if ((_ZES_VSCODE_REARM_FD >= 0)); then
-        zle -F $_ZES_VSCODE_REARM_FD 2>/dev/null
-        exec {_ZES_VSCODE_REARM_FD}<&- 2>/dev/null
-        _ZES_VSCODE_REARM_FD=-1
-    fi
     _ZES_MOUSE_TRACKING=1
     _ZES_MOUSE_AUTOSUSPENDED=0
     # Install precmd hook for cursor position tracking
@@ -985,8 +957,73 @@ function _zes_prepare_wsl_scrollback_handoff_helper() {
     return 1
 }
 
+# VS Code-specific capability check. The new helper mode is intentionally
+# separate from --handoff-scrollback so the Windows Terminal replay path keeps
+# using its existing code and timing unchanged.
+function _zes_wsl_helper_supports_vscode_shift_handoff() {
+    [[ -s "$_ZES_WSL_HELPER_EXE" ]] || return 1
+    local helper_help=""
+    helper_help=$("$_ZES_WSL_HELPER_EXE" --help 2>&1) || true
+    [[ "$helper_help" == *"--handoff-scrollback-vscode-shift"* ]]
+}
+
+# VS Code needs the helper mode that holds Shift around the replayed click.
+# If an installed helper is older, rebuild only this helper binary from the
+# local source and leave the Windows Terminal handoff mode selection untouched.
+function _zes_prepare_wsl_vscode_scrollback_handoff_helper() {
+    if ((_ZES_WSL_HELPER_VSCODE_HANDOFF_READY == 1)); then
+        return 0
+    fi
+
+    if _zes_wsl_helper_supports_vscode_shift_handoff; then
+        _ZES_WSL_HELPER_VSCODE_HANDOFF_READY=1
+        return 0
+    fi
+
+    if ((!_ZES_WSL_HELPER_VSCODE_HANDOFF_REBUILD_TRIED)); then
+        _ZES_WSL_HELPER_VSCODE_HANDOFF_REBUILD_TRIED=1
+        local helper_dir="${_ZES_WSL_HELPER_EXE:h}"
+        if [[ -f "$helper_dir/Makefile" ]] && [[ -w "$helper_dir" ]]; then
+            ( cd "$helper_dir" && make zes-wsl-clipboard-helper.exe >/dev/null 2>&1 )
+            if _zes_wsl_helper_supports_vscode_shift_handoff; then
+                _ZES_WSL_HELPER_VSCODE_HANDOFF_READY=1
+                return 0
+            fi
+        fi
+    fi
+
+    _ZES_WSL_HELPER_VSCODE_HANDOFF_READY=0
+    return 1
+}
+
+# VS Code/xterm.js treats Shift+mouse as a native terminal selection override
+# even while application mouse tracking remains enabled. Using that override
+# avoids the xterm.js selection-clear side effect caused by DECSET re-enable,
+# so tracking is still active immediately after the scrollback gesture.
+function _zes_handoff_to_native_scrollback_vscode() {
+    _ZES_MOUSE_SELECTING=0
+    _ZES_MOUSE_ANCHOR=-1
+    _ZES_MOUSE_AUTOSUSPENDED=0
+
+    if _zes_prepare_wsl_vscode_scrollback_handoff_helper; then
+        "$_ZES_WSL_HELPER_EXE" --handoff-scrollback-vscode-shift >/dev/null 2>&1 &!
+        return
+    fi
+
+    # Last-resort compatibility path for an old or unavailable helper: give
+    # native selection control to VS Code on the next gesture rather than risk
+    # replaying a stuck mouse button into the terminal.
+    _zes_disable_mouse_tracking
+    _ZES_MOUSE_AUTOSUSPENDED=1
+}
+
 function _zes_handoff_to_native_scrollback() {
     ((_ZES_MOUSE_TRACKING)) || return
+
+    if ((_ZES_IS_VSCODE)); then
+        _zes_handoff_to_native_scrollback_vscode
+        return
+    fi
 
     # Gate synthetic handoff on helper capability to avoid sticky drag state
     # with older helper builds that lack --inject-left-up.
@@ -1001,64 +1038,6 @@ function _zes_handoff_to_native_scrollback() {
     _ZES_MOUSE_SELECTING=0
     _ZES_MOUSE_ANCHOR=-1
     _ZES_MOUSE_AUTOSUSPENDED=1
-
-    # ── VS Code: click-triggered re-arm — selection preserved until next click ─
-    # VS Code's xterm.js clears the selection when DECSET 1000h is sent, so we
-    # cannot re-arm immediately on mouse-up.  Instead:
-    #   Phase 1: --handoff-scrollback handles the current drag (injects events,
-    #            waits for the physical release).
-    #   Phase 2: --wait-next-left-down blocks until the user clicks anywhere.
-    #            The click is processed natively (tracking is off), then the
-    #            process-sub exits, the ZLE fd-callback fires, and tracking is
-    #            re-armed via _zes_enable_mouse_tracking.
-    # Result: selection stays visible until the user clicks — no keypress needed.
-    # Fallback: if the helper doesn't support --wait-next-left-down (old binary)
-    #           it exits with code 1 immediately; the callback fires right away
-    #           (same as eager re-arm).  Also, typing a key re-arms via the
-    #           existing lazy-keypress path (_zes_resume_tracking_if_needed).
-    if ((_ZES_IS_VSCODE)); then
-        if ((_ZES_VSCODE_REARM_FD >= 0)); then
-            zle -F $_ZES_VSCODE_REARM_FD 2>/dev/null
-            exec {_ZES_VSCODE_REARM_FD}<&- 2>/dev/null
-            _ZES_VSCODE_REARM_FD=-1
-        fi
-        _ZES_MOUSE_TRACKING=0   # ensure lazy rearm guard fires too
-        local _zes_rfd=0
-        exec {_zes_rfd}< <(
-            # Phase 1: VS Code-safe drag handoff.
-            # Root cause of spurious dblclick: the physical LBUTTONDOWN (T0)
-            # is intercepted by tracking mode but Win32 still counts it for its
-            # dblclick timer.  A synthetic LBUTTONDOWN injected within
-            # GetDoubleClickTime() (~500ms) of T0 causes WM_LBUTTONDBLCLK →
-            # Chromium dblclick → VS Code word-selects instead of single-click.
-            #
-            # --handoff-scrollback-vscode waits GetDoubleClickTime()
-            # before injecting, handling both quick-clicks and long drags.
-            # Old-binary fallback: shell sleeps 0.55 s first so that the
-            # subsequent --inject-left-down arrives at T0+~620 ms > 500 ms. ✓
-            if [[ "$_ZES_WSL_HELPER_HANDOFF_MODE" == "atomic" ]]; then
-                if ! "$_ZES_WSL_HELPER_EXE" --handoff-scrollback-vscode >/dev/null 2>&1; then
-                    # Old helper: sleep here to expire the Win32 dblclick window.
-                    sleep 0.55
-                    "$_ZES_WSL_HELPER_EXE" --inject-left-down >/dev/null 2>&1 || exit
-                    "$_ZES_WSL_HELPER_EXE" --wait-left-up    >/dev/null 2>&1
-                fi
-            else
-                # Legacy mode: same sleep-then-inject approach.
-                sleep 0.55
-                "$_ZES_WSL_HELPER_EXE" --inject-left-down >/dev/null 2>&1 || exit
-                "$_ZES_WSL_HELPER_EXE" --wait-left-up    >/dev/null 2>&1
-            fi
-            # Phase 2: wait for the user's next deliberate click
-            "$_ZES_WSL_HELPER_EXE" --wait-next-left-down >/dev/null 2>&1
-            [[ "$_ZES_WSL_MOUSE_MODE" == "tracking" ]] && printf 'ok'
-        ) 2>/dev/null
-        if ((_zes_rfd > 0)); then
-            _ZES_VSCODE_REARM_FD=$_zes_rfd
-            zle -F $_zes_rfd _zes_vscode_rearm_fd_callback
-        fi
-        return
-    fi
 
     # ── Windows Terminal (and VS Code pipe-setup-failed fallback) ──────────
     if [[ "$_ZES_WSL_HELPER_HANDOFF_MODE" == "atomic" ]]; then
