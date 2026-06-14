@@ -47,8 +47,8 @@ support.
 - ✅ **Standard shortcuts** — Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Z, Ctrl+Shift+Z
   (on **macOS**, Ctrl is replaced with **Command (Cmd)**)
 
-> **Customization:** The plugin works with editor-like defaults after installation. Use the command
-> `edit-select config` to customize mouse behavior and keybindings.
+> [!NOTE]
+> **Customization:** The plugin works with editor-like defaults after installation. Use the command `edit-select config` to customize mouse behavior and keybindings.
 
 ---
 
@@ -66,15 +66,16 @@ Select text using familiar keyboard shortcuts:
 | **Shift + Ctrl + ←/→** | Select word by word |
 | **Shift + Ctrl + Home/End** | Select to buffer start/end |
 | **Ctrl + A** | Select all text (including multi-line commands) |
-
 > **macOS:** Replace `Ctrl` with `Cmd` for whole-line/all-text shortcuts, and with `Option` for word-by-word selection.
 
-For the full keybindings, check the [Default Key Bindings Reference](#default-key-bindings-reference).
+> [!TIP]
+>
+>For the full keybindings, check the [Default Key Bindings Reference](#default-key-bindings-reference).
 
 
 ### Mouse Selection Integration
 
-The plugin intelligently integrates mouse selections, but you can disable it using the [Configuration Wizard](#configuration-wizard):
+The plugin integrates mouse selections, but you can disable it using the [Configuration Wizard](#configuration-wizard):
 
 **When Mouse Replacement is Enabled (default):**
 
@@ -246,6 +247,7 @@ required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
 ## Manual Installation
 
+
 The process consists of two steps:
 
 1. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
@@ -256,10 +258,6 @@ The process consists of two steps:
 > For a manual build and an optimized experience tailored to your specific hardware (e.g., using `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
 >
 In some cases, the **first** shell load may be delayed due to temporary GitHub infrastructure issues that may slow down the agent downloading process. This only affects **only** the **first** post-installation load. If the **first** startup takes longer than expected, wait a few minutes and try again once GitHub services are fully operational.
-
-> If you run into any difficulty at any step, please
-> [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) and it will be addressed.
-
 
 
 
@@ -368,11 +366,22 @@ details.
 source ~/.zshrc
 ```
 
-> **Important:** You may need to fully close and reopen your terminal (not just source ~/.zshrc) for all
-> features to work correctly, especially in some terminal emulators.
+**Important:** You may need to **fully close and reopen your terminal** (not just source ~/.zshrc) for all
+features to work correctly, especially in some terminal emulators.
 
+> [!IMPORTANT]
+> #### **(Wayland Users only)**
+><details>
+><summary><b>Click to expand</b></summary>
+>
+>If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to >function correctly under Wayland.
+>
+>XWayland is **enabled by default** on most systems, so **no action is needed** unless you have explicitly disabled it.
+>
+>**Important:** Desktop environments expose Wayland in different ways, and the plugin supports all Wayland compositors by shipping multiple Wayland and XWayland backends and supporting multiple protocols. In rare cases, auto-detection may pick the wrong backend for your setup. If you encounter issues (such as the inability to copy scrollback, or if you notice a blank or non-focusable window appearing in your taskbar when you copy text), please [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) and include your desktop environment, compositor, terminal, and whether XWayland is enabled and the detected platform you see when you run `edit-select config`. This helps us redirect you to the correct protocol or backend (native Wayland or XWayland) for your setup.
+></details>
 
-### 3.5 Enable Mouse Integration (macOS only)
+### 3.5 Enable Mouse Integration **(macOS only)**
 
 If you are using macOS, you will need an extra step to enable mouse integration.
 
@@ -411,19 +420,9 @@ If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
 
 </details>
 
-### Important Note (Wayland Users only)
 
-<details>
-<summary><b>Click to expand</b></summary>
 
-If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to function correctly under Wayland.
-
-XWayland is **enabled by default** on most systems, so **no action is needed** unless you have explicitly disabled it.
-
-**Important:** Desktop environments expose Wayland in different ways, and the plugin supports all Wayland compositors by shipping multiple Wayland and XWayland backends and supporting multiple protocols. In rare cases, auto-detection may pick the wrong backend for your setup. If you encounter issues (such as the inability to copy scrollback, or if you notice a blank or non-focusable window appearing in your taskbar when you copy text), please [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) and include your desktop environment, compositor, terminal, and whether XWayland is enabled and the detected platform you see when you run `edit-select config`. This helps us redirect you to the correct protocol or backend (native Wayland or XWayland) for your setup.
-</details>
-
-### 4. (Optional) Customize Settings
+### 4. Customize Settings **(Optional)**
 
 The plugin works immediately with sensible defaults, but you can customize:
 
@@ -446,8 +445,9 @@ Launch the interactive configuration wizard:
 edit-select config
 ```
 
-For a full command list (including maintenance and platform-specific commands), see
-[Commands Reference](#commands-reference).
+
+> [!TIP]
+> For a full command list (including maintenance and platform-specific commands), see [Commands Reference](#commands-reference).
 
 The wizard provides:
 
@@ -636,18 +636,22 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 
 ## Popular Terminals Configurations
 
+> The current documentation covers Kitty, WezTerm, Ghostty, Foot (Linux only), iTerm2 (macOS only), VS Code Terminal, and Windows Terminal (WSL only).
+>
+> Instructions for **tmux** integration are also included.
+
 > [Open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you need help with a terminal
 > that is not covered.
-
-
 
 
 This section provides complete, ready-to-paste configurations for each supported terminal. Find your terminal below, then expand the section for your operating system to get the full config block you can integrate with yours.
 
 **CRITICAL:** While adding these mappings, remove or comment out any existing conflicting bindings
 
-
-**Note:** Comments inside each configuration block provide inline guidance. Some options are included but commented out; uncomment them to switch to an alternative behavior. For example, by default the copy shortcut is `Ctrl+Shift+C` on Linux (the traditional terminal convention, where `Ctrl+C` sends an interrupt signal). If you prefer GUI-style behavior where `Ctrl+C` copies and `Ctrl+Shift+C` sends the interrupt, follow the instructions in the comments to switch to that option.
+>[!TIP]
+> Comments inside each configuration block provide inline guidance. Some options are included but commented out; uncomment them to switch to an alternative behavior.
+>
+> For example, by default the copy shortcut is `Ctrl+Shift+C` on Linux (the traditional terminal convention, where `Ctrl+C` sends an interrupt signal). If you prefer **GUI-style** behavior where `Ctrl+C` **copies** and `Ctrl+Shift+C` sends the interrupt, follow the instructions in the comments to switch to that option.
 
 **Note (macOS):** Almost all macOS terminal emulators intercept `Cmd` keys by default, so explicit mappings are required. If you cannot or do not want to modify your terminal's bindings, run `edit-select config` and choose Ctrl fallback presets for **Cut** (`Ctrl+X`), **Paste** (`Ctrl+V`), **Undo** (`Ctrl+Z`), and **Select All** (`Ctrl+A`) — these work without any terminal configuration.
 
@@ -777,6 +781,7 @@ If these entries already exist, update their current values to match the above.
 > Known Limitation in VS Code: With Mouse integration enabled, **Extremely** fast VS Code scrollback drags may still show a very small startup offset due to the currently unavoidable shell/helper handoff latency (planned to be optimized in future releases).
 
 </details>
+
 
 ---
 
@@ -1621,6 +1626,44 @@ Add the following for the macOS-specific extended selection combinations:
 
 ---
 
+
+#### Tmux integration & reversed copy mode (Linux)
+
+<details> <summary> <b> Click to expand </b></summary>
+
+If you use tmux and run the plugin in **reversed copy mode** (`Ctrl+C` copies, `Ctrl+Shift+C` interrupts), add
+this block to `~/.tmux.conf`:
+
+```tmux
+set -g default-terminal tmux-256color
+set -g xterm-keys on
+set -g extended-keys on
+set -as terminal-overrides ",*:extkeys"
+
+# Remove any existing root bindings
+unbind -n C-c
+unbind -n C-S-c
+
+# Hard-forward keys to pane:
+# Ctrl+C -> plugin copy sequence
+bind -n C-c send-keys C-c
+
+# Ctrl+Shift+C -> real SIGINT (^C)
+bind -n C-S-c send-keys -l "\033[67;6u"
+```
+
+And reload tmux:
+
+```bash
+tmux source-file ~/.tmux.conf
+```
+
+</details>
+
+
+
+---
+
 #### Optional: Ctrl Key Remaps *(macOS only)*
 
 These are optional remaps for users who prefer `Ctrl` key fallbacks over `Cmd`. Neither is required for normal plugin operation — configure only what you need.
@@ -1790,7 +1833,7 @@ If you need to add one manually:
 
 If you are SSH-ing from a macOS terminal (iTerm2, Ghostty, Kitty, WezTerm, Alacritty), the plugin **automatically maps your macOS Cmd/Option key sequences** to the corresponding Linux actions. No extra configuration is needed on the remote Linux box — Cmd+C copies, Cmd+X cuts, Cmd+A selects all, Cmd+Z undoes, Option+Arrow moves by word, etc.
 
-**Prerequisite:** Your macOS terminal must be configured to forward Cmd key sequences as CSI-u escape codes (e.g., `Cmd+C` → `\e[99;9u`). If you already configured your terminal for the plugin locally on macOS (following the **macOS Keybindings** section above), those same settings will work transparently over SSH.
+**Prerequisite:** Your macOS terminal must be configured to forward Cmd key sequences as CSI-u escape codes (e.g., `Cmd+C` → `\e[99;9u`). If you already configured your terminal for the plugin locally on macOS (following the [Popular Terminals Configurations](#popular-terminals-configurations) section above), those same settings will work transparently over SSH.
 
 > **Note:** `Cmd+V` (Paste) is handled by your macOS terminal natively — it pastes directly into the SSH session. The plugin does not intercept it.
 
@@ -2113,34 +2156,12 @@ preventing cross-pane mouse selection issues.
 ## Performance-Optimized Architecture
 
 The plugin architecture is built around compiled native C agents that run as persistent background processes.
-Each agent tracks selection changes via display server events, writes updates to a RAM-backed cache.
-Backend detection, agent startup, and configuration loading occur once at plugin load; all subsequent
-operations use the cached results directly.
 
-### Platform & Feature Coverage
+The system is designed with a strong focus on run-time performance, resource management efficiency, and long-term maintainability. Design decisions across the entire stack—from compilation flags and build settings to event handling, caching, and process management strategies—are made with these goals in mind.
 
-These features work universally on X11, Wayland, XWayland, and WSL:
+The plugin uses native C agents to overcome the limitations of shell scripts,   enabling direct interaction with display-server protocols and operating-system interfaces while providing the level of control required for efficient event handling, low latency, and minimal resource consumption.
 
-- ✅ Shift+Arrow keys for text selection
-- ✅ Ctrl+A to select all
-- ✅ Ctrl+Shift+C to copy (or Ctrl+C in reversed mode)
-- ✅ Ctrl+X to cut keyboard selection
-- ✅ Ctrl+V to paste
-- ✅ Ctrl+Z to undo
-- ✅ Ctrl+Shift+Z to redo
-- ✅ Delete/Backspace to remove keyboard selection
-- ✅ Type or paste to replace keyboard selection
-- ✅ Mouse selection replacement (where PRIMARY selection is available)
-
-On **macOS**, the same features are available via the Cmd equivalents
-(`Cmd+A`, `Cmd+C`, `Cmd+X`, `Cmd+V`, `Cmd+Z`, `Cmd+Shift+Z`) after
-[terminal configurations](#popular-terminals-configurations), or via
-Ctrl fallbacks set through `edit-select config`.
-
-
-**Mouse Selection Integration** is supported across all platforms:
-
-
+This also makes the plugin fully self-contained with no runtime dependencies and no external tools required for operation.
 
 <details>
 <summary><b>Core Architectural Properties</b></summary>
@@ -2157,10 +2178,9 @@ Ctrl fallbacks set through `edit-select config`.
 - **Graceful fallback** — If the compiled agents are unavailable, the plugin falls back to standard clipboard
   tools (`xclip`, `wl-paste`/`wl-copy`) transparently. No functionality is lost.
 
-</details>
 
 <details>
-<summary><b>WSL-Specific Architecture</b></summary>
+<summary>WSL-Specific Architecture</summary>
 
 The plugin provides tailored support for Windows Subsystem for Linux (WSL) with seamless interoperability between the Linux shell and Windows clipboard.
 
@@ -2202,6 +2222,9 @@ Clipboard operations across the WSL-to-Windows boundary are handled by two purpo
 Together, these helper processes provide transparent clipboard semantics: plugin operations appear instantaneous because the Linux-side cache resides in memory, while the agent synchronizes clipboard changes from Windows asynchronously in the background. This architecture eliminates the latency and complexity of spawning external utilities (`wl-paste`, `wl-copy`, or Windows-native clipboard tools) on each clipboard operation.
 
 </details>
+
+</details>
+
 
 ### Optimization Techniques
 
@@ -2694,19 +2717,19 @@ on both platforms; the remaining latency is the native protocol IPC round-trip t
 
 </details>
 
-> Operations complete faster than the
-> [human perception threshold](https://www.tobii.com/resource-center/learn-articles/speed-of-human-visual-perception).
+
 
 
 ---
 
 ## Manual Agents Build (optional)
 
-**Note:** You can build agents from source and automatically install missing build dependencies with:
-
-```bash
-edit-select build
-```
+>[!TIP]
+>You can build agents from source and automatically install missing build dependencies with:
+>
+>```bash
+>edit-select build
+>```
 
 <details>
 <summary><b>How to check if you're using X11 or Wayland</b></summary>
