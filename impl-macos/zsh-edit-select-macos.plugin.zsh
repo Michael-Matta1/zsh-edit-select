@@ -29,6 +29,7 @@ typeset -g _EDIT_SELECT_LAST_SEQ=""
 typeset -gi _EDIT_SELECT_DAEMON_ACTIVE=0
 typeset -gi _EDIT_SELECT_NEW_SELECTION_EVENT=0
 typeset -gi _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
+typeset -gi _EDIT_SELECT_DUPLICATE_PROMPT_ACTIVE=0
 typeset -gi _ZES_LAST_PID_CHECK=0
 typeset -gi _ZES_LAST_MONITOR_RESTART=0
 typeset -gF _ZES_SELECTION_SET_TIME=0
@@ -122,6 +123,20 @@ function _zes_reset_mouse_selection_state() {
     _EDIT_SELECT_ACTIVE_SELECTION=""
     _EDIT_SELECT_PENDING_SELECTION=""
     _EDIT_SELECT_LAST_PRIMARY=""
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+    _ZES_SELECTION_SET_TIME=0
+}
+
+# Clear transient mouse-selection prompt/state when keyboard selection takes
+# over.  This stays inside ZLE state and does not touch the macOS pasteboard.
+function _zes_clear_mouse_selection_prompt_state() {
+    if ((_EDIT_SELECT_DUPLICATE_PROMPT_ACTIVE)) || [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
+        zle -M ""
+        zle -R
+    fi
+    _EDIT_SELECT_DUPLICATE_PROMPT_ACTIVE=0
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
     _EDIT_SELECT_NEW_SELECTION_EVENT=0
     _ZES_SELECTION_SET_TIME=0
 }
@@ -482,6 +497,7 @@ function _zes_delete_mouse_selection() {
     fi
 
     zle -M "Duplicate text: place cursor inside the occurrence you want to modify"
+    _EDIT_SELECT_DUPLICATE_PROMPT_ACTIVE=1
     _EDIT_SELECT_PENDING_SELECTION="$_EDIT_SELECT_ACTIVE_SELECTION"
     _EDIT_SELECT_ACTIVE_SELECTION=""
     return 1
@@ -490,6 +506,7 @@ function _zes_delete_mouse_selection() {
 # ── ZLE Widgets ───────────────────────────────────────────────────────
 
 function edit-select::select-all() {
+    _zes_clear_mouse_selection_prompt_state
     MARK=0
     CURSOR=${#BUFFER}
     REGION_ACTIVE=1
@@ -787,6 +804,7 @@ zle -N down-line-or-history _zes_down_line_or_history_reset
 
 function _zes_activate_region_and_dispatch() {
     zle -c
+    _zes_clear_mouse_selection_prompt_state
     if ((!REGION_ACTIVE)); then
         zle set-mark-command -w
         zle -K edit-select

@@ -287,8 +287,22 @@ function _zes_delete_mouse_selection() {
     return 1
 }
 
+# Clear transient mouse-selection prompt/state when keyboard selection takes
+# over.  This stays inside ZLE state and does not touch the X PRIMARY.
+function _zes_clear_mouse_selection_prompt_state() {
+    if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
+        zle -M ""
+        zle -R
+    fi
+    _EDIT_SELECT_ACTIVE_SELECTION=""
+    _EDIT_SELECT_PENDING_SELECTION=""
+    _ZES_SELECTION_SET_TIME=0
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0
+}
+
 # Select the entire command-line buffer and activate the edit-select keymap.
 function edit-select::select-all() {
+    _zes_clear_mouse_selection_prompt_state
     MARK=0
     CURSOR=${#BUFFER}
     REGION_ACTIVE=1
@@ -492,6 +506,7 @@ zle -N end-of-buffer _zes_end_of_buffer
 function _zes_activate_region_and_dispatch() {
     # Dismiss any active completion menu before starting selection.
     zle -c
+    _zes_clear_mouse_selection_prompt_state
     if ((!REGION_ACTIVE)); then
         zle set-mark-command -w
         zle -K edit-select
