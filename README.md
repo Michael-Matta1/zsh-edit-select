@@ -8,6 +8,9 @@ support.
 
 [demo video](https://github.com/user-attachments/assets/a024e609-1de1-4608-a7c3-e17264162904)
 
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1nsLfIbyLnNWPkUkmMttfTfip4yXCvayA/view?usp=sharing)
+
+
 
 ---
 
@@ -183,10 +186,28 @@ Or
 bash <(wget -qO- https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh)
 ```
 
-### Key Features
+<details>
+<summary><h3>Demo (Click to expand)</h3></summary>
+
+
+The installer detects your environment up front and guides you through the installation, dynamically showing only the prompts and options relevant to your detected setup at each step, so you're presented only with choices that apply to your environment.
+
+[demo video](https://github.com/user-attachments/assets/a5539e7c-179e-45a6-8cd4-324b0de7d98a)
+
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1R54T8klE-B_zAMn3FoE3OsYm_ExS0GCa/view?usp=sharing)
+
+The script provides detailed, color-coded feedback for every step and at the end, you'll receive a **Summary Report** listing all installed components and any manual steps
+required.
+
+A detailed log is also saved to `~/.zsh-edit-select-install.log`.
+
+</details>
+
+
 
 <details>
-<summary><b>Click to expand</b></summary>
+<summary><h3>Key Features & Options (Click to expand)</h3></summary>
+
 
 The installer is designed for reliability and system safety:
 
@@ -211,11 +232,11 @@ The script handles the end-to-end setup process:
 | **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                                                                                          |
 | **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and terminal configuration files (Kitty, Alacritty, WezTerm, Foot, VS Code)<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                                                                 |
 
-</details>
+>
 
 
 <details>
-<summary><b>Advanced Usage & Options</b></summary>
+<summary><h3>Advanced Usage & Options & CI/CD (Click to expand)</h3></summary>
 
 You can customize the installation behavior with command-line flags. To use them, download the script first or
 pass them to bash:
@@ -237,10 +258,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-sele
 
 </details>
 
-### Installation Output
 
-The script provides detailed, color-coded feedback for every step and at the end, you'll receive a **Summary Report** listing all installed components and any manual steps
-required. A detailed log is also saved to `~/.zsh-edit-select-install.log`.
+</details>
+
+
+
 
 
 ---
@@ -374,7 +396,7 @@ features to work correctly, especially in some terminal emulators.
 ><details>
 ><summary><b>Click to expand</b></summary>
 >
->If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to >function correctly under Wayland.
+>If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to function correctly under Wayland.
 >
 >XWayland is **enabled by default** on most systems, so **no action is needed** unless you have explicitly disabled it.
 >
@@ -458,28 +480,58 @@ The wizard provides:
 5. **Reset to Defaults** — Restore factory settings
 6. **Exit Wizard** — Close the wizard
 
-All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions. You can also view or edit this file manually at any time.
+- All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions. You can also view or edit this file manually at any time.
+
+Click on any of the following sections to expand it:
 
 <details>
-<summary><b>Mouse Replacement Safeguard</b></summary>
+<summary><h3>Mouse Replacement Safeguard</h3></summary>
 
-The plugin includes a smart safety feature to prevent accidental edits when using the mouse. If you select text with your mouse and the plugin detects multiple identical occurrences of that text in your command buffer, it will pause and show the message:
+The plugin includes a safety feature to prevent accidental edits when using the mouse. If you select text with your mouse and the plugin detects multiple identical occurrences of that text in your command buffer, it will pause and show the message:
 
 **"Duplicate text: place cursor inside the occurrence you want to modify"**
+<details>
+<summary><b>Demo (Click to expand)</b></summary>
+
+[demo video](https://github.com/user-attachments/assets/e3aaaa56-1bc7-4194-a87b-1c7556ab8049)
+
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1YUmxh7CMdQMMiQaSHHhkZzOQx1PnmElf/view?usp=sharing)
+
+</details>
 
 **Why this feature?**
 When text is selected via mouse, terminal emulators don't report the exact screen coordinates to the shell. If the same word appears twice, this protective safeguard ensures you don't accidentally replace the wrong occurrence.
 
 When prompted, simply place your cursor inside the specific occurrence you want to edit, then select and replace it.
 
-- **Keyboard selection bypass:** This safeguard is only needed for mouse selections. Using `Shift+Arrow keys` provides exact cursor positions, avoiding this ambiguity entirely.
-- **Under development:** A custom mouse-tracking path is already implemented in the WSL version to resolve the exact selected range without prompting. This will be integrated across all platforms as it matures.
-- **Reporting & Options:** If you encounter any unexpected behavior with mouse replacement, please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues). You can also disable mouse replacement entirely in the Configuration Wizard below if you prefer strict keyboard-only editing.
+> **Note:** It's recommended to use a terminal that supports shell integration (such as Kitty or Ghostty) because this lets you move the cursor using the mouse. If your terminal supports this feature but it's not enabled by default, it's recommended to enable it.
+
+>
+
+**Exception:** if you are using **Ghostty** terminal on **Linux**, your exact mouse selection can be deleted/replaced without prompting
+<details>
+<summary><b>Demo (Click to expand)</b></summary>
+
+[demo video](https://github.com/user-attachments/assets/35d72bed-0d3c-4b4c-876a-8ddf705f9fc2)
+
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1L6Ga4tsZOQurR8BmLLW2ZHGbMjfmLnnC/view?usp=sharing)
+
+</details>
+
+
+- The WSL implementation of the plugin also implements a custom mouse-tracking path that resolves the exact selected range without prompting.
+
+
+**Keyboard selection bypass:** This safeguard is only needed for mouse selections. Using `Shift+Arrow keys` provides exact cursor positions, avoiding this ambiguity entirely.
+
+You can also disable mouse replacement entirely as mentioned below if you prefer strict keyboard-only editing.
+
+---
 
 </details>
 
 <details>
-<summary><b> Mouse Replacement Modes </b></summary>
+<summary><h3> Mouse Replacement Modes </h3></summary>
 
 Configure how the plugin handles mouse selections:
 
@@ -500,11 +552,13 @@ Change the mode:
 edit-select config  # → Option 1: Mouse Replacement
 ```
 
+---
+
 </details>
 
 
 <details>
-<summary><b>Instant Cut (Mouse Selection Cut)</b></summary>
+<summary><h3>Instant Cut (Mouse Selection Cut)</h3></summary>
 
 Instant Cut is an optional compatibility/performance toggle focused on **mouse-selection cut when the cut key is Ctrl+X**.
 
@@ -522,11 +576,13 @@ Enable or disable it from the wizard:
 edit-select config  # → Option 2: Instant Cut
 ```
 
+---
+
 </details>
 
 
 <details>
-<summary><b>Custom/Manual Keybinding Notes (Terminal Configuration)</b></summary>
+<summary><h3>Custom/Manual Keybinding Notes (Terminal Configuration)</h3></summary>
 
 > **⚠️ Important:** When using custom keybindings (especially with Shift modifiers), you may need to configure
 > your terminal emulator to send the correct escape sequences.
@@ -612,6 +668,8 @@ Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 </details>
 
+---
+
 </details>
 
 <details>
@@ -648,13 +706,16 @@ This section provides complete, ready-to-paste configurations for each supported
 
 **CRITICAL:** While adding these mappings, remove or comment out any existing conflicting bindings
 
->[!TIP]
+> [!IMPORTANT]
 > Comments inside each configuration block provide inline guidance. Some options are included but commented out; uncomment them to switch to an alternative behavior.
 >
 > For example, by default the copy shortcut is `Ctrl+Shift+C` on Linux (the traditional terminal convention, where `Ctrl+C` sends an interrupt signal). If you prefer **GUI-style** behavior where `Ctrl+C` **copies** and `Ctrl+Shift+C` sends the interrupt, follow the instructions in the comments to switch to that option.
 
-**Note (macOS):** Almost all macOS terminal emulators intercept `Cmd` keys by default, so explicit mappings are required. If you cannot or do not want to modify your terminal's bindings, run `edit-select config` and choose Ctrl fallback presets for **Cut** (`Ctrl+X`), **Paste** (`Ctrl+V`), **Undo** (`Ctrl+Z`), and **Select All** (`Ctrl+A`) — these work without any terminal configuration.
 
+> [!TIP]
+> It's recommended to use a terminal that supports shell integration (such as Kitty or Ghostty) because this lets you move the cursor using the mouse. If your terminal supports this feature but it's not enabled by default, it's recommended to enable it.
+
+**Note (macOS):** Almost all macOS terminals intercept `Cmd` keys by default, so explicit terminal configuration mappings are required. The Ctrl-based shortcuts work on macOS without any terminal configuration.
 
 <details>
 <summary><b>How to Find Escape Sequences (Optional: For Manual Customization)</b></summary>
