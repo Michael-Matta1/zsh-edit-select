@@ -1,0 +1,36 @@
+#!/bin/sh
+# zsh-edit-select post-merge hook — fires after git pull (merge/fast-forward).
+# Called by git when core.hooksPath is set to this directory.
+
+plugin_dir=$(git rev-parse --show-toplevel 2>/dev/null)
+[ -z "$plugin_dir" ] && exit 0
+
+# Chain to any pre-existing hook in .git/hooks/ (safety net for users
+# who had hooks there before core.hooksPath was set).
+git_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+[ -x "$git_dir/hooks/post-merge" ] && "$git_dir/hooks/post-merge" "$@" || true
+
+# Run our checker.  /dev/tty is used instead of stdin because git may
+# send data on stdin (post-rewrite sends rewritten commit SHAs).
+# For post-merge stdin is usually the terminal, but using /dev/tty
+# explicitly is safer and consistent with post-rewrite.
+#
+# Detect a non-interactive context by actually trying to OPEN /dev/tty, not by
+# testing `[ -r /dev/tty ]`: the -r test only checks the device node's read
+# permission bits (true on virtually every system regardless of whether this
+# process has a controlling terminal), so under a genuinely detached pull
+# (e.g. `setsid`, cron, a CI/automation runner) it passes, we fall through, and
+# the `< /dev/tty` redirect below fails with a raw "cannot open /dev/tty" error.
+# The open-test is wrapped in a SUBSHELL — `( : < /dev/tty )` — on purpose: `:`
+# is a POSIX special built-in, so a redirection error on it in a NON-interactive
+# shell would abort the whole hook (dash/POSIX sh); running it in a subshell
+# confines the failure to the child so the `if !` simply sees a non-zero exit.
+if ! ( : < /dev/tty ) 2>/dev/null; then
+    # Non-interactive context (e.g. git pull inside a script).
+    # Print a non-blocking message and exit — no prompt.
+    echo "zsh-edit-select: updated via pull. Run 'edit-select update'." >&2
+    exit 0
+fi
+
+zsh_bin=$(command -v zsh 2>/dev/null) || exit 0
+"$zsh_bin" "$plugin_dir/hooks/zes-post-pull" < /dev/tty

@@ -80,7 +80,7 @@ run_plugin_update() {
 
     # Perform the update (capture output to avoid tee masking git exit status)
     local pull_output
-    if pull_output=$(git -C "$PLUGIN_INSTALL_DIR" pull --rebase 2>&1); then
+    if pull_output=$(ZES_INTERNAL_PULL=1 git -C "$PLUGIN_INSTALL_DIR" pull --rebase 2>&1); then
         echo "$pull_output" | tee -a "$LOG_FILE"
         print_success "Plugin updated successfully" "plugin_update"
 
@@ -346,10 +346,26 @@ run_uninstall() {
                         continue
                     }
 
+                    # New-style blocks are delimited by an explicit
+                    # "-- Zsh Edit-Select End" marker, allowing deterministic
+                    # span removal.  Older blocks lack it and fall back to the
+                    # line-by-line heuristic below (unchanged behaviour).
+                    # The detect is anchored to a whole line so a config that
+                    # merely mentions the marker text in a comment cannot arm
+                    # span removal: while armed, every line up to the exact
+                    # closer is deleted, and without a real closer that would
+                    # run to end of file.  Anchoring guarantees the closer the
+                    # in-section handler looks for actually exists.
+                    local has_end_marker=0
+                    grep -qE '^[[:space:]]*-- Zsh Edit-Select End[[:space:]]*$' "$config_file" 2>/dev/null && has_end_marker=1
+
                     local in_our_section=0
                     local empty_line_buffer=""
                     while IFS= read -r line || [[ -n "$line" ]]; do
-                        if [[ "$line" == *"Zsh Edit-Select"* ]]; then
+                        # Begin marker opens a section.  The End marker also
+                        # contains "Zsh Edit-Select", so exclude it here and let
+                        # the in-section handler consume it below.
+                        if [[ "$line" == *"Zsh Edit-Select"* && "$line" != *"Zsh Edit-Select End"* ]]; then
                             in_our_section=1
                             empty_line_buffer=""
                             continue
@@ -357,6 +373,19 @@ run_uninstall() {
                         if [[ $in_our_section -eq 1 ]]; then
                             local stripped
                             stripped="$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')"
+
+                            # Explicit End marker closes the section (consume it).
+                            if [[ "$stripped" == "-- Zsh Edit-Select End" ]]; then
+                                in_our_section=0
+                                empty_line_buffer=""
+                                continue
+                            fi
+                            # When the block is End-marker delimited, remove every
+                            # line until that marker regardless of its content.
+                            if [[ $has_end_marker -eq 1 ]]; then
+                                empty_line_buffer=""
+                                continue
+                            fi
 
                             # Buffer empty lines instead of skipping them outright
                             if [[ -z "$stripped" ]]; then
@@ -426,26 +455,72 @@ run_uninstall() {
     fi
     [[ -z "$vscode_config" ]] && vscode_config="${XDG_CONFIG_HOME:-$HOME/.config}/Code/User/keybindings.json"
 
-    if [[ -f "$vscode_config" ]] && grep -q "Zsh Edit-Select\|90;6u\|67;6u" "$vscode_config" 2>/dev/null; then
+    if [[ -f "$vscode_config" ]] && grep -q "Zsh Edit-Select\|90;6u\|67;6u\|99;9u\|122;10u" "$vscode_config" 2>/dev/null; then
         backup_file "$vscode_config"
         # Try auto-removal with Python (same approach as configure_vscode)
         if command_exists python3; then
             local result
             result=$(
                 python3 - "$vscode_config" <<'PYTHON_UNINSTALL'
-import json, sys
+import json, sys, os, re, tempfile, shutil
 
 config_file = sys.argv[1]
+
+def _strip_jsonc(text):
+    # Strip // line and /* */ block comments (respecting string literals),
+    # then drop trailing commas before } or ].  Called ONLY after strict JSON
+    # parsing has already failed, and its result is re-parsed with json.loads;
+    # if that still fails we let the outer except return 1 exactly as before.
+    # For every input the old code accepted, output is byte-identical.
+    out = []
+    i, n = 0, len(text)
+    in_str = False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == '\\' and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if c == '"':
+                in_str = False
+            i += 1; continue
+        if c == '"':
+            in_str = True; out.append(c); i += 1; continue
+        if c == '/' and i + 1 < n and text[i + 1] == '/':
+            i += 2
+            while i < n and text[i] != '\n':
+                i += 1
+            continue
+        if c == '/' and i + 1 < n and text[i + 1] == '*':
+            i += 2
+            while i + 1 < n and not (text[i] == '*' and text[i + 1] == '/'):
+                i += 1
+            i += 2
+            continue
+        out.append(c); i += 1
+    return re.sub(r',(\s*[}\]])', r'\1', ''.join(out))
+
 try:
     with open(config_file, 'r') as f:
-        data = json.load(f)
+        raw = f.read()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Recovery: VS Code keybindings.json is JSONC (its default template
+        # ships a // comment).  Tolerate comments / trailing commas so the
+        # user's existing keybindings are preserved instead of overwritten.
+        # If recovery still fails, fall through to the outer except path.
+        try:
+            data = json.loads(_strip_jsonc(raw))
+        except json.JSONDecodeError:
+            raise ValueError("keybindings.json is not valid JSON or JSONC")
 
     if not isinstance(data, list):
         print('SKIP')
         sys.exit(0)
 
     # Remove entries that contain our escape sequences or marker
-    markers = ['67;6u', '90;6u', 'Zsh Edit-Select']
+    markers = ['67;6u', '90;6u', '99;9u', '122;10u', 'Zsh Edit-Select']
     filtered = []
     for entry in data:
         entry_str = json.dumps(entry)
@@ -454,8 +529,24 @@ try:
 
     removed = len(data) - len(filtered)
     if removed > 0:
-        with open(config_file, 'w') as f:
-            json.dump(filtered, f, indent=4)
+        # Atomic replace via same-dir temp file so an interrupted write can
+        # never corrupt the live keybindings.json.
+        dir_name = os.path.dirname(config_file) or '.'
+        fd, temp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w') as f:
+                json.dump(filtered, f, indent=4)
+            try:
+                os.chmod(temp_path, os.stat(config_file).st_mode & 0o777)
+            except OSError:
+                pass
+            shutil.move(temp_path, config_file)
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
         print('REMOVED:' + str(removed))
     else:
         print('NONE')

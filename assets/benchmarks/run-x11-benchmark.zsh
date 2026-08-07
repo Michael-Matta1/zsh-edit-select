@@ -117,6 +117,15 @@ run_memory_benchmark() {
 
     sleep 0.5
 
+    # The agent calls daemon(0,0): it forks and the launcher parent _exits, so
+    # $! is already dead and the live daemon runs under a different PID. Read the
+    # real PID the agent records in agent.pid so the memory probe and the kill
+    # below target the actual daemon instead of a stale PID (which left the real
+    # daemon running while rm -rf pulled its cache dir out from under it).
+    local real_pid=""
+    [[ -r "$cache_dir/agent.pid" ]] && real_pid=$(<"$cache_dir/agent.pid")
+    [[ -n "$real_pid" ]] && daemon_pid=$real_pid
+
     # Get memory usage
     if [[ -d "/proc/$daemon_pid" ]]; then
         local mem_kb=$(awk '/VmRSS/{print $2}' /proc/$daemon_pid/status)

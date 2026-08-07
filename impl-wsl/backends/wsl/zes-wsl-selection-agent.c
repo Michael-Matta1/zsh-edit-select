@@ -10,7 +10,7 @@
 // In daemon mode the agent launches the Windows helper (.exe) with --daemon,
 // reads its stdout protocol, and writes cache files using the same
 // pwrite+ftruncate protocol as the X11 and Wayland agents.  Cache files
-// sit on native Linux tmpfs for fast zstat from the shell.
+// sit on native Linux tmpfs for fast reads from the shell.
 
 #define _GNU_SOURCE
 
@@ -47,8 +47,8 @@ static char seq_path[560];
 static char pid_path[560];
 static char helper_path[560];
 
-/* Monotonically increasing counter written to SEQ_FILE; the shell polls
-   its mtime to detect selection changes without reading content. */
+/* Monotonically increasing counter written to SEQ_FILE; the shell reads
+   its content to detect selection changes. */
 static unsigned long seq_counter = 0;
 
 /* Persistent fds for write_primary() daemon hot path.
@@ -67,39 +67,63 @@ static void signal_handler(int sig) {
 }
 
 /* Resolve cache directory path (argument > XDG_RUNTIME_DIR > /dev/shm > HOME),
-   populate path globals, and create the directory.  Returns 0 on success. */
+   populate path globals, and create the directory.  Returns 0 on success.
+   Rejects truncated paths and non-directory targets so the shell and agent
+   never diverge onto different cache locations (which would silently break
+   the seq/primary IPC). */
 static int ensure_cache_dir(const char *dir) {
+    int n;
     if (dir && dir[0]) {
-        snprintf(cache_dir, sizeof(cache_dir), "%s", dir);
+        n = snprintf(cache_dir, sizeof(cache_dir), "%s", dir);
     } else {
         /* Cache location priority:
-           1. XDG_RUNTIME_DIR/<uid> — tmpfs, survives logout cleanup by PAM.
+           1. XDG_RUNTIME_DIR/<uid> — tmpfs, cleaned by PAM on logout.
            2. /dev/shm — in-memory tmpfs on Linux; fast for short-lived modes.
            3. HOME/.cache — persistent fallback for non-standard environments. */
         const char *runtime = getenv("XDG_RUNTIME_DIR");
         if (runtime) {
-            snprintf(cache_dir, sizeof(cache_dir), "%s/zsh-edit-select-%d",
-                     runtime, (int)getuid());
+            n = snprintf(cache_dir, sizeof(cache_dir), "%s/zsh-edit-select-%d",
+                         runtime, (int)getuid());
         } else if (access("/dev/shm", W_OK | X_OK) == 0) {
-            snprintf(cache_dir, sizeof(cache_dir),
-                     "/dev/shm/zsh-edit-select-%d", (int)getuid());
+            n = snprintf(cache_dir, sizeof(cache_dir),
+                         "/dev/shm/zsh-edit-select-%d", (int)getuid());
         } else {
             const char *home = getenv("HOME");
             if (!home) return -1;
-            snprintf(cache_dir, sizeof(cache_dir),
-                     "%s/.cache/zsh-edit-select", home);
+            n = snprintf(cache_dir, sizeof(cache_dir),
+                         "%s/.cache/zsh-edit-select", home);
         }
     }
 
-    snprintf(primary_path, sizeof(primary_path), "%s/%s", cache_dir, PRIMARY_FILE);
-    snprintf(seq_path, sizeof(seq_path), "%s/%s", cache_dir, SEQ_FILE);
-    snprintf(pid_path, sizeof(pid_path), "%s/%s", cache_dir, PID_FILE);
+    /* The shell and agent must use byte-identical cache paths.  Never silently
+       truncate a user-supplied cache directory, or a very long XDG_RUNTIME_DIR
+       or HOME, into a second location that the shell cannot observe. */
+    if (n < 0 || (size_t)n >= sizeof(cache_dir)) return -1;
+    n = snprintf(primary_path, sizeof(primary_path), "%s/%s", cache_dir, PRIMARY_FILE);
+    if (n < 0 || (size_t)n >= sizeof(primary_path)) return -1;
+    n = snprintf(seq_path, sizeof(seq_path), "%s/%s", cache_dir, SEQ_FILE);
+    if (n < 0 || (size_t)n >= sizeof(seq_path)) return -1;
+    n = snprintf(pid_path, sizeof(pid_path), "%s/%s", cache_dir, PID_FILE);
+    if (n < 0 || (size_t)n >= sizeof(pid_path)) return -1;
 
     struct stat st;
     if (stat(cache_dir, &st) == -1) {
-        if (mkdir(cache_dir, 0700) == -1 && errno != EEXIST)
-            return -1;
+        if (mkdir(cache_dir, 0700) == -1 && errno != EEXIST) return -1;
+        if (stat(cache_dir, &st) == -1) return -1;
     }
+    if (!S_ISDIR(st.st_mode)) { errno = ENOTDIR; return -1; }
+
+    /* The shell pre-creates this dir with `mkdir -p -m 0700`, so newly-created
+       dirs are already 0700; existing/legacy dirs may still be wider (e.g.
+       0755 from an older shell that did not pass -m).  primary and seq are
+       written 0644 and hold selected text; the directory's traverse+list
+       bits are what protect them from other users.  Tighten the dir to 0700
+       unless it is already exactly 0700 (skip the syscall — `st` is already
+       in scope from the stat/mkdir block above, so the guard is a free
+       bitmask compare).  Common case: XDG_RUNTIME_DIR is systemd-defaulted
+       to 0700 → the chmod is elided on every daemon start. */
+    if ((st.st_mode & 0777) != 0700 && chmod(cache_dir, 0700) != 0) return -1;
+
     return 0;
 }
 
@@ -133,13 +157,26 @@ static int resolve_helper_path(const char *argv0) {
         snprintf(helper_path, sizeof(helper_path), "./%s", HELPER_NAME);
     }
 
-    return access(helper_path, X_OK) == 0 ? 0 : -1;
+    if (access(helper_path, X_OK) == 0)
+        return 0;
+
+    /* Repair helpers copied onto a native Linux filesystem without their
+       owner execute bit.  Preserve every existing mode bit and keep the
+       original failure behavior when chmod is unsupported (for example a
+       noexec mount) or the path is not a regular file. */
+    struct stat st;
+    if (stat(helper_path, &st) == 0 && S_ISREG(st.st_mode) &&
+        chmod(helper_path, st.st_mode | S_IXUSR) == 0 &&
+        access(helper_path, X_OK) == 0)
+        return 0;
+
+    return -1;
 }
 
 /* Write selection text to PRIMARY cache and the sequence number to SEQ.
    Uses persistent fds in daemon mode, open/write/close otherwise. */
 static void write_primary(const char *data, size_t len, unsigned long seq) {
-    if (fd_primary >= 0) {
+    if (fd_primary >= 0 && fd_seq >= 0) {
         /* Persistent-fd hot path: seek to start, write new content, then
            truncate to correct length.  ftruncate is mandatory — without it,
            content that shrinks between events (e.g. "hello world" → "hi")
@@ -149,22 +186,21 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
             ssize_t r = pwrite(fd_primary, data, len, 0);
             (void)r;
         }
-        (void)ftruncate(fd_primary, (off_t)len);
+        (void)!ftruncate(fd_primary, (off_t)len);
 
         /* primary must be fully committed before seq is touched —
-           seq's mtime is the shell's only per-keypress detection signal. */
+           seq's content is the shell's only per-keypress detection signal. */
         char buf[24];
         int sn = snprintf(buf, sizeof(buf), "%lu\n", seq);
         ssize_t r = pwrite(fd_seq, buf, (size_t)sn, 0);
         (void)r;
-        (void)ftruncate(fd_seq, (off_t)sn);
+        (void)!ftruncate(fd_seq, (off_t)sn);
         return;
     }
 
     /* Fallback path: used for the pre-daemon() initial write (fd_primary is
-       still -1 at that point) and if open() failed after daemon().
-       All short-lived modes (--oneshot, --get-clipboard, --copy-clipboard,
-       --clear-primary) also use this path since they never open persistent fds. */
+       still -1 at that point), if open() failed after daemon(), and by the
+       short-lived --clear-primary mode. */
     int fd = open(primary_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) return;
     if (len > 0 && data) {
@@ -258,6 +294,7 @@ static int launch_helper_with_stdin(const char *mode) {
 
     /* Parent: write end. */
     close(pipefd[0]);
+    helper_pid = pid;
     return pipefd[1];
 }
 
@@ -314,8 +351,7 @@ static int run_oneshot(void) {
     }
     close(fd);
 
-    int status;
-    waitpid(helper_pid, &status, 0);
+    waitpid(helper_pid, NULL, 0);
     return wrote ? 0 : 1;
 }
 
@@ -348,7 +384,8 @@ done:
     close(wfd);
 
     int status;
-    waitpid(helper_pid, &status, 0);
+    if (waitpid(helper_pid, &status, 0) < 0)
+        return 1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }
 
@@ -358,7 +395,10 @@ done:
 /*  so the shell does not see stale text.                             */
 /* ------------------------------------------------------------------ */
 static int run_clear_primary(void) {
-    if (ensure_cache_dir(NULL) != 0) return 1;
+    /* cache_dir was already resolved by the caller in main() before
+       invoking us, so we must NOT re-run ensure_cache_dir() here with
+       NULL — that would overwrite a custom cache_dir with the default
+       and clear the wrong directory. */
 
     /* Read current seq counter from file and increment. */
     FILE *f = fopen(seq_path, "r");
@@ -384,9 +424,8 @@ static int run_daemon(const char *cache_dir_arg) {
     }
 
     /* Write empty cache files before daemonising so the shell never tries
-       to read a non-existent file during the startup window.
-       seq is seeded to time(NULL) so it is monotonically increasing across
-       daemon restarts, preventing false positive change detections. */
+       to read a non-existent file during the startup window. Seed seq from
+       time(NULL) so a restart normally changes the shell's comparison token. */
     seq_counter = (unsigned long)time(NULL);
     write_primary("", 0, seq_counter);
 
@@ -405,6 +444,11 @@ static int run_daemon(const char *cache_dir_arg) {
     /* Open persistent fds for write_primary() hot path */
     fd_primary = open(primary_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
     fd_seq     = open(seq_path,    O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+    if (fd_primary < 0 || fd_seq < 0) {
+        if (fd_primary >= 0) close(fd_primary);
+        if (fd_seq >= 0) close(fd_seq);
+        fd_primary = fd_seq = -1;
+    }
 
     /* Launch the Windows helper in --daemon mode. */
     int pipe_fd = launch_helper("--daemon");
@@ -439,42 +483,76 @@ static int run_daemon(const char *cache_dir_arg) {
         if (ret == 0)
             continue;  /* Timeout — check running flag. */
 
-        if (pfd.revents & (POLLHUP | POLLERR)) {
-            /* Helper died or pipe broke. */
-            break;
-        }
-
+        /* Handle readable data BEFORE POLLHUP: when the helper's write end
+           closes with a complete message still buffered in the pipe, Linux
+           reports POLLIN|POLLHUP together.  Draining POLLIN first (with the
+           HUP break as the else branch below) delivers that final message
+           instead of dropping it.  POLLHUP on a pipe is sticky, so once the
+           buffer empties POLLIN clears and the else branch breaks cleanly. */
         if (pfd.revents & POLLIN) {
             char line[256];
             int len = read_line(pipe_fd, line, sizeof(line));
             if (len < 0) break;  /* EOF or error — helper died. */
 
             if (strncmp(line, "CLIPBOARD ", 10) == 0) {
-                /* Parse: CLIPBOARD <seq> <content_len> */
-                unsigned long win_seq;
+                /* Parse: CLIPBOARD <seq> <content_len>.  The Windows-side
+                   sequence number is framing only and never read, so it is
+                   matched without being stored.  %*u rather than %*lu:
+                   suppression with a length modifier trips gcc -Wformat,
+                   and a 32-bit field matches the DWORD the helper sends. */
                 size_t content_len;
-                if (sscanf(line + 10, "%lu %zu", &win_seq, &content_len) != 2)
+                if (sscanf(line + 10, "%*u %zu", &content_len) != 1)
                     continue;
 
-                if (content_len > MAX_CLIPBOARD_SIZE)
-                    content_len = MAX_CLIPBOARD_SIZE;
+                /* The helper always writes exactly content_len bytes after
+                   this header.  Keep at most MAX_CLIPBOARD_SIZE of them, but
+                   consume every announced byte so the next message header
+                   stays aligned (a partial read would desync the stream). */
+                size_t keep_len = content_len > MAX_CLIPBOARD_SIZE
+                                      ? MAX_CLIPBOARD_SIZE : content_len;
+                size_t drain_len = content_len - keep_len;
 
                 char *content = NULL;
-                if (content_len > 0) {
-                    content = (char *)malloc(content_len + 1);
-                    if (!content) continue;
-                    if (read_exact(pipe_fd, content, content_len) != 0) {
+                if (keep_len > 0) {
+                    content = (char *)malloc(keep_len + 1);
+                    if (!content) {
+                        drain_len = content_len;  /* alloc failed: drain all */
+                    } else if (read_exact(pipe_fd, content, keep_len) != 0) {
+                        free(content);
+                        break;
+                    } else {
+                        content[keep_len] = '\0';
+                    }
+                }
+
+                /* Discard bytes beyond the cap (or the whole payload when the
+                   allocation failed) so the stream stays aligned. */
+                if (drain_len > 0) {
+                    char scratch[4096];
+                    int drain_ok = 1;
+                    while (drain_len > 0) {
+                        size_t chunk = drain_len > sizeof(scratch)
+                                           ? sizeof(scratch) : drain_len;
+                        if (read_exact(pipe_fd, scratch, chunk) != 0) {
+                            drain_ok = 0;
+                            break;
+                        }
+                        drain_len -= chunk;
+                    }
+                    if (!drain_ok) {
                         free(content);
                         break;
                     }
-                    content[content_len] = '\0';
                 }
+
+                if (keep_len > 0 && !content)
+                    continue;  /* alloc failed; stream realigned, skip event */
 
                 /* Always increment seq even when content is identical — a
                    reselect of exactly the same text must still trigger a
                    fresh event in the shell. */
                 seq_counter++;
-                write_primary(content ? content : "", content_len, seq_counter);
+                write_primary(content ? content : "", keep_len, seq_counter);
                 free(content);
 
             } else if (strncmp(line, "EMPTY ", 6) == 0) {
@@ -486,18 +564,22 @@ static int run_daemon(const char *cache_dir_arg) {
                 continue;
             }
             /* Unknown lines are silently ignored for forward compatibility. */
+        } else if (pfd.revents & (POLLHUP | POLLERR)) {
+            /* Helper died or pipe broke, with no data left to read. */
+            break;
         }
     }
 
     close(pipe_fd);
 
-    /* Kill the Windows helper child if it is still running. */
+cleanup:
+    /* Kill the Windows helper child if it is still running.  Keep this in the
+       common cleanup path so a failed READY handshake cannot orphan it. */
     if (helper_pid > 0) {
         kill(helper_pid, SIGTERM);
         waitpid(helper_pid, NULL, WNOHANG);
     }
 
-cleanup:
     if (fd_primary >= 0) { close(fd_primary); fd_primary = -1; }
     if (fd_seq     >= 0) { close(fd_seq);     fd_seq     = -1; }
     unlink(primary_path);
@@ -509,7 +591,7 @@ cleanup:
 /* ------------------------------------------------------------------ */
 /*  Entry point — parse argv and dispatch.                            */
 /*                                                                    */
-/*  Modes (first matching flag wins):                                 */
+/*  Modes (dispatch precedence follows the flag order below, then default): */
 /*    (default)          Daemon: monitor clipboard via Windows helper  */
 /*                       and write changes to cache files.             */
 /*    --oneshot          Print current clipboard text and exit.        */
@@ -567,8 +649,10 @@ int main(int argc, char *argv[]) {
     if (copy_clipboard)
         return run_copy_clipboard();
     if (clear_primary) {
-        if (cache_dir_arg)
-            ensure_cache_dir(cache_dir_arg);
+        /* Resolve cache_dir unconditionally (matches macOS agent pattern):
+           run_clear_primary() must NOT re-resolve with NULL or it would
+           overwrite a custom cache_dir and touch the wrong directory. */
+        if (ensure_cache_dir(cache_dir_arg) != 0) return 1;
         return run_clear_primary();
     }
 

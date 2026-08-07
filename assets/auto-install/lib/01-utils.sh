@@ -58,6 +58,14 @@ backup_file() {
             return 1
         fi
         local backup_path="$BACKUP_DIR/$(basename "$file").backup"
+        # Two distinct source paths can share a basename (e.g. VS Code and
+        # Windows Terminal both use settings.json); add a numeric suffix so a
+        # later backup never overwrites an earlier one within the same run.
+        local _bk_n=1
+        while [[ -e "$backup_path" ]]; do
+            backup_path="$BACKUP_DIR/$(basename "$file").backup.$_bk_n"
+            ((_bk_n++))
+        done
         if cp "$file" "$backup_path" 2>/dev/null; then
             print_info "Backed up $file to $backup_path"
             log_message "BACKUP: $file -> $backup_path"
@@ -116,14 +124,13 @@ acquire_lock() {
                     # Process exists, now verify it's actually our installer script
                     local is_our_script=0
                     if [[ -f "/proc/$pid/cmdline" ]]; then
-                        # Check if the process command line contains our installer script name.
-                        # Accept both legacy monolithic and modular entrypoint names.
-                        if grep -Eq "auto-install\.sh|assets/auto-install/install\.sh|install\.sh" "/proc/$pid/cmdline" 2>/dev/null; then
+                        # Match the modular entrypoint: assets/auto-install/install.sh
+                        if grep -Eq "assets/auto-install/install\.sh" "/proc/$pid/cmdline" 2>/dev/null; then
                             is_our_script=1
                         fi
                     else
                         # Fallback: use ps to check command
-                        if ps -p "$pid" -o command= 2>/dev/null | grep -Eq "auto-install\.sh|assets/auto-install/install\.sh|install\.sh"; then
+                        if ps -p "$pid" -o command= 2>/dev/null | grep -Eq "assets/auto-install/install\.sh"; then
                             is_our_script=1
                         fi
                     fi

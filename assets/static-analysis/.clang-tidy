@@ -1,0 +1,66 @@
+# clang-tidy configuration for the zsh-edit-select C agents.
+#
+# Scope: the hand-written agent sources in impl-x11/, impl-wayland/ and
+# impl-wsl/ (Linux-compilable only; the mingw helper.exe and the macOS .m
+# agent are outside clang-tidy's reach on Linux).  Generated wayland-scanner
+# protocol .c files are not meant to be analyzed.
+#
+# Per-agent compile_commands.json is produced with:
+#   cd <agent dir> && make clean && bear -- make CFLAGS='-O2 -DNDEBUG -Wall -Wextra -Wno-unused-parameter'
+# (the CFLAGS override drops gcc-only flags such as -fipa-pta that break
+# clang tooling; rebuild with plain `make` afterwards to restore the
+# optimized native binary).
+#
+# Disabled checks, each triaged against the actual code (Jul 2026 pass):
+#   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+#     Flags every snprintf(buf, sizeof(buf), ...) / bounded memcpy.  All
+#     call sites use correct explicit bounds; the *_s replacements do not
+#     exist in glibc.  Pure noise.
+#   clang-analyzer-security.insecureAPI.strcpy
+#     Single site (resolve_helper_path): length is pre-validated against
+#     sizeof(helper_path) immediately above the strcpy.  Safe.
+#   bugprone-reserved-identifier / cert-dcl37-c / cert-dcl51-cpp
+#     #define _GNU_SOURCE is a required libc feature-test macro.
+#   bugprone-implicit-widening-of-multiplication-result
+#     Comparisons against MAX_SELECTION_SIZE/MAX_CLIPBOARD_SIZE ((1024*1024)
+#     etc.): the int multiplication cannot overflow and widening is
+#     value-preserving.
+#   bugprone-narrowing-conversions
+#     size_t data_len -> int in XChangeProperty nelements: data_len is
+#     hard-capped at 1 MB by MAX_SELECTION_SIZE, far below INT_MAX.
+#   bugprone-branch-clone
+#     Deliberate same-body branches with distinct conditions in
+#     read_fd_with_timeout and the process_primary_update changed-detection
+#     chain; kept separate for clarity of the EAGAIN/EOF/NULL cases.
+#   bugprone-not-null-terminated-result
+#     osc52_write frames a binary buffer with explicit lengths; NUL
+#     termination is intentionally absent.
+#   cert-err34-c
+#     fscanf/sscanf integer parses check the return count and fall back to
+#     time(NULL) / skip the message on failure; overflow pedantry only.
+#     (The WSL win_seq "%lu" read is a documented leave-as-is: rewriting it
+#     as "%*lu" trips gcc -Wformat=.)
+#   bugprone-easily-swappable-parameters, cert-err33-c
+#     Style-tier noise; (void)-cast unchecked returns are the established
+#     convention in these agents.
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  portability-*,
+  cert-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-security.insecureAPI.strcpy,
+  -bugprone-reserved-identifier,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-narrowing-conversions,
+  -bugprone-branch-clone,
+  -bugprone-not-null-terminated-result,
+  -cert-err34-c,
+  -bugprone-easily-swappable-parameters,
+  -cert-err33-c
+WarningsAsErrors: ''
+HeaderFilterRegex: ''

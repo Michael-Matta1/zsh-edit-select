@@ -617,7 +617,7 @@ _zes_start_runtime_agent() {
         # Align with the active WSL tailored runtime path:
         #   1) WSLg XWayland monitor when DISPLAY is present
         #   2) Wayland monitor when WAYLAND_DISPLAY is present
-        #   3) Legacy WSL monitor as a compatibility fallback
+        #   3) WSL native monitor (pipe-fed helper.exe cache files) as fallback
         if [[ -n "${DISPLAY:-}" ]] && [[ -s "$wsl_xwayland" ]]; then
             monitor_bin="$wsl_xwayland"
             monitor_args+=("--monitor-clipboard")
@@ -654,15 +654,67 @@ _zes_warmup_plugin_load() {
 
     print_step "Running first-time plugin initialization (.zwc + runtime warm-up)..."
 
+    # The root loader skips its .zwc-compilation block when the post-pull-hooks
+    # fast-path marker (.zes-hooks-installed) is present — that work moved to
+    # hooks/zes-post-pull so every shell after a pull does not pay the
+    # ~19 ms zcompile cost.  But neither 'edit-select build' (no git pull) nor
+    # 'edit-select update' (ZES_INTERNAL_PULL=1 suppresses the post-merge hook
+    # to avoid an update/prompt loop) runs that checker, and BOTH paths have
+    # just deleted every .zwc via _zes_remove_plugin_zwc_files.  Without an
+    # explicit compile sweep here, hooks-installed users would be left with
+    # NO bytecode at all until their next real 'git pull'.
+    #
+    # This sweep runs ONLY inside this user-triggered warm-up (never at shell
+    # startup) and mirrors the loader's per-impl compile paths exactly, so
+    # post-build state is byte-identical to the pre-marker-fast-path warm-up.
+    # The loader self-zcompile is performed unconditionally (matching the
+    # loader's own gated self-zcompile and zes-post-pull) so users who later
+    # switch platforms still hit a fresh loader .zwc on the fast path.
+    #
+    # Failure handling matches the original: the script's exit status is
+    # exactly that of `source $ZES_PLUGIN_LOADER' — compile failures are
+    # individually silenced (zcompile ... 2>/dev/null) and the last
+    # statement is `return $_zes_warm_rc' so a loader failure still surfaces
+    # to the caller even when the compile sweep above it succeeded.
+    local warmup_script='
+        source "$ZES_PLUGIN_LOADER" >/dev/null 2>&1
+        _zes_warm_rc=$?
+        _zes_warm_dir="${ZES_PLUGIN_LOADER:h}"
+        _zes_warm_impl="${ZES_FORCE_IMPL:-}"
+        _zes_warm_compile() {
+            [[ -f "$1" ]] || return 0
+            [[ ! -f "$1.zwc" || "$1" -nt "$1.zwc" ]] && zcompile "$1" 2>/dev/null
+            return 0
+        }
+        _zes_warm_compile "$_zes_warm_dir/zsh-edit-select.plugin.zsh"
+        if [[ -n "$_zes_warm_impl" ]]; then
+            for _zes_warm_f in "$_zes_warm_dir/impl-${_zes_warm_impl}"/zsh-edit-select-*.plugin.zsh(N); do
+                _zes_warm_compile "$_zes_warm_f"
+            done
+            for _zes_warm_f in "$_zes_warm_dir/impl-${_zes_warm_impl}"/backends/**/*.zsh(N); do
+                _zes_warm_compile "$_zes_warm_f"
+            done
+            if [[ "$_zes_warm_impl" == "wsl" ]]; then
+                for _zes_warm_f in "$_zes_warm_dir/impl-wsl/tailored-variants"/**/*.zsh(N); do
+                    _zes_warm_compile "$_zes_warm_f"
+                done
+                _zes_warm_compile "$_zes_warm_dir/impl-wsl/loader-build.wsl.zsh"
+            fi
+        fi
+        unset _zes_warm_dir _zes_warm_impl _zes_warm_f
+        unfunction _zes_warm_compile 2>/dev/null
+        return $_zes_warm_rc 2>/dev/null
+    '
+
     if command_exists timeout; then
         if timeout 20 env ZES_FORCE_IMPL="$runtime_impl" ZES_PLUGIN_LOADER="$plugin_loader" \
-            zsh -f -c 'source "$ZES_PLUGIN_LOADER" >/dev/null 2>&1' >/dev/null 2>&1; then
+            zsh -f -c "$warmup_script" >/dev/null 2>&1; then
             print_success "Plugin warm-up completed" "plugin_warmup"
             return 0
         fi
     else
         if env ZES_FORCE_IMPL="$runtime_impl" ZES_PLUGIN_LOADER="$plugin_loader" \
-            zsh -f -c 'source "$ZES_PLUGIN_LOADER" >/dev/null 2>&1' >/dev/null 2>&1; then
+            zsh -f -c "$warmup_script" >/dev/null 2>&1; then
             print_success "Plugin warm-up completed" "plugin_warmup"
             return 0
         fi

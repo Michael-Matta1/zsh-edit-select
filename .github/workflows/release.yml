@@ -25,6 +25,7 @@ on:
 #       binaries shipped to users. Stack protection is a cheap, effective
 #       mitigation that belongs in any distributed binary.
 #    Everything else (-flto, -fno-plt, -fipa-pta, etc.) is portable and safe.
+#    We follow the Linux kernel optimization level flag `-O2` for distributed binaries.
 #
 # 3. Linux binaries are built inside an Alpine 3.21 container (musl libc)
 #    with full static linking (-static).
@@ -64,34 +65,59 @@ on:
 #    libxcb-dev, libxau-dev, libxdmcp-dev are installed explicitly because
 #    they are required for static X11 linking (transitive deps of libX11).
 #
-# 5. bash is installed explicitly in both Alpine jobs.
+# 5. bash is installed in every Alpine container used by this workflow.
 #    Alpine ships only ash (busybox sh) by default. GitHub Actions executes
 #    run blocks as "bash --noprofile --norc -eo pipefail" and the fallback
 #    behaviour when bash is absent is not guaranteed across runner versions.
-#    Installing bash and declaring "defaults: run: shell: bash" at the job
-#    level makes the shell explicit and preserves -eo pipefail semantics.
-#    The bootstrap "Install build dependencies" step itself must use
+#    The x86_64 job (job-level Alpine container) declares "defaults: run:
+#    shell: bash" to make the shell explicit and preserve -eo pipefail
+#    semantics. Its bootstrap "Install build dependencies" step must use
 #    "shell: sh" because bash is not yet present when it runs.
+#    The aarch64/armv7l/riscv64 jobs run their build inside "docker run …
+#    sh -exc '…'" (POSIX syntax) so bash is not strictly required there,
+#    but it is installed for consistency with the x86_64 job.
 #
 # 6. aarch64 uses the native GitHub ARM64 runner (ubuntu-22.04-arm) with
 #    the same Alpine 3.21 container. No QEMU emulation.
 #    WSL agents are NOT built for aarch64: WSL runs on x86_64 Windows only.
 #
-# 7. macOS builds a universal binary via lipo — unchanged.
+# 7. armv7l (32-bit ARM hard-float) and riscv64 (RISC-V 64-bit) are built
+#    via QEMU emulation on an x86_64 ubuntu-22.04 runner — GitHub provides no
+#    native runners for either architecture. We use the same docker-run pattern
+#    the aarch64 job uses (run natively, mount the workspace, build in an
+#    Alpine container) but pass `--platform linux/arm/v7` or `linux/riscv64`
+#    so the arm32v7/alpine or riscv64/alpine image is executed under QEMU
+#    user-mode emulation.
+#    Emulation is NOT available by default: GitHub-hosted runners register no
+#    QEMU binfmt_misc handlers, and `--platform` only selects which image
+#    manifest Docker pulls — it does not provide the interpreter needed to run
+#    it. Without registration the container pulls fine and then dies instantly
+#    with "exec /bin/sh: exec format error". Both jobs therefore run
+#    docker/setup-qemu-action first, which installs the QEMU static binaries
+#    (tonistiigi/binfmt) and registers them with the kernel.
+#    Builds are slow (~10x native) but the agents are tiny.
+#    Targets realistic zsh users on Raspberry Pi 3/4/5 (armv7l, often running
+#    32-bit Raspberry Pi OS) and RISC-V hobbyist boards like the VisionFive
+#    (riscv64). ppc64le and s390x are NOT built — those architectures are
+#    almost exclusively enterprise/datacenter with no realistic zsh +
+#    Wayland/X11 desktop user base.
+#    WSL agents are NOT built for armv7l or riscv64: WSL only runs on x86_64.
+#
+# 8. macOS builds a universal binary via lipo — unchanged.
 #    Two compilations (-arch x86_64 and -arch arm64) are merged into one
 #    fat binary that runs natively on both Intel Macs and Apple Silicon.
 #    Alpine/musl does not apply to macOS; the macOS job uses macos-latest
 #    with clang and the standard Apple toolchain.
 #
-# 8. wayland-scanner is provided by Alpine's wayland-dev package.
+# 9. wayland-scanner is provided by Alpine's wayland-dev package.
 #    wayland-protocols provides xdg-shell.xml and the other XML files.
 #    The Wayland Makefile generates protocol headers from these XMLs on a
 #    fresh checkout (generated files are gitignored). No separate
 #    libwayland-bin install is needed — Alpine's wayland-dev bundles it.
 #
-# 9. A SHA256SUMS.txt is generated and attached to the release.
-#    fetch-agents.zsh verifies each downloaded binary's integrity against
-#    this file before marking it executable — the same pattern used by fzf.
+# 10. A SHA256SUMS.txt is generated and attached to the release.
+#     fetch-agents.zsh verifies each downloaded binary's integrity against
+#     this file before marking it executable — the same pattern used by fzf.
 # ─────────────────────────────────────────────────────────────────────────────
 
 env:
@@ -268,9 +294,9 @@ jobs:
   #
   # WHY no job-level container here:
   #   GitHub Actions JavaScript actions (actions/checkout, actions/upload-artifact)
-  #   cannot run inside Alpine containers on ARM64 runners — only x86_64 is
-  #   supported. The x86_64 job works around checkout with a manual git clone,
-  #   but there is no equivalent workaround for upload-artifact.
+  #   cannot run inside Alpine containers on non-x86_64 runners. On the x86_64
+  #   job a job-level Alpine container works because JS actions fully support
+  #   x86_64 containers, but ARM64/foreign-arch containers are not supported.
   #   Solution: run the job natively on ubuntu-22.04-arm, invoke docker run
   #   manually for the build steps only (mounting the workspace), then let
   #   actions/upload-artifact run natively on the ubuntu runner where JS actions
@@ -322,7 +348,157 @@ jobs:
           path: dist/
 
   # ───────────────────────────────────────────────────────────────────────────
-  # Job 3 — macOS universal binary
+  # Job 3 — Linux armv7l (32-bit ARM hard-float)
+  # Runner    : ubuntu-22.04 (x86_64 GitHub runner; no native ARM32 runner)
+  # Container : arm32v7/alpine:3.21 invoked via `docker run --platform linux/arm/v7`
+  #             — QEMU user-mode emulation provides transparent
+  #               cross-architecture execution.
+  #
+  # WHY the explicit docker/setup-qemu-action step:
+  #   GitHub-hosted runners have no QEMU binfmt_misc handlers registered, and
+  #   `--platform` only picks the image manifest — it does not supply an
+  #   interpreter for foreign-arch ELF binaries. Without this step the image
+  #   pulls successfully and then fails immediately with
+  #   "exec /bin/sh: exec format error" (exit 255). The action runs the
+  #   tonistiigi/binfmt installer image to register the handlers with the
+  #   kernel. The aarch64 job needs none of this because that runner is
+  #   natively ARM64.
+  #   platforms: arm registers the 32-bit ARM handler (covers arm/v6 + arm/v7);
+  #   only the handler this job needs is installed rather than "all".
+  #
+  # WHY QEMU on x86_64, not a native runner:
+  #   GitHub does not host any 32-bit ARM runners. The only options for armv7l
+  #   are (a) QEMU emulation on an x86_64 runner (used here) or (b) self-hosted
+  #   hardware. QEMU is slow (~10x native) but adequate for these tiny agents.
+  #
+  # WHY the same docker run pattern as the aarch64 job:
+  #   Identical reasoning — see Job 2 header. GitHub Actions JS actions
+  #   (checkout, upload-artifact) cannot run inside foreign-arch containers.
+  #   Solution: run the job natively on ubuntu-22.04, invoke docker run
+  #   manually for build only, then let upload-artifact run natively.
+  #
+  # WHY --platform linux/arm/v7 (not /arm/v6 or /armhf):
+  #   /arm/v7 is the ARMv7 hard-float ABI (armhf) used by Raspberry Pi 3/4/5
+  #   running 32-bit Raspberry Pi OS. /arm/v6 would target ARMv6 (Pi 1/Zero)
+  #   — we don't target that because zsh on Pi Zero-class hardware is rare.
+  #
+  # NOT built: s390x (IBM Z), ppc64le (POWER) — those arches are almost
+  #   exclusively enterprise/datacenter with no realistic zsh + Wayland/X11
+  #   desktop user base. WSL agents are not built for armv7l either: WSL only
+  #   runs on x86_64 Windows.
+  #
+  # Builds    : Wayland agent, XWayland agent, X11 agent
+  # Binaries get an -armv7l suffix to coexist in the same release alongside the
+  # x86_64 binaries (no suffix) and the -aarch64 binaries.
+  # ───────────────────────────────────────────────────────────────────────────
+  build-linux-armv7l:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up QEMU (register 32-bit ARM binfmt handler)
+        uses: docker/setup-qemu-action@v4.2.0
+        with:
+          platforms: arm
+
+      - name: Build in Alpine container (QEMU-emulated)
+        run: |
+          docker run --rm \
+            --platform linux/arm/v7 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            arm32v7/alpine:3.21 sh -exc '
+              apk add --no-cache \
+                bash gcc make musl-dev pkgconf \
+                wayland-dev wayland-static wayland-protocols \
+                libx11-dev libx11-static libxcb-dev libxcb-static libxau-dev libxdmcp-dev \
+                libxfixes-dev \
+                libffi-dev
+
+              CFLAGS_WAYLAND="-O2 -flto -ffunction-sections -fdata-sections -fomit-frame-pointer -funroll-loops -fno-plt -pipe -fno-semantic-interposition -fno-asynchronous-unwind-tables -fno-unwind-tables -fmerge-all-constants -fipa-pta -fno-ident -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+              LDFLAGS_WAYLAND="-static $(pkg-config --libs --static wayland-client) -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none -flto -s"
+
+              CFLAGS_X11="-O2 -flto -ffunction-sections -fdata-sections -fomit-frame-pointer -funroll-loops -fno-plt -pipe -fno-semantic-interposition -fno-strict-aliasing -fno-asynchronous-unwind-tables -fno-unwind-tables -fmerge-all-constants -fipa-pta -fno-ident -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+              LDFLAGS_X11="-static $(pkg-config --libs --static x11 xfixes) -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none -flto -s"
+
+              make -C impl-wayland/backends/wayland  CFLAGS="$CFLAGS_WAYLAND" LDFLAGS="$LDFLAGS_WAYLAND"
+              make -C impl-wayland/backends/xwayland CFLAGS="$CFLAGS_X11"     LDFLAGS="$LDFLAGS_X11"
+              make -C impl-x11/backends/x11          CFLAGS="$CFLAGS_X11"     LDFLAGS="$LDFLAGS_X11"
+
+              mkdir -p dist
+              cp impl-wayland/backends/wayland/zes-wl-selection-agent  dist/zes-wl-selection-agent-armv7l
+              cp impl-wayland/backends/xwayland/zes-xwayland-agent      dist/zes-xwayland-agent-armv7l
+              cp impl-x11/backends/x11/zes-x11-selection-agent          dist/zes-x11-selection-agent-armv7l
+            '
+
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: linux-armv7l
+          path: dist/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 4 — Linux riscv64 (RISC-V 64-bit)
+  # Runner    : ubuntu-22.04 (x86_64 GitHub runner; no native RISC-V runner)
+  # Container : riscv64/alpine:3.21 invoked via `docker run --platform linux/riscv64`
+  #             — QEMU user-mode emulation (same pattern as armv7l above,
+  #               including the mandatory docker/setup-qemu-action step; see
+  #               Job 3's header for why it is required).
+  #
+  # Targets hobbyist RISC-V boards like the VisionFive / SiFive where users
+  # run zsh with a Wayland or X11 desktop. WSL agents are not built for
+  # riscv64. Binaries get a -riscv64 suffix to coexist in the same release.
+  #
+  # Builds    : Wayland agent, XWayland agent, X11 agent
+  # ───────────────────────────────────────────────────────────────────────────
+  build-linux-riscv64:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up QEMU (register riscv64 binfmt handler)
+        uses: docker/setup-qemu-action@v4.2.0
+        with:
+          platforms: riscv64
+
+      - name: Build in Alpine container (QEMU-emulated)
+        run: |
+          docker run --rm \
+            --platform linux/riscv64 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            riscv64/alpine:3.21 sh -exc '
+              apk add --no-cache \
+                bash gcc make musl-dev pkgconf \
+                wayland-dev wayland-static wayland-protocols \
+                libx11-dev libx11-static libxcb-dev libxcb-static libxau-dev libxdmcp-dev \
+                libxfixes-dev \
+                libffi-dev
+
+              CFLAGS_WAYLAND="-O2 -flto -ffunction-sections -fdata-sections -fomit-frame-pointer -funroll-loops -fno-plt -pipe -fno-semantic-interposition -fno-asynchronous-unwind-tables -fno-unwind-tables -fmerge-all-constants -fipa-pta -fno-ident -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+              LDFLAGS_WAYLAND="-static $(pkg-config --libs --static wayland-client) -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none -flto -s"
+
+              CFLAGS_X11="-O2 -flto -ffunction-sections -fdata-sections -fomit-frame-pointer -funroll-loops -fno-plt -pipe -fno-semantic-interposition -fno-strict-aliasing -fno-asynchronous-unwind-tables -fno-unwind-tables -fmerge-all-constants -fipa-pta -fno-ident -DNDEBUG -Wall -Wextra -Wno-unused-parameter"
+              LDFLAGS_X11="-static $(pkg-config --libs --static x11 xfixes) -Wl,--gc-sections -Wl,-O1 -Wl,--build-id=none -flto -s"
+
+              make -C impl-wayland/backends/wayland  CFLAGS="$CFLAGS_WAYLAND" LDFLAGS="$LDFLAGS_WAYLAND"
+              make -C impl-wayland/backends/xwayland CFLAGS="$CFLAGS_X11"     LDFLAGS="$LDFLAGS_X11"
+              make -C impl-x11/backends/x11          CFLAGS="$CFLAGS_X11"     LDFLAGS="$LDFLAGS_X11"
+
+              mkdir -p dist
+              cp impl-wayland/backends/wayland/zes-wl-selection-agent  dist/zes-wl-selection-agent-riscv64
+              cp impl-wayland/backends/xwayland/zes-xwayland-agent      dist/zes-xwayland-agent-riscv64
+              cp impl-x11/backends/x11/zes-x11-selection-agent          dist/zes-x11-selection-agent-riscv64
+            '
+
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: linux-riscv64
+          path: dist/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 5 — macOS universal binary
   # Runner  : macos-latest (GitHub provides real macOS machines)
   # Strategy: compile x86_64 and arm64 separately, merge with lipo into one
   #           fat binary that runs natively on both Intel Macs and Apple Silicon
@@ -377,7 +553,7 @@ jobs:
 
   # ───────────────────────────────────────────────────────────────────────────
   # Final job — publish GitHub Release
-  # Waits for all three build jobs, then:
+  # Waits for all five build jobs, then:
   #   1. Generates a SHA256SUMS.txt for every binary
   #   2. Creates a GitHub Release at:
   #      github.com/Michael-Matta1/zsh-edit-select/releases/tag/<tag>
@@ -388,11 +564,11 @@ jobs:
   # before marking it executable.
   # ───────────────────────────────────────────────────────────────────────────
   release:
-    needs: [build-linux-x86_64, build-linux-aarch64, build-macos]
+    needs: [build-linux-x86_64, build-linux-aarch64, build-linux-armv7l, build-linux-riscv64, build-macos]
     runs-on: ubuntu-latest
     # Only publish a GitHub Release when the workflow was triggered by an
     # actual version tag push.  This lets workflow_dispatch be used safely
-    # to verify that all three build jobs compile without accidentally
+    # to verify that all five build jobs compile without accidentally
     # publishing a release with no tag (which would fail or produce a release
     # named after the branch, e.g. "refs/heads/main").
     if: startsWith(github.ref, 'refs/tags/')
@@ -413,6 +589,12 @@ jobs:
             linux-aarch64/zes-wl-selection-agent-aarch64 \
             linux-aarch64/zes-xwayland-agent-aarch64 \
             linux-aarch64/zes-x11-selection-agent-aarch64 \
+            linux-armv7l/zes-wl-selection-agent-armv7l \
+            linux-armv7l/zes-xwayland-agent-armv7l \
+            linux-armv7l/zes-x11-selection-agent-armv7l \
+            linux-riscv64/zes-wl-selection-agent-riscv64 \
+            linux-riscv64/zes-xwayland-agent-riscv64 \
+            linux-riscv64/zes-x11-selection-agent-riscv64 \
             macos/zes-macos-clipboard-agent \
             > SHA256SUMS.txt
 
@@ -430,5 +612,11 @@ jobs:
             linux-aarch64/zes-wl-selection-agent-aarch64
             linux-aarch64/zes-xwayland-agent-aarch64
             linux-aarch64/zes-x11-selection-agent-aarch64
+            linux-armv7l/zes-wl-selection-agent-armv7l
+            linux-armv7l/zes-xwayland-agent-armv7l
+            linux-armv7l/zes-x11-selection-agent-armv7l
+            linux-riscv64/zes-wl-selection-agent-riscv64
+            linux-riscv64/zes-xwayland-agent-riscv64
+            linux-riscv64/zes-x11-selection-agent-riscv64
             macos/zes-macos-clipboard-agent
             SHA256SUMS.txt

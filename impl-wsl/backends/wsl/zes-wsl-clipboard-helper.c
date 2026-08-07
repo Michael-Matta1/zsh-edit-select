@@ -6,7 +6,7 @@
 //   x86_64-w64-mingw32-gcc -O2 -o zes-wsl-clipboard-helper.exe
 //       zes-wsl-clipboard-helper.c -luser32
 //
-// Modes (first matching flag wins):
+// Modes (dispatch precedence follows this list):
 //   --daemon          Monitor clipboard changes via AddClipboardFormatListener,
 //                     write events to stdout using a length-prefixed protocol.
 //   --get-clipboard   Print clipboard text (UTF-8) to stdout and exit.
@@ -26,6 +26,19 @@
 #define _UNICODE
 #endif
 
+/* Target Windows Vista (0x0600) — required by AddClipboardFormatListener
+   (introduced in Vista). Without this, mingw-w64 defaults to Server 2003
+   (0x0502), leaving the function undeclared and breaking strict builds. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
+#ifndef WINVER
+#define WINVER 0x0600
+#endif
+#ifndef NTDDI_VERSION
+#define NTDDI_VERSION 0x06000000
+#endif
+
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +47,7 @@
 #include <io.h>
 #include <fcntl.h>
 
-/* Safety cap on clipboard reads. */
+/* Safety cap on clipboard writes received from stdin. */
 #define MAX_CLIPBOARD_SIZE (4 * 1024 * 1024)
 
 /* Heartbeat interval in milliseconds (5 seconds). */
@@ -166,8 +179,10 @@ static char *read_all_stdin(size_t *out_len) {
             }
             buf = nb;
         }
+        DWORD to_read = (DWORD)((MAX_CLIPBOARD_SIZE - total > 4096)
+                            ? 4096 : (MAX_CLIPBOARD_SIZE - total));
         DWORD n = 0;
-        if (!ReadFile(GetStdHandle(STD_INPUT_HANDLE), buf + total, 4096, &n, NULL) || n == 0)
+        if (!ReadFile(GetStdHandle(STD_INPUT_HANDLE), buf + total, to_read, &n, NULL) || n == 0)
             break;
         total += n;
     }
@@ -308,12 +323,14 @@ static int run_daemon(void) {
                               HWND_MESSAGE, NULL, wc.hInstance, NULL);
     if (!g_hwnd) {
         fprintf(stderr, "CreateWindow failed\n");
+        UnregisterClassA(wc.lpszClassName, wc.hInstance);
         return 1;
     }
 
     if (!AddClipboardFormatListener(g_hwnd)) {
         fprintf(stderr, "AddClipboardFormatListener failed\n");
         DestroyWindow(g_hwnd);
+        UnregisterClassA(wc.lpszClassName, wc.hInstance);
         return 1;
     }
 
@@ -324,6 +341,7 @@ static int run_daemon(void) {
     if (write_line("READY\n") < 0) {
         RemoveClipboardFormatListener(g_hwnd);
         DestroyWindow(g_hwnd);
+        UnregisterClassA(wc.lpszClassName, wc.hInstance);
         return 1;
     }
 
@@ -337,6 +355,10 @@ static int run_daemon(void) {
     KillTimer(g_hwnd, TIMER_ID_HEARTBEAT);
     RemoveClipboardFormatListener(g_hwnd);
     DestroyWindow(g_hwnd);
+    /* Completes the RegisterClass/UnregisterClass pairing on the normal-exit
+       path, matching the two failure exits above.  UnregisterClassA must come
+       after DestroyWindow: a class with live windows cannot be unregistered. */
+    UnregisterClassA(wc.lpszClassName, wc.hInstance);
     return 0;
 }
 
@@ -589,8 +611,8 @@ static int wait_for_physical_left_up_with_hook(DWORD timeout_ms) {
 static int run_handoff_scrollback(void) {
     HHOOK hook = NULL;
     int rc = 0;
-    int rc_down = 0;
-    int rc_up = 0;
+    int rc_down;
+    int rc_up;
 
     InterlockedExchange(&g_physical_left_up_seen, 0);
 

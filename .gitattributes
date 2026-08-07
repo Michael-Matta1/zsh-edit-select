@@ -1,6 +1,9 @@
 # Always use LF line endings for shell scripts — Needed for WSL.
 *.zsh        text eol=lf working-tree-encoding=UTF-8
 *.sh         text eol=lf working-tree-encoding=UTF-8
+hooks/post-merge     text eol=lf
+hooks/post-rewrite   text eol=lf
+hooks/zes-post-pull  text eol=lf
 *.zsh.zwc    binary
 Makefile     text eol=lf
 *.c          text eol=lf

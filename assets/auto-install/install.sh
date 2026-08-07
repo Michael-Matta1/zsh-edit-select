@@ -288,7 +288,10 @@ for _arg in "$@"; do
         if [[ -n "$_zes_self_dir" ]] && [[ -d "$_zes_self_dir/lib" ]]; then
             _ZES_LOCAL_LIB_DIR="$_zes_self_dir/lib"
         else
-            # Backward-compatible fallback for repo-root invocation style.
+            # Fallback for curl-piped invocation: BASH_SOURCE[0] is /dev/fd/N
+            # so resolving relative to the loader doesn't help. Assume the user
+            # ran the script from the repo root (e.g. bash <(curl ...) within the
+            # cloned zsh-edit-select directory).
             _ZES_LOCAL_LIB_DIR="$(pwd)/assets/auto-install/lib"
         fi
         unset _zes_self_dir
@@ -452,7 +455,11 @@ for _arg in "$@"; do
 done
 unset _arg
 
-# Run main function only if not sourced.
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# Run main unless this file is being *sourced* by another script.  BASH_SOURCE[0]
+# equals $0 for direct execution and `bash <(...)` process substitution, and is
+# empty when the body is fed on stdin (`curl … | bash`, or the macOS `bash -s`
+# relaunch) — both of which must still run main.  When sourced, BASH_SOURCE[0]
+# is the file path (non-empty) and differs from $0, so main is correctly skipped.
+if [[ "${BASH_SOURCE[0]}" == "${0}" || -z "${BASH_SOURCE[0]}" ]]; then
     main "${_zes_main_args[@]}"
 fi

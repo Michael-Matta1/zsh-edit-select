@@ -18,6 +18,7 @@
 #   Do NOT use -fno-asynchronous-unwind-tables / -fno-unwind-tables (breaks ObjC exceptions)
 
 CC      ?= clang
+STRIP   ?= strip
 
 # Compiler flags:
 #   -Os                  Optimize for size.
@@ -57,7 +58,7 @@ all: $(TARGET)
 
 $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
-	strip $@ 2>/dev/null || true
+	$(STRIP) $@ 2>/dev/null || true
 
 clean:
 	rm -f $(TARGET)

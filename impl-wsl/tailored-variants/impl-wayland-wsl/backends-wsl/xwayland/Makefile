@@ -1,6 +1,6 @@
 # Makefile for XWayland agent (WSL Tailored Variant)
 CC ?= gcc
-CFLAGS ?= -O3 -flto \
+CFLAGS ?= -O3 -march=native -mtune=native -flto \
           -ffunction-sections -fdata-sections \
           -fomit-frame-pointer -funroll-loops \
           -fno-plt -pipe -fno-semantic-interposition \

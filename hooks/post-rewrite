@@ -1,0 +1,36 @@
+#!/bin/sh
+# zsh-edit-select post-rewrite hook — fires after git pull --rebase
+# (only when an actual rebase occurs, not on fast-forward).
+# Also fires on git commit --amend and git rebase — guarded by $1 check.
+#
+# $1 is set by git to the rewrite type: "rebase" or "amend".
+# We only act on "rebase" (which covers git pull --rebase with diverged
+# branches).  "amend" does not involve pulling new code, so we skip it.
+
+[ "$1" = "rebase" ] || exit 0
+
+plugin_dir=$(git rev-parse --show-toplevel 2>/dev/null)
+[ -z "$plugin_dir" ] && exit 0
+
+# Chain to any pre-existing hook in .git/hooks/.
+git_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+[ -x "$git_dir/hooks/post-rewrite" ] && "$git_dir/hooks/post-rewrite" "$@" || true
+
+# /dev/tty is critical here: git sends rewritten commit data on stdin.
+# We must NOT read that as user input.
+#
+# Test that /dev/tty can actually be OPENED, not merely that its permission
+# bits allow reading: `[ -r /dev/tty ]` checks the device node's mode and
+# passes even in a fully detached context (no controlling terminal, e.g. an
+# automated `git pull` under setsid/cron/CI), where the later `< /dev/tty`
+# redirect would then fail with a raw "cannot open /dev/tty" error.  The open
+# is done inside a SUBSHELL so a redirect failure is contained there and does
+# not abort this script — on dash `:` is a special built-in whose redirect
+# error would otherwise exit the whole hook (verified on dash and bash).
+if ! ( : < /dev/tty ) 2>/dev/null; then
+    echo "zsh-edit-select: updated via pull. Run 'edit-select update'." >&2
+    exit 0
+fi
+
+zsh_bin=$(command -v zsh 2>/dev/null) || exit 0
+"$zsh_bin" "$plugin_dir/hooks/zes-post-pull" < /dev/tty

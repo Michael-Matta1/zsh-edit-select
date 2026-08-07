@@ -29,48 +29,52 @@ typeset -gi _ZES_SSH_MODE=0
 function _zes_start_monitor() {
     # Use -s (non-empty file) instead of -x for DrvFs mount compatibility
     # on WSL2 where the POSIX execute bit may not be set.
-    [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]] && [[ ! -x "$_EDIT_SELECT_MONITOR_BIN" ]] && chmod +x "$_EDIT_SELECT_MONITOR_BIN" 2>/dev/null
+    [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]] && [[ ! -x "$_EDIT_SELECT_MONITOR_BIN" ]] && chmod +x "$_EDIT_SELECT_MONITOR_BIN" 2>/dev/null || true
     if [[ ! -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         # Agent binary absent — fall back to powershell.exe for all clipboard ops.
         _EDIT_SELECT_DAEMON_ACTIVE=0
         return 1
     fi
 
-    # Ensure the cache directory exists.
-    [[ ! -d "$_EDIT_SELECT_CACHE_DIR" ]] && mkdir -p "$_EDIT_SELECT_CACHE_DIR" >/dev/null 2>&1
+    # Ensure the cache directory exists.  `|| true`: the status is unobserved
+    # (the tests below re-derive state from the filesystem), and a failed mkdir
+    # must not abort before the readiness resolution at the end of this
+    # function under an inherited err_return/err_exit — that would leave
+    # _EDIT_SELECT_DAEMON_ACTIVE at its previous value with no daemon running.
+    [[ ! -d "$_EDIT_SELECT_CACHE_DIR" ]] && mkdir -p -m 0700 "$_EDIT_SELECT_CACHE_DIR" >/dev/null 2>&1 || true
 
     if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
         local pid
-        pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
+        { pid=$(<"$_EDIT_SELECT_PID_FILE") || true } 2>/dev/null
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             # Daemon already running; reuse it.
             _EDIT_SELECT_DAEMON_ACTIVE=1
             return
         fi
         # Stale PID file — previous daemon died without cleanup.
-        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
+        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null || true
     fi
 
     # Remove stale cache files so the post-launch wait loop cannot mistake
     # an old seq file from a previous session for the new daemon's readiness
-    # signal.
-    rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
+    # signal.  Removal status is likewise unobserved — the wait loop tests file
+    # presence — so it is guarded for the same reason as the mkdir above.
+    rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null || true
 
     # Launch the agent in a disowned background subshell so it persists
     # beyond shell exit without job-control noise.
     (
         "$_EDIT_SELECT_MONITOR_BIN" "$_EDIT_SELECT_CACHE_DIR" &>/dev/null &
-        disown 2>/dev/null
+        disown 2>/dev/null || true
     )
 
-    # Wait up to 1 second (40 × 25 ms) for the agent to write its initial
-    # seq file.  The seq file is the only reliable readiness signal — it is
-    # written by the agent before it writes its PID file, so its presence
-    # means the agent is fully initialised and the cache directory is live.
+    # Wait up to 1 second (40 × 25 ms) for the agent's pre-daemon cache
+    # initialization to create the seq file.  This bounds startup waiting;
+    # the PID file and Windows-helper handshake happen later in the child.
     local wait_count=0
     while [[ ! -f "$_EDIT_SELECT_SEQ_FILE" ]] && ((wait_count < 40)); do
         sleep 0.025
-        ((wait_count++))
+        ((++wait_count))
     done
 
     # Mark daemon active if the seq file appeared; otherwise mark inactive.
@@ -81,28 +85,14 @@ function _zes_start_monitor() {
     fi
 }
 
-# Send SIGTERM to the running agent and mark the daemon inactive.
-# Called during plugin teardown and on detected daemon death.
-function _zes_stop_monitor() {
-    if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
-        local pid
-        pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
-        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null
-        fi
-        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
-    fi
-    _EDIT_SELECT_DAEMON_ACTIVE=0
-}
-
 # Return the current PRIMARY (clipboard) selection text to stdout.
-# When the daemon is active, the file read avoids forking a subprocess on
-# every keypress — zsh reads the file using a built-in redirection.
+# When the daemon is active, the file read avoids forking a subprocess when
+# an operation requests PRIMARY — zsh reads the file using a built-in redirection.
 # Falls back to powershell.exe only when the daemon is not running.
 function _zes_get_primary() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         local primary_data
-        primary_data=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+        { primary_data=$(<"$_EDIT_SELECT_PRIMARY_FILE") || true } 2>/dev/null
         [[ -n "$primary_data" ]] && printf '%s' "$primary_data" && return 0
         return 1
     fi
@@ -134,10 +124,10 @@ function _zes_get_clipboard() {
 function _zes_copy_to_clipboard() {
     [[ -z "$1" ]] && return 1
     if ((_ZES_SSH_MODE)); then
-        local _zes_encoded
+        local _zes_encoded _zes_copy_rc
         # -w 0: suppress GNU base64 line-wrapping (default is 76 chars).
         # Embedded newlines in the encoded output would corrupt the OSC 52 sequence.
-        _zes_encoded=$(printf '%s' "$1" | base64 -w 0)
+        _zes_encoded=$(printf '%s' "$1" | base64 -w 0) || return $?
         if [[ -n "${TMUX:-}" ]]; then
             # tmux requires DCS passthrough wrapping with doubled inner ESC.
             printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded" > /dev/tty
@@ -147,27 +137,38 @@ function _zes_copy_to_clipboard() {
         else
             printf '\033]52;c;%s\a' "$_zes_encoded" > /dev/tty
         fi
-        return 0
+        # Propagate the tty-write status so a failed OSC 52 copy surfaces as a
+        # nonzero rc to the cut widget (which gates deletion on it) instead of
+        # deleting text that was never copied.  No change on the success path.
+        _zes_copy_rc=$?
+        return $_zes_copy_rc
     fi
     _ZES_SELF_WRITE_CONTENT="$1"
+    # Capture the copy status in the OR-branch rather than from a following
+    # `$?` assignment: under an inherited err_return/err_exit the failing
+    # pipeline aborts the function before the assignment runs, so the rollback
+    # below never executes and the marker stays set — suppressing the next real
+    # mouse selection of this same text.  The initialiser carries the success
+    # path (where the OR-branch does not run).
+    local _zes_copy_rc=0
     if [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
-        printf '%s' "$1" | "$_EDIT_SELECT_MONITOR_BIN" --copy-clipboard 2>/dev/null
+        printf '%s' "$1" | "$_EDIT_SELECT_MONITOR_BIN" --copy-clipboard 2>/dev/null || _zes_copy_rc=$?
     else
-        printf '%s' "$1" | clip.exe 2>/dev/null
+        printf '%s' "$1" | clip.exe 2>/dev/null || _zes_copy_rc=$?
     fi
+    # Roll back the self-write marker if the copy failed; otherwise a failed copy would
+    # leave the marker set and suppress the next REAL mouse selection of the same text
+    # (the WSLg round-trip that would have justified suppression never happened).
+    (( _zes_copy_rc )) && _ZES_SELF_WRITE_CONTENT=""
+    return $_zes_copy_rc
 }
 
 # Clear the PRIMARY cache.  Windows has no PRIMARY selection; this only
 # clears the local cache files so the shell does not see stale text.
-# When the agent is available, --clear-primary atomically writes an empty
-# primary file and increments the seq counter.  When unavailable, the
-# cache file is truncated directly as a best-effort fallback.
+# The daemon is the sole owner of seq progression.  Clear only the primary
+# cache here; advancing seq from a short-lived process can collide with the
+# daemon's in-memory counter and hide the next selection event.
 function _zes_clear_primary() {
-    if [[ -s "$_EDIT_SELECT_MONITOR_BIN" ]]; then
-        "$_EDIT_SELECT_MONITOR_BIN" --clear-primary 2>/dev/null
-    else
-        # Without the agent, truncate the cache file directly to avoid
-        # stale selection reuse before the next agent write.
-        [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && : > "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
-    fi
+    [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && \
+        : > "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null || true
 }

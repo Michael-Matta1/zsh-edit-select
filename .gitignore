@@ -6,6 +6,7 @@ impl-wayland/backends/wayland/*.o
 impl-wayland/backends/xwayland/zes-xwayland-agent
 impl-wayland/backends/xwayland/*.o
 impl-x11/backends/x11/zes-x11-selection-agent
+impl-x11/backends/x11/zes-x11-selection-agent-dbg
 impl-x11/backends/x11/*.o
 impl-wsl/backends/wsl/zes-wsl-selection-agent
 impl-wsl/backends/wsl/zes-wsl-clipboard-helper
@@ -17,14 +18,27 @@ impl-macos/backends/macos/zes-macos-clipboard-agent
 *.zwc
 
 # Benchmarks
-benchmarks/wayland-benchmark
-benchmarks/x11-benchmark
-benchmarks/*.o
-benchmarks/results/
-benchmarks/*.log
-benchmarks/*.out
+assets/benchmarks/wayland-benchmark
+assets/benchmarks/x11-benchmark
+assets/benchmarks/*.o
+assets/benchmarks/results/
+assets/benchmarks/*.log
+assets/benchmarks/*.out
+
+# Hook markers (local-only)
+.zes-hooks-installed
+.zes-hooks-bootstrap-done
+
+# Future-plans notes (local working docs)
+future_plans/
 
 # IDE/OS
 .DS_Store
 *.swp
 *~
+
+# Static-analysis working artifacts (bear-generated per-agent databases
+# and scan-build report stubs left in build dirs)
+compile_commands.json
+zes-macos-clipboard-agent.plist
+tmp/

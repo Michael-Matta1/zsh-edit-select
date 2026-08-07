@@ -138,7 +138,6 @@ _zes_upsert_alacritty_macos_toml_block() {
     local line
     local stripped
     local in_managed_block=0
-    local in_legacy_block=0
 
     [[ -f "$config" ]] || return 1
 
@@ -158,23 +157,6 @@ _zes_upsert_alacritty_macos_toml_block() {
                 in_managed_block=0
             fi
             continue
-        fi
-
-        if [[ "$stripped" == "# Zsh Edit-Select (macOS)" ]]; then
-            in_legacy_block=1
-            continue
-        fi
-
-        if [[ $in_legacy_block -eq 1 ]]; then
-            if [[ -z "$stripped" ]] ||
-                [[ "$stripped" == "# Cmd editing shortcuts" ]] ||
-                [[ "$stripped" == "[[keyboard.bindings]]" ]] ||
-                [[ "$stripped" =~ ^(key|mods|chars)[[:space:]]*= ]] ||
-                [[ "$stripped" == "[selection]" ]] ||
-                [[ "$stripped" =~ ^save_to_clipboard[[:space:]]*= ]]; then
-                continue
-            fi
-            in_legacy_block=0
         fi
 
         printf '%s\n' "$line" >>"$tmpfile"
@@ -382,7 +364,9 @@ local zes_macos_mouse_bindings = {
     mods = 'NONE',
     action = zes_wezterm.action_callback(function(window, pane)
       local sel = window:get_selection_text_for_pane(pane)
-      if sel ~= '' then
+      -- Skip the signal while a full-screen application (vim, nano, less) owns
+      -- the alternate screen; it would arrive there as raw input.
+      if sel ~= '' and not pane:is_alt_screen_active() then
         pane:send_text('\x1b[>62300u')
       end
       window:perform_action(zes_act.ClearSelection, pane)
@@ -411,6 +395,7 @@ local zes_macos_mouse_bindings = {
   },
 }
 for _, binding in ipairs(zes_macos_mouse_bindings) do table.insert(config.mouse_bindings, binding) end
+-- Zsh Edit-Select End
 WEZTERM_MACOS
     )
 

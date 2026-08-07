@@ -284,8 +284,3 @@ configure_terminals() {
 backup_config() {
     backup_file "$1"
 }
-
-# Backward-compatible wrapper for callers that still invoke this legacy name.
-configure_iterm2() {
-    _zes_configure_terminal_for_os "iterm2"
-}

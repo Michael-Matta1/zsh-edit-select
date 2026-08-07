@@ -48,22 +48,26 @@ function _zes_loader_build_if_missing() {
 #
 # Ensure both WSL artifacts are present:
 #   zes-wsl-selection-agent      — Linux ELF; must be executable
-#   zes-wsl-clipboard-helper.exe — Windows PE; only needs to exist as a file
-#                                   (Linux exec bit is irrelevant for a PE
-#                                    binary invoked by cmd.exe on the Win side)
+#   zes-wsl-clipboard-helper.exe — Windows PE; gated on -s (non-empty file).
+#                                   The agent execs it directly, which does need
+#                                   the exec bit — but both provisioning paths
+#                                   already set it (mingw-gcc marks its output
+#                                   executable; the fetch path runs chmod +x),
+#                                   so presence is the load-bearing check here.
 #
-# Called by the WSL plugin with no argument; the default expression resolves
-# to the directory this file itself lives in (impl-wsl/).
+# All current callers pass wsl_root explicitly.  The default resolves to the
+# directory this file itself lives in (impl-wsl/) as a last-resort fallback;
+# %x is the sourced file's path, so this holds through the .zwc cache too.
 # ---------------------------------------------------------------------------
 function _zes_loader_build_wsl_artifacts() {
-  local _wsl_root="${1:-${${(%):-%N}:A:h}}"
+  local _wsl_root="${1:-${${(%):-%x}:A:h}}"
   local _wsl_agent="${_wsl_root}/backends/wsl/zes-wsl-selection-agent"
   local _wsl_helper="${_wsl_root}/backends/wsl/zes-wsl-clipboard-helper.exe"
   local _wsl_helper_src="${_wsl_root}/backends/wsl/zes-wsl-clipboard-helper.c"
   local _wsl_agent_src="${_wsl_root}/backends/wsl/zes-wsl-selection-agent.c"
 
   # Best-effort fix for copied/extracted ELF binaries that lost +x.
-  [[ -f "$_wsl_agent" && ! -x "$_wsl_agent" ]] && chmod +x "$_wsl_agent" 2>/dev/null
+  [[ -f "$_wsl_agent" && ! -x "$_wsl_agent" ]] && chmod +x "$_wsl_agent" 2>/dev/null || true
 
   # Fast path: both artifacts are usable and no source files are newer than their binaries.
   if [[ -x "$_wsl_agent" && -s "$_wsl_helper" ]] && \
@@ -76,7 +80,7 @@ function _zes_loader_build_wsl_artifacts() {
   # _wsl_root is impl-wsl/; its parent is the plugin root where assets/ lives.
   local _zes_root="${_wsl_root:h}"
   if { [[ ! -x "$_wsl_agent" ]] || [[ ! -s "$_wsl_helper" ]]; } && ! (( ${+functions[_zes_fetch_binary]} )); then
-    source "${_zes_root}/assets/fetch-agents.zsh" 2>/dev/null
+    source "${_zes_root}/assets/fetch-agents.zsh" 2>/dev/null || true
   fi
 
   # ── WSL Linux agent (ELF) ────────────────────────────────────────────────
@@ -104,26 +108,27 @@ function _zes_loader_build_wsl_artifacts() {
     fi
 
     # Download unavailable/unsupported/failed — fall back to compiling from source.
-    [[ ! -x "$_wsl_agent" ]] && _zes_loader_build_if_missing "$_wsl_agent" "gcc make" "WSL agent"
+    [[ ! -x "$_wsl_agent" ]] && _zes_loader_build_if_missing "$_wsl_agent" "gcc make" "WSL agent" || true
 
     # Final diagnostic: if still missing after both paths, tell the user.
     [[ ! -x "$_wsl_agent" ]] \
       && print -u2 "zsh-edit-select: WSL agent unavailable. Install: gcc make (or check network)"
   elif [[ -f "$_wsl_agent" && -f "$_wsl_agent_src" && "$_wsl_agent_src" -nt "$_wsl_agent" ]]; then
-    ( cd "${_wsl_agent:h}" && make >/dev/null 2>&1 )
+    ( cd "${_wsl_agent:h}" && make >/dev/null 2>&1 ) || true
   fi
 
   # ── WSL Windows helper (.exe) ────────────────────────────────────────────
-  # Check: file must exist; exec bit is not meaningful for a Windows PE binary.
+  # Check: file must exist and be non-empty. Both provisioning paths set +x,
+  # which is required because the Linux agent invokes the PE file via execl().
   # If source is newer than binary, prefer a local rebuild to pick up changes.
   if [[ -s "$_wsl_helper" && -f "$_wsl_helper_src" && "$_wsl_helper_src" -nt "$_wsl_helper" ]]; then
-    ( cd "${_wsl_helper:h}" && make >/dev/null 2>&1 )
+    ( cd "${_wsl_helper:h}" && make >/dev/null 2>&1 ) || true
   fi
 
   if [[ ! -s "$_wsl_helper" ]]; then
     if ! (( ${+functions[_zes_fetch_binary]} )) \
          || ! _zes_fetch_binary "zes-wsl-clipboard-helper.exe" "$_wsl_helper"; then
-      _zes_loader_build_if_missing "$_wsl_helper" "gcc-mingw-w64-x86-64" "WSL helper"
+      _zes_loader_build_if_missing "$_wsl_helper" "gcc-mingw-w64-x86-64" "WSL helper" || true
     fi
 
     [[ ! -s "$_wsl_helper" ]] \
@@ -132,6 +137,15 @@ function _zes_loader_build_wsl_artifacts() {
 
   # Ensure the Linux ELF is executable in case it was placed without the bit
   # set (e.g. downloaded by some tools, or extracted from an archive).
-  # The .exe guard uses -f because the exec bit on a Windows PE is meaningless.
-  [[ -f "$_wsl_agent"  && ! -x "$_wsl_agent"  ]] && chmod +x "$_wsl_agent"  2>/dev/null
+  # The .exe is not re-checked here: both provisioning paths above already
+  # leave it executable (mingw-gcc output and the fetch path's chmod +x).
+  [[ -f "$_wsl_agent"  && ! -x "$_wsl_agent"  ]] && chmod +x "$_wsl_agent"  2>/dev/null || true
+
+  # Provisioning success/failure is already reported by the per-artifact
+  # diagnostics above and re-checked by each caller's own artifact-presence
+  # test, so this return value is not a success/failure signal.  Return 0 to
+  # match the fast path above and stop depending on every caller masking a
+  # spurious nonzero rc: the trailing && short-circuits to 1 when the agent is
+  # already executable, i.e. exactly on the success path.
+  return 0
 }

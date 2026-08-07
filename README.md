@@ -5,11 +5,9 @@ mouse, type or paste to replace selections, use standard editing shortcuts (copy
 select all), and customize keybindings through an interactive wizard — with full Linux, macOS and WSL
 support.
 
-
 [demo video](https://github.com/user-attachments/assets/a024e609-1de1-4608-a7c3-e17264162904)
 
 > If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1nsLfIbyLnNWPkUkmMttfTfip4yXCvayA/view?usp=sharing)
-
 
 
 ---
@@ -18,23 +16,31 @@ support.
 
 - [Overview](#overview)
 - [Features](#features)
+- [Mouse Selection Integrated Features](#mouse-selection-integrated-features)
+
+>
+>---
+>
+
 - [Auto Installation](#auto-installation)
 - [Manual Installation](#manual-installation)
 - [Configuration Wizard](#configuration-wizard)
+
 >
 >---
 >
+
 - [Popular Terminals Configurations](#popular-terminals-configurations)
 - [SSH Support](#ssh-support)
+
 >
 >---
 >
+
 - [Commands Reference](#commands-reference)
 - [Default Key Bindings Reference](#default-key-bindings-reference)
 - [Troubleshooting](#troubleshooting)
 - [Manual Agents Build (optional)](#manual-agents-build-optional)
-
-
 
 ---
 
@@ -61,20 +67,20 @@ support.
 
 Select text using familiar keyboard shortcuts:
 
-| Shortcut | Action |
-| -------- | ------ |
-| **Shift + ←/→** | Select character by character |
-| **Shift + ↑/↓** | Select line by line |
-| **Shift + Home/End** | Select to line start/end |
-| **Shift + Ctrl + ←/→** | Select word by word |
-| **Shift + Ctrl + Home/End** | Select to buffer start/end |
-| **Ctrl + A** | Select all text (including multi-line commands) |
+| Shortcut                    | Action                                          |
+| --------------------------- | ----------------------------------------------- |
+| **Shift + ←/→**             | Select character by character                   |
+| **Shift + ↑/↓**             | Select line by line                             |
+| **Shift + Home/End**        | Select to line start/end                        |
+| **Shift + Ctrl + ←/→**      | Select word by word                             |
+| **Shift + Ctrl + Home/End** | Select to buffer start/end                      |
+| **Ctrl + A**                | Select all text (including multi-line commands) |
+
 > **macOS:** Replace `Ctrl` with `Cmd` for whole-line/all-text shortcuts, and with `Option` for word-by-word selection.
 
 > [!TIP]
 >
->For the full keybindings, check the [Default Key Bindings Reference](#default-key-bindings-reference).
-
+> For the full keybindings, check the [Default Key Bindings Reference](#default-key-bindings-reference).
 
 ### Mouse Selection Integration
 
@@ -102,7 +108,6 @@ The plugin integrates mouse selections, but you can disable it using the [Config
 Type or paste while text is selected to replace it automatically.
 
 Works with both keyboard and mouse selections (when mouse replacement is enabled).
-
 
 ### Copy, Cut, and Paste
 
@@ -147,6 +152,162 @@ giving you instant clipboard response.
 
 ---
 
+## Mouse Selection Integrated Features
+
+Beyond the basic mouse-selection, the plugin ships four mouse-selection-aware features:
+
+- [Mouse Replacement](#mouse-replacement-click-to-expand) — enables keyboard-style edit operations (cut, delete, type-over, paste-over) on text selected with the mouse, with an enable/disable toggle and two operating modes.
+- [Mouse Replacement Safeguard](#mouse-replacement-safeguard-click-to-expand) — disambiguates mouse selections when the same text appears more than once in your command buffer, so an edit never lands on the wrong occurrence.
+- [Prompt-Aware Mouse Selection Matching](#prompt-aware-mouse-selection-matching-click-to-expand) — automatically trims prompt prefix and status-suffix noise from mouse drags that include it, so edit actions target the command you actually typed.
+- [Clearing a Selection by Clicking](#clearing-a-selection-by-clicking-click-to-expand) — how the plugin delivers the deselect signal to the shell in each terminal, and what happens when you clear a mouse selection by clicking elsewhere.
+
+These features are transparent to users: they activate automatically when the mouse-selection path is active and require no per-terminal configuration. Keyboard selections bypass them entirely. They work together to keep mouse-driven edits correct and predictable.
+
+**Click on any of the following sections to expand it for more details**:
+
+<details>
+<summary><h3>Mouse Replacement</h3></summary>
+
+**Mouse Replacement** is the bridge between mouse-driven text selection and the plugin's keyboard-style editing model. When enabled, the plugin treats a live mouse selection the same way it treats a keyboard (`Shift+Arrow`) selection, so the standard keyboard edit actions operate on it directly:
+
+- **Cut** — Cut the selected text with `Ctrl+X` (or `Cmd+X` on macOS). The text is removed from the command line and copied to the clipboard.
+- **Delete** — Delete the selected text with `Backspace`/`Delete`.
+- **Type to replace** — Start typing and the new text replaces the current mouse selection in place.
+- **Paste to replace** — Paste with `Ctrl+V` (or `Cmd+V` on macOS) and the clipboard content is inserted in place of the mouse selection.
+
+You can enable or disable Mouse Replacement at any time through the configuration wizard:
+
+```bash
+edit-select config   # → Option 1: Mouse Replacement
+```
+
+When **enabled** (the default), all four operations above work with mouse selections as well as keyboard selections. When **disabled**, the plugin stops treating live mouse selections as editable regions — typing, pasting, cutting, and deleting only act on keyboard selections — but mouse selections can still be **copied** with `Ctrl+C` (or `Ctrl+Shift+C` where configured). Copy is the one operation that always works with a mouse selection regardless of the Mouse Replacement toggle.
+
+> **macOS:** `Cmd` replaces `Ctrl` for all of the above (`Cmd+X`, `Cmd+V`, etc.).
+
+---
+
+</details>
+
+<details>
+<summary><h3>Mouse Replacement Safeguard</h3></summary>
+
+The plugin includes a safety feature to prevent accidental edits when using the mouse. If you select text with your mouse and the plugin detects multiple identical occurrences of that text in your command buffer, it will pause and show the message:
+
+**"Duplicate text: place cursor inside the occurrence you want to modify"**
+
+<details>
+<summary><b>Demo (Click to expand)</b></summary>
+
+[demo video](https://github.com/user-attachments/assets/e3aaaa56-1bc7-4194-a87b-1c7556ab8049)
+
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1YUmxh7CMdQMMiQaSHHhkZzOQx1PnmElf/view?usp=sharing)
+
+</details>
+
+**Why this feature?**
+When text is selected via mouse, terminal emulators don't report the exact screen coordinates to the shell. If the same word appears twice, this protective safeguard ensures you don't accidentally replace the wrong occurrence.
+
+When prompted, simply place your cursor inside the specific occurrence you want to edit, then select and replace it.
+
+> **Note:** It's recommended to use a terminal that supports shell integration (such as Kitty or Ghostty) because this lets you move the cursor using the mouse. If your terminal supports this feature but it's not enabled by default, it's recommended to enable it.
+
+**Exception:** If you are using **Ghostty** on **Linux**, text selected with a **double-click** can be deleted or replaced **without prompting**. This happens because Ghostty automatically moves the cursor to the selected word when you double-click it.
+
+<details>
+<summary><b>Demo (Click to expand)</b></summary>
+
+[demo video](https://github.com/user-attachments/assets/35d72bed-0d3c-4b4c-876a-8ddf705f9fc2)
+
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1L6Ga4tsZOQurR8BmLLW2ZHGbMjfmLnnC/view?usp=sharing)
+
+</details>
+
+- The WSL implementation of the plugin also implements a custom mouse-tracking path that resolves the exact selected range without prompting.
+
+**Keyboard selection bypass:** This safeguard is only needed for mouse selections. Using `Shift+Arrow keys` provides exact cursor positions, avoiding this ambiguity entirely.
+
+You can also disable mouse replacement entirely as mentioned below if you prefer strict keyboard-only editing.
+
+---
+
+</details>
+
+<details>
+<summary><h3>Prompt-Aware Mouse Selection Matching</h3></summary>
+
+When a mouse drag captures the prompt prefix (e.g. `user@host:~$` or powerlevel10k breadcrumb) or a right-aligned status suffix along with the command text, the plugin automatically resolves the selection down to the editable command text — so cut, type/paste over, and delete act on the command you typed correctly, ignoring the full raw highlight. Decorated multi-line selections (left prompt on row 1 and/or right-aligned status, clean continuation rows) are likewise resolved to the underlying multi-line command. Ambiguous, non-aligning, or partial selections are rejected rather than guessed.
+
+>
+> Click on the following collapsed section for demo video to see it in action.
+
+<details>
+<summary><b>Demo (Click to expand)</b></summary>
+
+[demo video](https://github.com/user-attachments/assets/818251f6-389f-4dcf-b2c1-f96493cb83ca)
+
+> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1cOeCNU2TbMXjyAFWTK1nrHcqOJ-tw_tS/view?usp=sharing)
+
+</details>
+
+>
+>
+
+**Net behavior** (X11 / Wayland / macOS):
+
+- A selection that starts on the prompt line and spans part or all of the command resolves to the clean command text — cut, type-over, paste-over, and delete operate on the matched command, not the raw highlight.
+- A decorated multi-line selection (left prompt on row 1 and/or right-aligned status, clean continuation rows) resolves to the underlying multi-line command.
+- Ambiguous selections that cannot be matched to a unique editable region are **rejected**: and handled by the duplicate-disambiguation prompt described in the section above (Mouse Replacement Safeguard).
+- Copy is not affected; you can copy the entire line including the decorations including the prompt prefix and suffix; the feature applis only the the actions that edit the text in command line buffer such as delete, cut, type-to-replace and paste-to-replace.
+
+There is nothing to configure and no per-terminal setup; the resolver runs automatically whenever the mouse-selection path is active. Keyboard selections bypass it entirely.
+
+**Designed for zero-overhead editing.** The matcher is carefully designed with optimized algorithims and carefully layered so that the common case is free and the fallback work is bounded and kept strictly off the hot path. The exact match has ~zero additional cost.
+
+<details>
+<summary><b>Design Details (Click to expand)</b></summary>
+
+- **Exact match costs nothing extra.** The very first step is a length-guarded exact-substring check against the command buffer. If the mouse selection happens to be exactly the command text — the overwhelmingly common case — the matcher returns it immediately with **zero additional cost** over the pre-feature behavior. No fallback, scanning, or extra allocation runs.
+- **Reverse-containment fast path.** When a whole visible line is selected (a left-prompt breadcrumb + the command + a right-aligned status segment), the entire command buffer appears as one contiguous run inside the captured text. A single loose-substring check resolves it in one step, without entering the more general fallback.
+- **Hybrid optimized fallback.** For the rare decoration that the two short paths above don't catch on their own, the matcher runs a bounded optimized search: scan candidate trim totals in order, confirm a match exists at the upper bound, then binary-search for the smallest total trim that still matches, ending with a final left-ascending tie-break scan that preserves the same ordering behavior as the previous implementation. The work is minimal and runs **once per selection gesture** (after exact match fails), never per keystroke, per redraw, or at startup — so it stays well below the threshold of what a user ever perceives.
+- **Multiline line-structured resolver.** For decorated multiline selections (interior prompt/status noise that end-trimming cannot reach), a separate correct-or-nothing resolver aligns the captured rows against the buffer rows: row 1 is matched by containment (it carries the prompt), the continuation rows are matched exactly, and any ambiguous or non-aligning shape is **rejected** rather than guessed. Like the fallback above, it runs only on the cold path.
+
+</details>
+
+
+---
+
+</details>
+
+<details>
+<summary><h3 id="clearing-a-selection-by-clicking-click-to-expand">Clearing a Selection by Clicking (Linux only)</h3></summary>
+
+This section provides an explanation of how the plugin handles clearing mouse selections when you click elsewhere in the terminal, and what you can do to ensure that your edits land where you expect. This is for Linux terminals only; macOS terminals handle this automatically (nothing required beyond the configurations at the [Popular Terminals Configurations](#popular-terminals-configurations) section).
+
+When you select text with the mouse and then click elsewhere to clear that highlight, the terminal drops its on-screen selection — but most terminals do **not** tell the shell about that click. The plugin therefore still thinks the selected text is live, so the next edit (typing, pasting, cutting, deleting) can land on the now-invisible selection instead of inserting at the cursor. This isn't a bug in the plugin; it's a quirk of how `PRIMARY` selection broadcasting works — a terminal keeps `PRIMARY` set until either the user explicitly copies something else or the terminal itself reports a clear. Some terminals send a signal on click, others don't.
+
+What the plugin does for each terminal about this and what you can do to fix it:
+
+- **Kitty, Ghostty** — please enable shell integration (usually enabled by default) — nothing extra to set up. These are  the most recommended terminals for the plugin because they support shell integration and the plugin can handle mouse selections and clicks natively.
+- **WezTerm** — handled using a mouse bindings snippet in WezTerm config at [Popular Terminals Configurations](#popular-terminals-configurations).
+- **Alacritty** — handled using a mouse bindings snippet in Alacritty config at [Popular Terminals Configurations](#popular-terminals-configurations). The the installer can wire this up for you automatically (run `edit-select integrate`) and for manual setup, see the [Popular Terminals Configurations](#popular-terminals-configurations) section.
+- **Foot** — no shell integration and no way to hook a plain left-click without taking over the mouse binding that selection needs, so this cannot be solved from configuration yet. **What to do:** keep mouse replacement disabled (`edit-select config` → Option 1 → Disabled). Mouse selection/copying and keyboard editing still works. Use keyboard selection for edits that need to target the selection.
+- **VS Code** — clicking within the terminal pane to clear a selection is silently ignored by the integrated terminal.
+    - **What does work already:** clicking into a different VS Code pane or any area within the VS Code application outside the terminal pane or clicking into another application window clears the selection automatically.
+    - **Workaround for the remaining within-pane case:** if you have selected text and decided that you don't want to apply any operation on it and decided to clear the selection, click any other area/pane outside the terminal pane once.
+
+**Common workaround** that works on **any** terminal: press any arrow key (←/→/↑/↓) after clicking to clear. The arrow key triggers a redraw the plugin already listens for, which drops the stale selection before the next edit lands. This is also works on the terminals with "no auto fix" case above (VS Code and foot).
+
+This is a VS Code and foot design limitation — not a plugin bug. VS Code's `keybindings.json`/`settings.json` expose no hook for a plain left-click, and the extension API has no terminal mousedown event to subscribe to.
+
+
+---
+
+</details>
+
+---
+---
+
 ## Auto Installation
 
 > **Recommendation:** If you are comfortable editing dotfiles and prefer full control over your system
@@ -156,7 +317,6 @@ Installation consists of two straightforward steps:
 
 1. **Install the plugin** — Clone the repository with your plugin manager and add one line to your `.zshrc`.
 2. **Configure your terminal** — Add a few keybinding entries to your terminal's config file.
-
 
 Each step is documented with exact commands and copy-paste configurations.
 
@@ -175,7 +335,6 @@ installs dependencies, sets up the plugin, and configures your terminals in a si
 
 To use the auto-installer, simply run:
 
-
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh)
 ```
@@ -188,7 +347,6 @@ bash <(wget -qO- https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-selec
 
 <details>
 <summary><h3>Demo (Click to expand)</h3></summary>
-
 
 The installer detects your environment up front and guides you through the installation, dynamically showing only the prompts and options relevant to your detected setup at each step, so you're presented only with choices that apply to your environment.
 
@@ -203,11 +361,8 @@ A detailed log is also saved to `~/.zsh-edit-select-install.log`.
 
 </details>
 
-
-
 <details>
 <summary><h3>Key Features & Options (Click to expand)</h3></summary>
-
 
 The installer is designed for reliability and system safety:
 
@@ -227,13 +382,12 @@ The script handles the end-to-end setup process:
 
 | Category           | Automated Actions                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dependencies**   | - Installs system packages like (`git`, `zsh`), and interactively asks to optionally install build tools (`gcc`, `make`, `clang`) and dependencies for compiling the agents locally<br>- Detects your system (macOS, Debian, Fedora, Arch, etc.) and uses the correct package manager (`brew`, `port`, `apt`, `dnf`, `pacman`)                                                                                                                                                                                                                                                                        |
+| **Dependencies**   | - Installs system packages like (`git`, `zsh`), and interactively asks to optionally install build tools (`gcc`, `make`, `clang`) and dependencies for compiling the agents locally<br>- Detects your system (macOS, Debian, Fedora, Arch, etc.) and uses the correct package manager (`brew`, `port`, `apt`, `dnf`, `pacman`)                                                                                                                                          |
 | **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- _Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer._ |
-| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot**, and **VS Code** to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                                                                                          |
-| **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and terminal configuration files (Kitty, Alacritty, WezTerm, Foot, VS Code)<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                                                                 |
+| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot** (Linux), **Ghostty**, **iTerm2** (macOS), **VS Code**, and **Windows Terminal** (WSL) to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                     |
+| **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and terminal configuration files (Kitty, Alacritty, WezTerm, Foot, Ghostty, iTerm2, VS Code, Windows Terminal)<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                              |
 
 >
-
 
 <details>
 <summary><h3>Advanced Usage & Options & CI/CD (Click to expand)</h3></summary>
@@ -258,17 +412,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-sele
 
 </details>
 
-
 </details>
-
-
-
-
 
 ---
 
 ## Manual Installation
-
 
 The process consists of two steps:
 
@@ -279,9 +427,7 @@ The process consists of two steps:
 >
 > For a manual build and an optimized experience tailored to your specific hardware (e.g., using `-march=native -mtune=native`), refer to [Manual Agents Build (optional)](#manual-agents-build-optional).
 >
-In some cases, the **first** shell load may be delayed due to temporary GitHub infrastructure issues that may slow down the agent downloading process. This only affects **only** the **first** post-installation load. If the **first** startup takes longer than expected, wait a few minutes and try again once GitHub services are fully operational.
-
-
+> In some cases, the **first** shell load may be delayed due to temporary GitHub infrastructure issues that may slow down the agent downloading process. This only affects **only** the **first** post-installation load. If the **first** startup takes longer than expected, wait a few minutes and try again once GitHub services are fully operational.
 
 ### 1. Install the Plugin
 
@@ -316,12 +462,13 @@ zgenom load Michael-Matta1/zsh-edit-select
 <summary><b>zinit</b></summary>
 
 **One-liner:**
+
 ```bash
 zinit depth"1" light-mode for Michael-Matta1/zsh-edit-select
 ```
 
-
 **Or with explicit `ice`:**
+
 ```bash
 zinit ice depth"1"; zinit light Michael-Matta1/zsh-edit-select
 ```
@@ -350,11 +497,13 @@ antigen bundle Michael-Matta1/zsh-edit-select
 <summary><b>sheldon</b></summary>
 
 **Via CLI:**
+
 ```bash
 sheldon add zsh-edit-select --github Michael-Matta1/zsh-edit-select
 ```
 
 **Or manually in `~/.config/sheldon/plugins.toml`:**
+
 ```toml
 [plugins.zsh-edit-select]
 github = "Michael-Matta1/zsh-edit-select"
@@ -380,8 +529,6 @@ source ~/.local/share/zsh/plugins/zsh-edit-select/zsh-edit-select.plugin.zsh
 Some terminals require configuration for selection support, while others require only editing-related mappings. See [Popular Terminals Configurations](#popular-terminals-configurations) for
 details.
 
-
-
 ### 3. Restart Your Shell
 
 ```bash
@@ -392,16 +539,19 @@ source ~/.zshrc
 features to work correctly, especially in some terminal emulators.
 
 > [!IMPORTANT]
+>
 > #### **(Wayland Users only)**
-><details>
-><summary><b>Click to expand</b></summary>
 >
->If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to function correctly under Wayland.
+> <details>
+> <summary><b>Click to expand</b></summary>
 >
->XWayland is **enabled by default** on most systems, so **no action is needed** unless you have explicitly disabled it.
+> If you are using Wayland on **GNOME**, **Cinnamon**, or **Pantheon**, XWayland is required for the plugin to function correctly under Wayland.
 >
->**Important:** Desktop environments expose Wayland in different ways, and the plugin supports all Wayland compositors by shipping multiple Wayland and XWayland backends and supporting multiple protocols. In rare cases, auto-detection may pick the wrong backend for your setup. If you encounter issues (such as the inability to copy scrollback, or if you notice a blank or non-focusable window appearing in your taskbar when you copy text), please [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) and include your desktop environment, compositor, terminal, and whether XWayland is enabled and the detected platform you see when you run `edit-select config`. This helps us redirect you to the correct protocol or backend (native Wayland or XWayland) for your setup.
-></details>
+> XWayland is **enabled by default** on most systems, so **no action is needed** unless you have explicitly disabled it.
+>
+> **Important:** Desktop environments expose Wayland in different ways, and the plugin supports all Wayland compositors by shipping multiple Wayland and XWayland backends and supporting multiple protocols. In rare cases, auto-detection may pick the wrong backend for your setup. If you encounter issues (such as the inability to copy scrollback, or if you notice a blank or non-focusable window appearing in your taskbar when you copy text), please [report it](https://github.com/Michael-Matta1/zsh-edit-select/issues) and include your desktop environment, compositor, terminal, and whether XWayland is enabled and the detected platform you see when you run `edit-select config`. This helps us redirect you to the correct protocol or backend (native Wayland or XWayland) for your setup.
+>
+> </details>
 
 ### 3.5 Enable Mouse Integration **(macOS only)**
 
@@ -422,27 +572,23 @@ then grant Accessibility permission for your terminal application in **System Se
 
 Then restart your terminal. You may need to restart your device for the full integration to take effect.
 
-
 **Terminal Compatibility for Mouse Selection**
 
-- Terminals with Accessibility (AX) support provide the most reliable mouse integration. In this category, iTerm2 is the recommended option.
+- Terminals with Accessibility (AX) support provide the most reliable mouse integration. In this category, **iTerm2** and **Kitty** are the recommended options — both expose the system Accessibility `kAXSelectedTextAttribute` .
 
-- Among GPU-accelerated terminals, Kitty offers the most reliable and consistent behavior for mouse integration.
-
-- Other GPU-based terminals use custom rendering pipelines, where mouse integration currently relies on a reactive `Cmd+C` mechanism. As a result, behavior may vary depending on the terminal version and runtime conditions, and the mouse integration for them is currently experimental.
+- Other GPU-based terminals (Alacritty, WezTerm, Ghostty) do not expose Accessibility attributes, so mouse integration for them relies on a reactive `Cmd+C` mechanism. As a result, behavior may vary depending on the terminal version and runtime conditions, and the mouse integration for them is currently experimental.
 
 If you encounter any issues with mouse integration, disable it from the configuration wizard.
 
 ##### tmux on macOS
 
 If clipboard operations fail inside tmux, install `reattach-to-user-namespace`:
-  ```bash
-  brew install reattach-to-user-namespace
-  ```
+
+```bash
+brew install reattach-to-user-namespace
+```
 
 </details>
-
-
 
 ### 4. Customize Settings **(Optional)**
 
@@ -467,7 +613,6 @@ Launch the interactive configuration wizard:
 edit-select config
 ```
 
-
 > [!TIP]
 > For a full command list (including maintenance and platform-specific commands), see [Commands Reference](#commands-reference).
 
@@ -482,58 +627,12 @@ The wizard provides:
 
 - All changes are saved to `~/.config/zsh-edit-select/config` and persist across sessions. You can also view or edit this file manually at any time.
 
-Click on any of the following sections to expand it:
-
-<details>
-<summary><h3>Mouse Replacement Safeguard</h3></summary>
-
-The plugin includes a safety feature to prevent accidental edits when using the mouse. If you select text with your mouse and the plugin detects multiple identical occurrences of that text in your command buffer, it will pause and show the message:
-
-**"Duplicate text: place cursor inside the occurrence you want to modify"**
-<details>
-<summary><b>Demo (Click to expand)</b></summary>
-
-[demo video](https://github.com/user-attachments/assets/e3aaaa56-1bc7-4194-a87b-1c7556ab8049)
-
-> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1YUmxh7CMdQMMiQaSHHhkZzOQx1PnmElf/view?usp=sharing)
-
-</details>
-
-**Why this feature?**
-When text is selected via mouse, terminal emulators don't report the exact screen coordinates to the shell. If the same word appears twice, this protective safeguard ensures you don't accidentally replace the wrong occurrence.
-
-When prompted, simply place your cursor inside the specific occurrence you want to edit, then select and replace it.
-
-> **Note:** It's recommended to use a terminal that supports shell integration (such as Kitty or Ghostty) because this lets you move the cursor using the mouse. If your terminal supports this feature but it's not enabled by default, it's recommended to enable it.
-
->
-
-**Exception:** if you are using **Ghostty** terminal on **Linux**, your exact mouse selection can be deleted/replaced without prompting
-<details>
-<summary><b>Demo (Click to expand)</b></summary>
-
-[demo video](https://github.com/user-attachments/assets/35d72bed-0d3c-4b4c-876a-8ddf705f9fc2)
-
-> If the video doesn't load after waiting for a few seconds, try refreshing the page. You can also access it directly [here](https://drive.google.com/file/d/1L6Ga4tsZOQurR8BmLLW2ZHGbMjfmLnnC/view?usp=sharing)
-
-</details>
-
-
-- The WSL implementation of the plugin also implements a custom mouse-tracking path that resolves the exact selected range without prompting.
-
-
-**Keyboard selection bypass:** This safeguard is only needed for mouse selections. Using `Shift+Arrow keys` provides exact cursor positions, avoiding this ambiguity entirely.
-
-You can also disable mouse replacement entirely as mentioned below if you prefer strict keyboard-only editing.
-
----
-
-</details>
+**Click on any of the following sections to expand it:**
 
 <details>
 <summary><h3> Mouse Replacement Modes </h3></summary>
 
-Configure how the plugin handles mouse selections:
+Configure how the plugin handles mouse selections. See [Mouse Replacement](#mouse-replacement-click-to-expand) for a description of what the toggle controls (cut, delete, type-to-replace, paste-to-replace on mouse selections, plus copy which always works).
 
 **Enabled (default):**
 
@@ -555,7 +654,6 @@ edit-select config  # → Option 1: Mouse Replacement
 ---
 
 </details>
-
 
 <details>
 <summary><h3>Instant Cut (Mouse Selection Cut)</h3></summary>
@@ -579,7 +677,6 @@ edit-select config  # → Option 2: Instant Cut
 ---
 
 </details>
-
 
 <details>
 <summary><h3>Custom/Manual Keybinding Notes (Terminal Configuration)</h3></summary>
@@ -643,7 +740,7 @@ chars = "\u001b[88;6u"
 
 ```yaml
 key_bindings:
-  - { key: X, mods: Control|Shift, chars: "\x1b[88;6u" }
+    - { key: X, mods: Control|Shift, chars: "\x1b[88;6u" }
 ```
 
 </details>
@@ -657,12 +754,12 @@ Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 ```json
 [
-  {
-    "key": "ctrl+shift+x",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[88;6u" },
-    "when": "terminalFocus"
-  }
+    {
+        "key": "ctrl+shift+x",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[88;6u" },
+        "when": "terminalFocus"
+    }
 ]
 ```
 
@@ -691,6 +788,7 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 </details>
 
 ---
+---
 
 ## Popular Terminals Configurations
 
@@ -701,7 +799,6 @@ export ZES_FORCE_IMPL=wayland # Force Wayland implementation
 > [Open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) if you need help with a terminal
 > that is not covered.
 
-
 This section provides complete, ready-to-paste configurations for each supported terminal. Find your terminal below, then expand the section for your operating system to get the full config block you can integrate with yours.
 
 **CRITICAL:** While adding these mappings, remove or comment out any existing conflicting bindings
@@ -711,9 +808,8 @@ This section provides complete, ready-to-paste configurations for each supported
 >
 > For example, by default the copy shortcut is `Ctrl+Shift+C` on Linux (the traditional terminal convention, where `Ctrl+C` sends an interrupt signal). If you prefer **GUI-style** behavior where `Ctrl+C` **copies** and `Ctrl+Shift+C` sends the interrupt, follow the instructions in the comments to switch to that option.
 
-
 > [!TIP]
-> It's recommended to use a terminal that supports shell integration (such as Kitty or Ghostty) because this lets you move the cursor using the mouse. If your terminal supports this feature but it's not enabled by default, it's recommended to enable it.
+> It's recommended to use a terminal that supports shell integration (such as Kitty or Ghostty) because this lets you move the cursor using the mouse. If your terminal supports this feature but it's not enabled by default, it's recommended to enable it. Enabling it also makes clearing a mouse selection by clicking behave correctly natively.
 
 **Note (macOS):** Almost all macOS terminals intercept `Cmd` keys by default, so explicit terminal configuration mappings are required. The Ctrl-based shortcuts work on macOS without any terminal configuration.
 
@@ -730,8 +826,8 @@ This section provides complete, ready-to-paste configurations for each supported
 </details>
 
 ---
-### Terminals Configurations:
 
+### Terminals Configurations:
 
 #### Windows Terminal (WSL only)
 
@@ -763,7 +859,6 @@ By default, `"copyOnSelect"` is set to `false`. If you previously enabled `"copy
 ```json
 "copyOnSelect": false
 ```
-
 
 </details>
 
@@ -836,13 +931,11 @@ If these entries already exist, update their current values to match the above.
 
 </details>
 
-
 **Note:** Mouse integration is currently most compatible with Windows 11 Terminal and the VS Code terminal. If you use another terminal, or encounter issues, you can **disable mouse integration and restore your terminal's default behavior** by turning off mouse replacement through the configuration wizard (`edit-select config`), then choosing the first option to configure mouse behavior.
 
 > Known Limitation in VS Code: With Mouse integration enabled, **Extremely** fast VS Code scrollback drags may still show a very small startup offset due to the currently unavoidable shell/helper handoff latency (planned to be optimized in future releases).
 
 </details>
-
 
 ---
 
@@ -979,7 +1072,9 @@ return {
       mods = "NONE",
       action = wezterm.action_callback(function(window, pane)
         local sel = window:get_selection_text_for_pane(pane)
-        if sel ~= "" then
+        -- Skip the signal while a full-screen application (vim, nano, less)
+        -- owns the alternate screen; it would arrive there as raw input.
+        if sel ~= "" and not pane:is_alt_screen_active() then
           pane:send_text("\x1b[>62300u")
         end
         window:perform_action(wezterm.action.ClearSelection, pane)
@@ -1030,7 +1125,9 @@ config.mouse_bindings = {
     mods  = "NONE",
     action = wezterm.action_callback(function(window, pane)
       local sel = window:get_selection_text_for_pane(pane)
-      if sel ~= "" then
+      -- Skip the signal while a full-screen application (vim, nano, less)
+      -- owns the alternate screen; it would arrive there as raw input.
+      if sel ~= "" and not pane:is_alt_screen_active() then
         pane:send_text("\x1b[>62300u")
       end
       window:perform_action(act.ClearSelection, pane)
@@ -1113,6 +1210,57 @@ return config
 <summary><b>Linux configuration</b></summary>
 
 <details>
+<summary><b>Resolving the two placeholder paths in the config (Click to expand)</b></summary>
+
+>
+>
+
+The two configuration blocks below each end with a click-to-deselect entry (a `[[mouse.bindings]]` block for TOML, a `mouse_bindings:` entry for YAML) at the **bottom** of each config. The block is needed **only if you want Mouse Replacement enabled**. If you keep Mouse Replacement disabled, you can skip that block entirely. In either format it contains the same two placeholders you must replace with absolute paths on your system. Pick the format that matches your Alacritty version (use TOML if you're unsure), and apply the substitution to whichever block you use.
+
+#### The one command that resolves both placeholders
+
+Open a Zsh shell where the plugin is loaded (any normal terminal will do) and run:
+
+```zsh
+print -r -- "<plugin-root> = ${ZES_IMPL_PATH:h}"
+print -r -- "<cache-dir>   = ${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/zsh-edit-select-${UID}"
+```
+
+**Prefer not to copy paths by hand?** These print the finished lines with both values already substituted — run one and paste the output straight into your config:
+
+```zsh
+# For alacritty.toml — prints the complete `command = ...` line
+print -r -- "command = { program = \"${ZES_IMPL_PATH:h}/assets/helpers/zes-alacritty-click-clear.sh\", args = [\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/zsh-edit-select-${UID}\"] }"
+```
+
+```zsh
+# For alacritty.yml — prints the complete `mouse_bindings:` entry
+print -r -- "mouse_bindings:\n    - { mouse: Left, mode: \"~Alt\", command: { program: \"${ZES_IMPL_PATH:h}/assets/helpers/zes-alacritty-click-clear.sh\", args: [\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/zsh-edit-select-${UID}\"] } }"
+```
+
+`ZES_IMPL_PATH` only exists once the plugin has been sourced. If the first command prints just `.` or an empty value, the plugin isn't loaded in that shell — open a fresh terminal, or locate the plugin directly:
+
+```zsh
+# Find the directory that holds zsh-edit-select.plugin.zsh anywhere under $HOME
+print -rl -- ${^${(f)"$(find "$HOME" -name zsh-edit-select.plugin.zsh -not -path '*/before-*' 2>/dev/null)"}:h}
+```
+
+```sh
+# POSIX-sh equivalent, if you are not in Zsh
+find "$HOME" -name zsh-edit-select.plugin.zsh 2>/dev/null | while read -r f; do dirname "$f"; done
+```
+
+The directory printed by either command is your `<plugin-root>`. For `<cache-dir>`, the plugin uses `${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/zsh-edit-select-<your-uid>`, so in POSIX sh:
+
+```sh
+printf '%s/zsh-edit-select-%s\n' "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" "$(id -u)"
+```
+
+> **Tip — automatic configuration:** `edit-select integrate` can write the mouse-binding block into your `alacritty.toml` / `alacritty.yml` for you, with the correct absolute paths already resolved — it detects your plugin root the same way, so it works with any plugin manager. This is convenient for a fresh install, but **not yet recommended if you already have a complex config file** — review the diff afterward. For manual setup, use the commands above.
+
+</details>
+
+<details>
 <summary><i>TOML format — <code>alacritty.toml</code> (current, Alacritty v0.13+)</i></summary>
 
 Add the following to `alacritty.toml`:
@@ -1157,6 +1305,22 @@ action = "ReceiveChar"
 key = "End"
 mods = "Shift"
 action = "ReceiveChar"
+
+# ── zsh-edit-select click-to-deselect ────────────────────────
+# On every Left-press in a non-alt-screen pane a tiny helper clears the
+# compositor's selection through the plugin's own agent.  The running
+# daemon notices the change and signals the shell-side hook to forget
+# the stale selection, so the next keystroke inserts normally instead
+# of replacing an invisible selection.
+#
+# Replace <plugin-root> and <cache-dir> with absolute paths on your
+# system — see "Resolving the two placeholder paths in the config"
+# above the TOML/YAML blocks (or run `edit-select integrate` to have
+# the installer wire this in automatically with the correct paths).
+[[mouse.bindings]]
+mouse = "Left"
+mode = "~Alt"
+command = { program = "<plugin-root>/assets/helpers/zes-alacritty-click-clear.sh", args = ["<cache-dir>"] }
 ```
 
 </details>
@@ -1168,26 +1332,49 @@ Add the following to `alacritty.yml`:
 
 ```yaml
 key_bindings:
-  # ── zsh-edit-select copying shortcut ─────────────────────
-  # Option A (Default): Ctrl+Shift+C = copy
-  - { key: C, mods: Control|Shift, chars: "\x1b[67;6u" }
+    # ── zsh-edit-select copying shortcut ─────────────────────
+    # Option A (Default): Ctrl+Shift+C = copy
+    - { key: C, mods: Control|Shift, chars: "\x1b[67;6u" }
 
-  # Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt
-  # Use this if you prefer GUI-style copy behavior (like in regular desktop apps).
-  # To use this option: remove the Option A line above and uncomment both lines below.
-  # - { key: C, mods: Control,       chars: "\x1b[67;6u" }
-  # - { key: C, mods: Control|Shift, chars: "\x03" }
+    # Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt
+    # Use this if you prefer GUI-style copy behavior (like in regular desktop apps).
+    # To use this option: remove the Option A line above and uncomment both lines below.
+    # - { key: C, mods: Control,       chars: "\x1b[67;6u" }
+    # - { key: C, mods: Control|Shift, chars: "\x03" }
 
-  # ── zsh-edit-select undo / redo ───────────────────────
-  - { key: Z, mods: Control|Shift, chars: "\x1b[90;6u" }
+    # ── zsh-edit-select undo / redo ───────────────────────
+    - { key: Z, mods: Control|Shift, chars: "\x1b[90;6u" }
 
-  # ── zsh-edit-select selection shortcuts ───────────────────
-  # Alacritty intercepts Shift+Home (ScrollToTop) and Shift+End (ScrollToBottom)
-  # by default. Override them so the keys pass through to Zsh for selection.
-  # All other Shift/Ctrl+Shift arrow keys pass through to Zsh natively.
-  - { key: Home, mods: Shift, action: ReceiveChar }
-  - { key: End,  mods: Shift, action: ReceiveChar }
+    # ── zsh-edit-select selection shortcuts ───────────────────
+    # Alacritty intercepts Shift+Home (ScrollToTop) and Shift+End (ScrollToBottom)
+    # by default. Override them so the keys pass through to Zsh for selection.
+    # All other Shift/Ctrl+Shift arrow keys pass through to Zsh natively.
+    - { key: Home, mods: Shift, action: ReceiveChar }
+    - { key: End, mods: Shift, action: ReceiveChar }
+
+# ── zsh-edit-select click-to-deselect ─────────────────────────
+# Mirror of the TOML block above.  `mouse_bindings` is its own top-level key,
+# so keep it flush with the left margin: indented under `key_bindings:` the
+# file stops being valid YAML and Alacritty discards the whole config.
+# Replace <plugin-root> and <cache-dir> with absolute paths on your system —
+# see "Resolving the two placeholder paths in the config" above the TOML/YAML
+# blocks (or run `edit-select integrate` for automatic setup).
+mouse_bindings:
+    - {
+          mouse: Left,
+          mode: "~Alt",
+          command:
+              {
+                  program: "<plugin-root>/assets/helpers/zes-alacritty-click-clear.sh",
+                  args: ["<cache-dir>"],
+              },
+      }
 ```
+
+> If your `alacritty.yml` already has a top-level `key_bindings:` or
+> `mouse_bindings:` key, merge the entries into the list you already have
+> instead of adding a second key with the same name — a duplicate top-level key
+> makes Alacritty reject the entire file and fall back to its built-in defaults.
 
 </details>
 
@@ -1314,112 +1501,112 @@ Add the following to `keybindings.json` (usually located at `~/.config/Code/User
 
 ```json
 [
-  // ── zsh-edit-select copying shortcut ────────────────────
-  // Option A (Default): Ctrl+Shift+C = copy
-  {
-    "key": "ctrl+shift+c",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[67;6u" },
-    "when": "terminalFocus"
-  },
+    // ── zsh-edit-select copying shortcut ────────────────────
+    // Option A (Default): Ctrl+Shift+C = copy
+    {
+        "key": "ctrl+shift+c",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[67;6u" },
+        "when": "terminalFocus"
+    },
 
-  // Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt
-  // Use this if you prefer GUI-style copy behavior (like in regular desktop apps).
-  // To use this option: remove the Option A entry above and uncomment both entries below.
-  // {
-  //   "key": "ctrl+c",
-  //   "command": "workbench.action.terminal.sendSequence",
-  //   "args": { "text": "\u001b[67;6u" },
-  //   "when": "terminalFocus"
-  // },
-  // {
-  //   "key": "ctrl+shift+c",
-  //   "command": "workbench.action.terminal.sendSequence",
-  //   "args": { "text": "\u0003" },
-  //   "when": "terminalFocus"
-  // },
+    // Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt
+    // Use this if you prefer GUI-style copy behavior (like in regular desktop apps).
+    // To use this option: remove the Option A entry above and uncomment both entries below.
+    // {
+    //   "key": "ctrl+c",
+    //   "command": "workbench.action.terminal.sendSequence",
+    //   "args": { "text": "\u001b[67;6u" },
+    //   "when": "terminalFocus"
+    // },
+    // {
+    //   "key": "ctrl+shift+c",
+    //   "command": "workbench.action.terminal.sendSequence",
+    //   "args": { "text": "\u0003" },
+    //   "when": "terminalFocus"
+    // },
 
-  // ── zsh-edit-select undo / redo ──────────────────────
-  // Note: Ctrl+Z works alongside the traditional suspend-process functionality.
-  // The plugin intelligently handles undo for command-line editing while
-  // preserving the ability to suspend foreground processes when needed.
-  {
-    "key": "ctrl+z",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001a" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+z",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[90;6u" },
-    "when": "terminalFocus"
-  },
+    // ── zsh-edit-select undo / redo ──────────────────────
+    // Note: Ctrl+Z works alongside the traditional suspend-process functionality.
+    // The plugin intelligently handles undo for command-line editing while
+    // preserving the ability to suspend foreground processes when needed.
+    {
+        "key": "ctrl+z",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001a" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "ctrl+shift+z",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[90;6u" },
+        "when": "terminalFocus"
+    },
 
-  // ── zsh-edit-select selection shortcuts ──────────────────
-  // VS Code intercepts Shift and Ctrl+Shift arrow keys by default.
-  // These bindings forward the correct escape sequences to the terminal
-  // so Zsh can handle selection.
-  {
-    "key": "shift+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2D" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "shift+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2C" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "shift+up",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2A" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "shift+down",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2B" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "shift+home",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2H" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "shift+end",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2F" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;6D" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;6C" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+home",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;6H" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+end",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;6F" },
-    "when": "terminalFocus"
-  }
+    // ── zsh-edit-select selection shortcuts ──────────────────
+    // VS Code intercepts Shift and Ctrl+Shift arrow keys by default.
+    // These bindings forward the correct escape sequences to the terminal
+    // so Zsh can handle selection.
+    {
+        "key": "shift+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2D" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "shift+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2C" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "shift+up",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2A" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "shift+down",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2B" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "shift+home",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2H" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "shift+end",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2F" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "ctrl+shift+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;6D" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "ctrl+shift+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;6C" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "ctrl+shift+home",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;6H" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "ctrl+shift+end",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;6F" },
+        "when": "terminalFocus"
+    }
 ]
 ```
 
@@ -1436,144 +1623,144 @@ Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcut
 
 ```json
 [
-  // ── zsh-edit-select editing shortcuts ────────────
-  // Scoped to terminalFocus so VS Code's editor shortcuts are unaffected.
-  {
-    "key": "cmd+a",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[97;9u" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "cmd+c",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[99;9u" },
-    "when": "terminalFocus && isMac && !terminalTextSelected"
-  },
-  {
-    "key": "cmd+x",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[120;9u" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "cmd+z",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[122;9u" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "cmd+shift+z",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[122;10u" },
-    "when": "terminalFocus && isMac"
-  },
+    // ── zsh-edit-select editing shortcuts ────────────
+    // Scoped to terminalFocus so VS Code's editor shortcuts are unaffected.
+    {
+        "key": "cmd+a",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[97;9u" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "cmd+c",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[99;9u" },
+        "when": "terminalFocus && isMac && !terminalTextSelected"
+    },
+    {
+        "key": "cmd+x",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[120;9u" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "cmd+z",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[122;9u" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "cmd+shift+z",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[122;10u" },
+        "when": "terminalFocus && isMac"
+    },
 
-  // ── zsh-edit-select navigation keys ─
-  {
-    "key": "cmd+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;9D" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "cmd+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;9C" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "alt+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;3D" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "alt+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;3C" },
-    "when": "terminalFocus && isMac"
-  },
+    // ── zsh-edit-select navigation keys ─
+    {
+        "key": "cmd+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;9D" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "cmd+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;9C" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "alt+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;3D" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "alt+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;3C" },
+        "when": "terminalFocus && isMac"
+    },
 
-  // ── zsh-edit-select selection shortcuts ─────────────
-  // Basic Shift+Arrow keys must also be explicitly mapped in VS Code's terminal
-  // because VS Code intercepts them for editor selection before they reach the shell.
-  {
-    "key": "shift+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2D" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "shift+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2C" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "shift+up",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2A" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "shift+down",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;2B" },
-    "when": "terminalFocus && isMac"
-  },
-  // Cmd+Shift+Left/Right: select to line start/end
-  {
-    "key": "cmd+shift+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;10D" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "cmd+shift+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;10C" },
-    "when": "terminalFocus && isMac"
-  },
-  // alt+shift = Option+Shift in VS Code modifier syntax
-  // Option+Shift+Left/Right: select word by word
-  {
-    "key": "alt+shift+left",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;4D" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "alt+shift+right",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;4C" },
-    "when": "terminalFocus && isMac"
-  },
-  // Cmd+Shift+Up/Down: select to buffer start/end
-  {
-    "key": "cmd+shift+up",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;10A" },
-    "when": "terminalFocus && isMac"
-  },
-  {
-    "key": "cmd+shift+down",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[1;10B" },
-    "when": "terminalFocus && isMac"
-  }
+    // ── zsh-edit-select selection shortcuts ─────────────
+    // Basic Shift+Arrow keys must also be explicitly mapped in VS Code's terminal
+    // because VS Code intercepts them for editor selection before they reach the shell.
+    {
+        "key": "shift+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2D" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "shift+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2C" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "shift+up",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2A" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "shift+down",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;2B" },
+        "when": "terminalFocus && isMac"
+    },
+    // Cmd+Shift+Left/Right: select to line start/end
+    {
+        "key": "cmd+shift+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;10D" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "cmd+shift+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;10C" },
+        "when": "terminalFocus && isMac"
+    },
+    // alt+shift = Option+Shift in VS Code modifier syntax
+    // Option+Shift+Left/Right: select word by word
+    {
+        "key": "alt+shift+left",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;4D" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "alt+shift+right",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;4C" },
+        "when": "terminalFocus && isMac"
+    },
+    // Cmd+Shift+Up/Down: select to buffer start/end
+    {
+        "key": "cmd+shift+up",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;10A" },
+        "when": "terminalFocus && isMac"
+    },
+    {
+        "key": "cmd+shift+down",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001b[1;10B" },
+        "when": "terminalFocus && isMac"
+    }
 
-  // ── zsh-edit-select ctrl fallback for redo (optional) ──────────────────────────────────────
-  // Only needed if you use Ctrl+Shift+Z as a Redo fallback instead of Cmd+Shift+Z.
-  // Configure the fallback via: edit-select config → Key Bindings → Redo
-  // Uncomment the block below to enable it:
-  //
-  // {
-  //   "key": "ctrl+shift+z",
-  //   "command": "workbench.action.terminal.sendSequence",
-  //   "args": { "text": "\u001b[90;6u" },
-  //   "when": "terminalFocus && isMac"
-  // }
+    // ── zsh-edit-select ctrl fallback for redo (optional) ──────────────────────────────────────
+    // Only needed if you use Ctrl+Shift+Z as a Redo fallback instead of Cmd+Shift+Z.
+    // Configure the fallback via: edit-select config → Key Bindings → Redo
+    // Uncomment the block below to enable it:
+    //
+    // {
+    //   "key": "ctrl+shift+z",
+    //   "command": "workbench.action.terminal.sendSequence",
+    //   "args": { "text": "\u001b[90;6u" },
+    //   "when": "terminalFocus && isMac"
+    // }
 ]
 ```
 
@@ -1581,7 +1768,7 @@ Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcut
 
 ---
 
-#### Foot *(Linux only)*
+#### Foot _(Linux only)_
 
 <details>
 <summary><b>Linux configuration</b></summary>
@@ -1590,7 +1777,8 @@ Foot uses `[key-bindings]` to disable built-in actions and `[text-bindings]` to 
 
 - `clipboard-copy` (defaults to `Control+Shift+c`) — must be unbound so the copy escape sequence reaches the shell instead of triggering Foot's clipboard action.
 - `prompt-prev` (defaults to `Control+Shift+z`) — must be unbound so the undo escape sequence reaches the shell instead of triggering Foot's prompt navigation.
-- Foot does not reliably follow the primary-selection protocol: it does not release PRIMARY when you click to deselect text, so mouse replacement can stay latched to an old selection. That is a Foot-side limitation, not a plugin bug. For Foot, keep mouse replacement disabled in the Configuration Wizard (`edit-select config` → Option 1 → Disabled) and use keyboard selection instead.
+- Foot has one documented limitation with clicking elsewhere to clear a selection: unlike most other terminals, it doesn't tell the shell when that happens. The highlight disappears on screen, but Foot internally still considers that text "selected". If you then type or press Delete, the action can land on that old (now invisible) selection instead of inserting at the cursor as you'd expect. Because Foot doesn't give us any way to hook the click (only one action is allowed per mouse button, and that slot is already used for starting a selection), this can't be fixed purely through configuration. That is a Foot-side limitation, not a plugin bug.
+    - **What to do:** keep mouse replacement disabled to be safe — `edit-select config` → Option 1 → Disabled. Mouse selection still works, and clicking to clear still clears the visual highlight as normal; the plugin just won't try to treat the selected region as editable. Use keyboard selection (`Shift+Arrow keys`) for any edit that needs to act on the selection itself. See [Clearing a Selection by Clicking](#clearing-a-selection-by-clicking-click-to-expand) for the full technical background.
 
 Foot passes Shift+Arrow keys through to the terminal natively — **no additional configuration is needed for Shift selection.**
 
@@ -1622,7 +1810,7 @@ prompt-prev=none
 
 ---
 
-#### iTerm2 *(macOS only)*
+#### iTerm2 _(macOS only)_
 
 <details>
 <summary><b>macOS configuration</b></summary>
@@ -1647,22 +1835,22 @@ iTerm2 prepends `ESC` (`\x1b`) automatically — so entering `[99;9u` correctly 
 
 #### zsh-edit-select Editing Shortcuts
 
-| Keyboard Shortcut | Action | Value | Description |
-|---|---|---|---|
-| `Cmd+A` | Send Escape Sequence | `[97;9u` | Select All |
-| `Cmd+C` | Send Escape Sequence | `[99;9u` | Copy |
-| `Cmd+X` | Send Escape Sequence | `[120;9u` | Cut |
-| `Cmd+Z` | Send Escape Sequence | `[122;9u` | Undo |
-| `Cmd+Shift+Z` | Send Escape Sequence | `[122;10u` | Redo |
+| Keyboard Shortcut | Action               | Value      | Description |
+| ----------------- | -------------------- | ---------- | ----------- |
+| `Cmd+A`           | Send Escape Sequence | `[97;9u`   | Select All  |
+| `Cmd+C`           | Send Escape Sequence | `[99;9u`   | Copy        |
+| `Cmd+X`           | Send Escape Sequence | `[120;9u`  | Cut         |
+| `Cmd+Z`           | Send Escape Sequence | `[122;9u`  | Undo        |
+| `Cmd+Shift+Z`     | Send Escape Sequence | `[122;10u` | Redo        |
 
 ---
 
 #### zsh-edit-select Navigation Keys
 
-| Keyboard Shortcut | Action | Value | Description |
-|---|---|---|---|
-| `Cmd+←` | Send Escape Sequence | `[1;9D` | Move to line start |
-| `Cmd+→` | Send Escape Sequence | `[1;9C` | Move to line end |
+| Keyboard Shortcut | Action               | Value   | Description        |
+| ----------------- | -------------------- | ------- | ------------------ |
+| `Cmd+←`           | Send Escape Sequence | `[1;9D` | Move to line start |
+| `Cmd+→`           | Send Escape Sequence | `[1;9C` | Move to line end   |
 
 ---
 
@@ -1672,12 +1860,12 @@ Basic `Shift+Arrow` keys (`↑ ↓ ← →`) pass through to the shell natively 
 
 Add the following for the macOS-specific extended selection combinations:
 
-| Keyboard Shortcut | Action | Value | Description |
-|---|---|---|---|
-| `Cmd+Shift+←` | Send Escape Sequence | `[1;10D` | Select to line start |
-| `Cmd+Shift+→` | Send Escape Sequence | `[1;10C` | Select to line end |
-| `Cmd+Shift+↑` | Send Escape Sequence | `[1;10A` | Select to buffer start |
-| `Cmd+Shift+↓` | Send Escape Sequence | `[1;10B` | Select to buffer end |
+| Keyboard Shortcut | Action               | Value    | Description            |
+| ----------------- | -------------------- | -------- | ---------------------- |
+| `Cmd+Shift+←`     | Send Escape Sequence | `[1;10D` | Select to line start   |
+| `Cmd+Shift+→`     | Send Escape Sequence | `[1;10C` | Select to line end     |
+| `Cmd+Shift+↑`     | Send Escape Sequence | `[1;10A` | Select to buffer start |
+| `Cmd+Shift+↓`     | Send Escape Sequence | `[1;10B` | Select to buffer end   |
 
 ---
 
@@ -1686,7 +1874,6 @@ Add the following for the macOS-specific extended selection combinations:
 </details>
 
 ---
-
 
 #### Tmux integration & reversed copy mode (Linux)
 
@@ -1721,11 +1908,9 @@ tmux source-file ~/.tmux.conf
 
 </details>
 
-
-
 ---
 
-#### Optional: Ctrl Key Remaps *(macOS only)*
+#### Optional: Ctrl Key Remaps _(macOS only)_
 
 These are optional remaps for users who prefer `Ctrl` key fallbacks over `Cmd`. Neither is required for normal plugin operation — configure only what you need.
 
@@ -1738,10 +1923,10 @@ If you want to use `Ctrl+C` for copy instead of `Cmd+C`, configure your terminal
 
 **iTerm2** — Add in **Preferences → Profiles → Keys → Key Mappings**:
 
-| Keyboard Shortcut | Action | Value | Notes |
-|---|---|---|---|
-| `Ctrl+C` | Send Escape Sequence | `[67;6u` | Reassigns Ctrl+C to Copy |
-| `Ctrl+Shift+C` | Send Hex Code | `0x03` | Restores interrupt (SIGINT) |
+| Keyboard Shortcut | Action               | Value    | Notes                       |
+| ----------------- | -------------------- | -------- | --------------------------- |
+| `Ctrl+C`          | Send Escape Sequence | `[67;6u` | Reassigns Ctrl+C to Copy    |
+| `Ctrl+Shift+C`    | Send Hex Code        | `0x03`   | Restores interrupt (SIGINT) |
 
 **Kitty** — Add to `kitty.conf`:
 
@@ -1789,9 +1974,9 @@ If you prefer `Ctrl+Shift+Z` as your Redo key instead of `Cmd+Shift+Z`, configur
 
 **iTerm2** — Add in **Preferences → Profiles → Keys → Key Mappings** (note: Profiles → Keys, not the global Keys tab):
 
-| Keyboard Shortcut | Action | Value |
-|---|---|---|
-| `Ctrl+Shift+Z` | Send Escape Sequence | `[90;6u` |
+| Keyboard Shortcut | Action               | Value    |
+| ----------------- | -------------------- | -------- |
+| `Ctrl+Shift+Z`    | Send Escape Sequence | `[90;6u` |
 
 **Kitty** — Add to `kitty.conf`:
 
@@ -1815,34 +2000,29 @@ keybind = ctrl+shift+z=csi:90;6u
 
 </details>
 
-
 ---
 
-
-
-
-
 ---
-
-
 
 ## SSH Support
 
-If you are SSH-ing into a headless Linux box, the plugin **automatically detects the SSH environment** and switches clipboard operations to use **OSC 52** — a terminal escape sequence that tunnels clipboard writes back to your local terminal through the SSH connection, without needing any additional tools or manual configuration.
+If you are SSH-ing into a remote machine — Linux, WSL, or macOS — the plugin **automatically detects the SSH environment** and switches clipboard operations to use **OSC 52**, a terminal escape sequence that tunnels clipboard writes back to your local terminal through the SSH connection, with no extra tools or manual setup. The same detection also enables **cross-platform key remapping** so your local keyboard shortcuts keep working on the remote host — see the **macOS to Linux** and **Linux to macOS** subsections below.
 
 <details>
 <summary><b>How It Works</b></summary>
 
 <br>
 
-When `$SSH_CLIENT`, `$SSH_TTY`, or `$SSH_CONNECTION` is set (standard variables present in any SSH session), the plugin replaces its native clipboard backend with an OSC 52 write. This means:
+When **any** of `$SSH_CLIENT`, `$SSH_TTY`, or `$SSH_CONNECTION` is set (standard variables present in any SSH session), the plugin replaces its native clipboard backend with an OSC 52 write. This means:
 
-- **Copy / Cut** — text is written directly to your local clipboard via OSC 52.
-- **Paste** — must be triggered using your terminal's native paste keybinding (e.g. Cmd+V in iTerm2/Ghostty, Ctrl+V in Windows Terminal). The plugin cannot read the clipboard back over SSH.
+- **Copy / Cut** — text is written directly to your **local** clipboard via OSC 52 (tunnelled through the SSH connection back to the terminal running on your local machine).
+- **Paste** — must be triggered using your terminal's **native paste keybinding** (e.g. `Cmd+V` in iTerm2/Ghostty, `Ctrl+V` in Windows Terminal/Alacritty). The plugin cannot read the clipboard back over SSH — paste is intentionally left to the terminal so the local clipboard content is inserted via bracketed paste.
 - **Text selection** (Shift+Arrow etc.) — works identically to a local session.
-- **Mouse selection** — the background daemon will not start (no display server on a headless box); mouse selection is disabled automatically.
+- **Mouse selection** — on a headless box (no display server) the background daemon does not start, so mouse selection is disabled automatically.
 
-No `~/.zshrc` changes are needed on the Linux box. Just install the plugin normally.
+> **Note for WSL users:** If you SSH into a WSL machine, copy/cut/paste target the clipboard of your **local** machine (the one you are SSH-ing from) rather than the WSL host's Windows clipboard. This is the expected SSH behavior — the plugin follows your SSH session, not the remote desktop.
+
+No `~/.zshrc` changes are needed on the remote box. Just install the plugin normally.
 
 </details>
 
@@ -1866,15 +2046,15 @@ ZES_SSH_CLIPBOARD=0
 
 Your terminal must support OSC 52 clipboard writes and have clipboard access enabled. Most modern terminals support this out of the box.
 
-| Terminal | OSC 52 write | Notes |
-|---|---|---|
-| iTerm2 | ✅ | Enable "Applications in terminal may access clipboard" in Settings → General → Selection |
-| Ghostty | ✅ | Add `clipboard-write = allow` to `~/.config/ghostty/config` |
-| Kitty | ✅ | Works out of the box |
-| WezTerm | ✅ | Works out of the box |
-| Alacritty | ✅ | Works out of the box |
-| Windows Terminal | ✅ | Works out of the box; `Ctrl+V` pastes natively |
-| Terminal.app | ✅ | Works out of the box |
+| Terminal         | OSC 52 write | Notes                                                                                    |
+| ---------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| iTerm2           | ✅           | Enable "Applications in terminal may access clipboard" in Settings → General → Selection |
+| Ghostty          | ✅           | Add `clipboard-write = allow` to `~/.config/ghostty/config`                              |
+| Kitty            | ✅           | Works out of the box                                                                     |
+| WezTerm          | ✅           | Works out of the box                                                                     |
+| Alacritty        | ✅           | Works out of the box                                                                     |
+| Windows Terminal | ✅           | Works out of the box; `Ctrl+V` pastes natively                                           |
+| Terminal.app     | ✅           | Works out of the box                                                                     |
 
 **tmux / GNU Screen:** If you are using tmux or GNU Screen inside your SSH session, the plugin automatically wraps OSC 52 writes in the correct DCS passthrough sequence — no extra configuration needed. For tmux versions older than 3.3a, you may also need to add `set -g allow-passthrough on` to your `~/.tmux.conf`.
 
@@ -1885,6 +2065,10 @@ If you need to add one manually:
 - **Kitty:** add `map ctrl+v paste_from_clipboard` to `~/.config/kitty/kitty.conf`
 - **Ghostty:** add `keybind = ctrl+v=paste_from_clipboard` to `~/.config/ghostty/config`
 
+
+**Note:** If possible, it is recommended to configure the terminal on both the host and the guest according to the appropriate section in [Popular Terminal Configurations](#popular-terminals-configurations), and install the plugin on both systems. This helps ensure that everything works correctly and minimizes the chance of encountering any issues.
+
+
 </details>
 
 <details>
@@ -1892,11 +2076,41 @@ If you need to add one manually:
 
 <br>
 
-If you are SSH-ing from a macOS terminal (iTerm2, Ghostty, Kitty, WezTerm, Alacritty), the plugin **automatically maps your macOS Cmd/Option key sequences** to the corresponding Linux actions. No extra configuration is needed on the remote Linux box — Cmd+C copies, Cmd+X cuts, Cmd+A selects all, Cmd+Z undoes, Option+Arrow moves by word, etc.
+If you are SSH-ing **from** a macOS terminal (iTerm2, Ghostty, Kitty, WezTerm, Alacritty) **into** a Linux or WSL box, the plugin **automatically maps your macOS Cmd/Option key sequences** to the corresponding Linux/WSL actions. No extra configuration is needed on the remote host — `Cmd+C` copies, `Cmd+X` cuts, `Cmd+A` selects all, `Cmd+Z` undoes, `Option+Arrow` moves by word, etc.
 
 **Prerequisite:** Your macOS terminal must be configured to forward Cmd key sequences as CSI-u escape codes (e.g., `Cmd+C` → `\e[99;9u`). If you already configured your terminal for the plugin locally on macOS (following the [Popular Terminals Configurations](#popular-terminals-configurations) section above), those same settings will work transparently over SSH.
 
 > **Note:** `Cmd+V` (Paste) is handled by your macOS terminal natively — it pastes directly into the SSH session. The plugin does not intercept it.
+
+</details>
+
+<details>
+<summary><b>Linux to macOS — Ctrl Key Auto-Remapping</b></summary>
+
+<br>
+
+If you are SSH-ing **from** a Linux or WSL terminal (gnome-terminal, Kitty, WezTerm, Ghostty, Alacritty, Windows Terminal) **into** a macOS box, the plugin **automatically maps your Linux keys** to the corresponding macOS actions, so the remote macOS session behaves exactly like your local Linux one. No extra configuration is needed on the remote host:
+
+| Key                                  | Action                          |
+| ------------------------------------ | ------------------------------- |
+| `Ctrl+Shift+C`                       | Copy selection                  |
+| `Ctrl+X`                             | Cut selection                   |
+| `Ctrl+A`                             | Select all                      |
+| `Ctrl+Z`                             | Undo                            |
+| `Ctrl+Shift+Z`                       | Redo                            |
+| `Ctrl+←` / `Ctrl+→`                  | Move by word                    |
+| `Ctrl+Shift+←` / `Ctrl+Shift+→`      | Extend selection by word        |
+| `Ctrl+Shift+Home` / `Ctrl+Shift+End` | Extend selection to start / end |
+| `Home` / `End`                       | Move to line start / end        |
+
+These are **additive** bindings — they do not overwrite the macOS `Cmd` CSI-u defaults, so a local macOS user pressing `Cmd+C` still copies as usual. The remapping engages only when SSH mode is detected (`SSH_CLIENT`/`SSH_TTY`/`SSH_CONNECTION` set), so it adds **zero overhead** on non-SSH sessions.
+
+**Notes on 2 special keys**
+
+| Key      | Why                                                                                                                          | What to use instead                                                                                                                                                                                                |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Ctrl+C` | If Ctrl+C doesn't copy for you (and you have set it up as a copy key already using the [Popular Terminals Configurations](#popular-terminals-configurations) section) then this may mean that the terminal driver is claiming it as the interrupt signal (`SIGINT`) before the shell ever sees it. | please ensure rhat you have set your terminal according to the [Popular Terminals Configurations](#popular-terminals-configurations) and if the issue persists you can remap the interrupt with `stty intr ^]` in your `~/.zshrc` on the macOS host — see **Windows Terminal — Enable Ctrl+C Copy** below for the same idea on the Linux side. |
+| `Ctrl+V` | Paste can't work over SSH — the plugin has no way to read the remote clipboard back through the connection.                  | Use your terminal's native paste.                                                                                                            |
 
 </details>
 
@@ -1921,7 +2135,7 @@ EOF
 source ~/.zshrc
 ```
 
-> **Warning:** This tells the Linux box to use `Ctrl+]` for interrupts instead of `Ctrl+C`. `Ctrl+C` will now *always* copy text. You can no longer use `Ctrl+C` to stop runaway programs or clear the current prompt — **you must press `Ctrl+]` to interrupt programs.**
+> **Warning:** This tells the Linux box to use `Ctrl+]` for interrupts instead of `Ctrl+C`. `Ctrl+C` will now copy text, and **`Ctrl+]` will interrupt programs**. To use `Ctrl+Shift+C` for interrupt instead, expand the following section.
 
 <details>
 <summary><b>Make Ctrl+Shift+C send Interrupt</b></summary>
@@ -1955,19 +2169,37 @@ Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shif
 </details>
 
 <details>
-<summary><b>Ghostty Terminfo on the Remote Linux Box</b></summary>
+<summary><b>Terminal rendering issues over SSH</b></summary>
 
 <br>
 
-If your distro does not ship Ghostty's terminfo entry (e.g. Ubuntu Server), you may need to run the following on the remote server:
+If your terminal uses a custom `TERM` value (e.g. `xterm-ghostty` or `xterm-kitty`) that is not available on the remote machine, you may see corrupted output, broken colors, or `clear` not working correctly.
+
+You can fix this in one of the following ways:
+
+**Option 1:** Fall back to `xterm-256color` on the remote machine.
 
 ```bash
 echo '[[ "$TERM" == "xterm-ghostty" ]] && export TERM=xterm-256color' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-This was tested on Ubuntu Server 24.04. Your experience may differ depending on your Linux distro.
+Replace `xterm-ghostty` with your terminal's `TERM` value.
 
+**Option 2:** Override `TERM` for a single SSH session.
+
+```bash
+TERM=xterm-256color ssh user@host
+```
+
+**Option 3:** Override `TERM` for all SSH sessions by adding the following to your local `~/.ssh/config`:
+
+```sshconfig
+Host your-host
+    SetEnv TERM=xterm-256color
+```
+
+**Option 4 (Recommended):** Install your terminal's terminfo entry on the remote machine to preserve all terminal features.
 
 </details>
 
@@ -1981,22 +2213,26 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 </details>
 
 ---
+
 ---
 
 ## Commands Reference
 
-| Command | Description |
-| --- | --- |
-| `edit-select config` | Launch the interactive configuration wizard to configure mouse behavior and keybindings. |
-| `edit-select integrate` | Run installer terminal-integration mode to configure supported terminal keybindings. |
-| `edit-select conflicts` | Run installer conflict-scan mode and print remediation guidance for detected overlaps. |
-| `edit-select update` | Pull latest plugin changes from git, then fetch agent binaries from GitHub workflow-published releases and re-initialize agent runtime. |
-| `edit-select build` | Build/rebuild agent binaries from source for the active runtime implementation, then re-initialize runtime agents. |
-| `edit-select uninstall` | Run uninstall mode with prompts to remove plugin files and clean integration/config entries. |
-| `edit-select setup-ax` | macOS only: request Accessibility permission required for optional mouse integration. |
-
+| Command                    | Description                                                                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edit-select config`       | Launch the interactive configuration wizard to configure mouse behavior and keybindings.                                                                    |
+| `edit-select integrate`    | Run installer terminal-integration mode to configure supported terminal keybindings.                                                                        |
+| `edit-select conflicts`    | Run installer conflict-scan mode and print remediation guidance for detected overlaps.                                                                      |
+| `edit-select update`       | Pull latest plugin changes from git, then fetch agent binaries from GitHub workflow-published releases and re-initialize agent runtime.                     |
+| `edit-select build`        | Build/rebuild agent binaries from source for the active runtime implementation, then re-initialize runtime agents.                                          |
+| `edit-select uninstall`    | Run uninstall mode with prompts to remove plugin files and clean integration/config entries.                                                                |
+| `edit-select setup-ax`     | macOS only: request Accessibility permission required for optional mouse integration.                                                                       |
+| `edit-select setup-hooks`  | Install git hooks so you're reminded to run `edit-select update` after a `git pull`. Set up automatically on install — you rarely need to run this by hand. |
+| `edit-select remove-hooks` | Remove the git hooks installed by `edit-select setup-hooks`.                                                                                                |
 
 **Note on Updates:** Use `edit-select update` command to update the plugin and agents, rather than running a simple `pull` manually or via the plugin manager. The `update` command re-initializes the agent runtime to ensure all agent binaries are refreshed from the latest releases.
+
+**Automatic update notifications:** After you install, a lightweight git hook is set up for you automatically — the first time you open a shell after installing. After an interactive `git pull` (directly or through a plugin manager that executes Git hooks), the hook refreshes the agent binaries and bytecode cache, then prompts you to run `edit-select update` and offers to run it. A detached or automated pull without a controlling terminal cannot run that interactive refresh; it prints a reminder to run `edit-select update` instead. This reminder fires only on an actual pull, never during normal shell startup, so it adds zero cost to opening a terminal. You can manage it yourself with `edit-select setup-hooks` and `edit-select remove-hooks`. See the [Troubleshooting](#troubleshooting) section if you don't see the notification after a pull.
 
 **Note on `edit-select integrate`:** This mode is **experimental** and not recommended for complex setups with heavily customized terminal config files. It may interfere with existing keybinding configurations. Use the [Popular Terminals Configurations](#popular-terminals-configurations) section instead.
 
@@ -2007,80 +2243,103 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 ### Linux
 
 #### Navigation Keys
-| Key Combination | Action |
-| --------------- | ------ |
-| **Ctrl + ←** | Move cursor one word left |
-| **Ctrl + →** | Move cursor one word right |
-| **Home** | Move to line start |
-| **End** | Move to line end |
+
+| Key Combination | Action                     |
+| --------------- | -------------------------- |
+| **Ctrl + ←**    | Move cursor one word left  |
+| **Ctrl + →**    | Move cursor one word right |
+| **Home**        | Move to line start         |
+| **End**         | Move to line end           |
 
 #### Selection Keys
-| Key Combination | Action |
-| --------------- | ------ |
-| **Shift + ←** | Select one character left |
-| **Shift + →** | Select one character right |
-| **Shift + ↑** | Select one line up |
-| **Shift + ↓** | Select one line down |
-| **Shift + Home** | Select to line start |
-| **Shift + End** | Select to line end |
-| **Shift + Ctrl + ←** | Select to word start |
-| **Shift + Ctrl + →** | Select to word end |
-| **Shift + Ctrl + Home** | Select to buffer start |
-| **Shift + Ctrl + End** | Select to buffer end |
-| **Ctrl + A** | Select all text |
+
+| Key Combination         | Action                     |
+| ----------------------- | -------------------------- |
+| **Shift + ←**           | Select one character left  |
+| **Shift + →**           | Select one character right |
+| **Shift + ↑**           | Select one line up         |
+| **Shift + ↓**           | Select one line down       |
+| **Shift + Home**        | Select to line start       |
+| **Shift + End**         | Select to line end         |
+| **Shift + Ctrl + ←**    | Select to word start       |
+| **Shift + Ctrl + →**    | Select to word end         |
+| **Shift + Ctrl + Home** | Select to buffer start     |
+| **Shift + Ctrl + End**  | Select to buffer end       |
+| **Ctrl + A**            | Select all text            |
 
 #### Editing Keys
-| Key Combination | Action |
-| --------------- | ------ |
-| **Ctrl + C** | Copy selected text |
-| **Ctrl + X** | Cut selected text |
-| **Ctrl + V** | Paste (replaces selection if any) |
-| **Ctrl + Z** | Undo last edit |
-| **Ctrl + Shift + Z** | Redo last undone edit |
-| **Delete/Backspace** | Delete selected text |
-| **Any character** | Replace selected text if any |
+
+| Key Combination      | Action                            |
+| -------------------- | --------------------------------- |
+| **Ctrl + C**         | Copy selected text                |
+| **Ctrl + X**         | Cut selected text                 |
+| **Ctrl + V**         | Paste (replaces selection if any) |
+| **Ctrl + Z**         | Undo last edit                    |
+| **Ctrl + Shift + Z** | Redo last undone edit             |
+| **Delete/Backspace** | Delete selected text              |
+| **Any character**    | Replace selected text if any      |
 
 ---
 
 ### macOS
 
 #### Navigation Keys
-| Key Combination | Action |
-| --------------- | ------ |
-| **Option + ←** | Move cursor one word left |
-| **Option + →** | Move cursor one word right |
-| **Cmd + ←** | Move to line start |
-| **Cmd + →** | Move to line end |
+
+| Key Combination | Action                     |
+| --------------- | -------------------------- |
+| **Option + ←**  | Move cursor one word left  |
+| **Option + →**  | Move cursor one word right |
+| **Cmd + ←**     | Move to line start         |
+| **Cmd + →**     | Move to line end           |
 
 #### Selection Keys
-| Key Combination | Action |
-| --------------- | ------ |
-| **Shift + ←** | Select one character left |
-| **Shift + →** | Select one character right |
-| **Shift + ↑** | Select one line up |
-| **Shift + ↓** | Select one line down |
-| **Cmd + Shift + ←** | Select to line start |
-| **Cmd + Shift + →** | Select to line end |
-| **Option + Shift + ←** | Select to word start |
-| **Option + Shift + →** | Select to word end |
-| **Cmd + Shift + ↑** | Select to buffer start |
-| **Cmd + Shift + ↓** | Select to buffer end |
-| **Cmd + A** | Select all text |
+
+| Key Combination        | Action                     |
+| ---------------------- | -------------------------- |
+| **Shift + ←**          | Select one character left  |
+| **Shift + →**          | Select one character right |
+| **Shift + ↑**          | Select one line up         |
+| **Shift + ↓**          | Select one line down       |
+| **Cmd + Shift + ←**    | Select to line start       |
+| **Cmd + Shift + →**    | Select to line end         |
+| **Option + Shift + ←** | Select to word start       |
+| **Option + Shift + →** | Select to word end         |
+| **Cmd + Shift + ↑**    | Select to buffer start     |
+| **Cmd + Shift + ↓**    | Select to buffer end       |
+| **Cmd + A**            | Select all text            |
 
 #### Editing Keys
-| Key Combination | Action |
-| --------------- | ------ |
-| **Cmd + C** | Copy selected text |
-| **Cmd + X** | Cut selected text |
-| **Cmd + V** | Paste (replaces selection if any) |
-| **Cmd + Z** | Undo last edit |
-| **Cmd + Shift + Z** | Redo last undone edit |
-| **Delete/Backspace** | Delete selected text |
-| **Any character** | Replace selected text if any |
+
+| Key Combination      | Action                            |
+| -------------------- | --------------------------------- |
+| **Cmd + C**          | Copy selected text                |
+| **Cmd + X**          | Cut selected text                 |
+| **Cmd + V**          | Paste (replaces selection if any) |
+| **Cmd + Z**          | Undo last edit                    |
+| **Cmd + Shift + Z**  | Redo last undone edit             |
+| **Delete/Backspace** | Delete selected text              |
+| **Any character**    | Replace selected text if any      |
 
 ---
 
 ## Troubleshooting
+
+If you encounter any issues, first run `edit-select update`. If the problem persists and none of the cases below apply, please open an issue.
+
+<details>
+<summary><b>No update notification after git pull</b></summary>
+
+This can happen in a few scenarios:
+
+- **Plugin installed on a DrvFs mount (WSL):** If your plugin directory is on a Windows-mounted filesystem (e.g. `/mnt/c/...`) without metadata support, git hooks may not fire because the executable bit cannot be set. Run `edit-select update` manually after pulls, or install the plugin to the native Linux filesystem (e.g. `~/.local/share/zsh/plugins/zsh-edit-select`).
+
+- **Using Sheldon:** Sheldon uses libgit2 (not the git CLI) for updates, which does not execute git hooks. Run `edit-select update` manually after `sheldon lock --update`.
+
+- **Detached or automated pull:** A pull without a controlling terminal cannot run the interactive provisioning and prompt. The hook prints a reminder instead; run `edit-select update` manually afterward.
+
+- **core.hooksPath already set:** If you already use `core.hooksPath` for another tool, our hooks cannot be installed automatically (the plugin never overwrites an existing `core.hooksPath` value). In this case you'll simply stay on the regular startup path — full agent/runtime checks run on each shell start, which still works correctly. To opt in to the hooks, either drop `post-merge` and `post-rewrite` (calling our `hooks/zes-post-pull`) into your existing hooks directory, or temporarily clear `core.hooksPath` and run `edit-select setup-hooks`; the marker will then be written and the fast path will resume.
+
+</details>
 
 <details>
 <summary><b>Shift selection doesn't work</b></summary>
@@ -2088,18 +2347,6 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 **Solution:** Configure your terminal to pass Shift key sequences. See [Popular Terminals Configurations](#popular-terminals-configurations).
 
 **Verify:** Run `cat` and press Shift+Left. You should see an escape sequence like `^[[1;2D`.
-
-</details>
-
-<details>
-<summary><b>Clipboard operations don't work</b></summary>
-
-**Solution:** Install the required clipboard tool:
-
-- Wayland: `wl-clipboard`
-- X11: `xclip`
-
-**Verify:** Run `wl-copy <<< "test"` or `xclip -i <<< "test"` to check if the tool works.
 
 </details>
 
@@ -2138,18 +2385,22 @@ use the 'Without Terminal Remapping' method if your terminal doesn't support key
 
 1. Check the plugin was installed correctly
 2. Verify the wizard file exists in the plugin directory:
-  - X11: `edit-select-wizard-x11.zsh`
-  - Wayland: `edit-select-wizard-wayland.zsh`
-  - macOS: `edit-select-wizard-macos.zsh`
+
+- X11: `edit-select-wizard-x11.zsh`
+- Wayland: `edit-select-wizard-wayland.zsh`
+- macOS: `edit-select-wizard-macos.zsh`
+
 3. Ensure the file has read permissions:
-  ```bash
-  # X11:
-  chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-x11/edit-select-wizard-x11.zsh
-  # Wayland:
-  chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wayland/edit-select-wizard-wayland.zsh
-  # macOS:
-  chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-macos/edit-select-wizard-macos.zsh
-  ```
+
+```bash
+# X11:
+chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-x11/edit-select-wizard-x11.zsh
+# Wayland:
+chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-wayland/edit-select-wizard-wayland.zsh
+# macOS:
+chmod +r ~/.oh-my-zsh/custom/plugins/zsh-edit-select/impl-macos/edit-select-wizard-macos.zsh
+```
+
 4. Try sourcing your `.zshrc` again: `source ~/.zshrc`
 5. Fully close and reopen your terminal
 
@@ -2207,9 +2458,6 @@ preventing cross-pane mouse selection issues.
 
 </details>
 
-
-
-
 ---
 
 ---
@@ -2220,7 +2468,7 @@ The plugin architecture is built around compiled native C agents that run as per
 
 The system is designed with a strong focus on run-time performance, resource management efficiency, and long-term maintainability. Design decisions across the entire stack—from compilation flags and build settings to event handling, caching, and process management strategies—are made with these goals in mind.
 
-The plugin uses native C agents to overcome the limitations of shell scripts,   enabling direct interaction with display-server protocols and operating-system interfaces while providing the level of control required for efficient event handling, low latency, and minimal resource consumption.
+The plugin uses native C agents to overcome the limitations of shell scripts, enabling direct interaction with display-server protocols and operating-system interfaces while providing the level of control required for efficient event handling, low latency, and minimal resource consumption.
 
 This also makes the plugin fully self-contained with no runtime dependencies and no external tools required for operation.
 
@@ -2229,16 +2477,25 @@ This also makes the plugin fully self-contained with no runtime dependencies and
 
 - **Single-pass initialization** — Backend detection, agent startup, and configuration loading occur at plugin
   load time. The results are cached in shell variables and reused for the entire session.
-- **Event-driven selection tracking** — X11 XFixes events and Wayland compositor events drive cache updates;
-  all agents sleep in `poll()` between events, consuming no CPU while idle.
-- **Compiled C agents** — Direct system calls compiled with aggressive optimization flags
-  (`-O3 -march=native -flto -fipa-pta` and link-time dead code elimination); no interpreter overhead.
-- **RAM-backed cache** — Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions),
-  with `TMPDIR` or `/tmp` as fallback. On standard systemd-based systems, all cache I/O remains in memory.
+- **Event-driven selection tracking** — X11 XFixes events, Wayland compositor events, macOS CGEventTap
+  events, and Win32 clipboard-format notifications drive cache updates. Each agent blocks in its native
+  event-dispatch primitive (`poll()` on Linux, `CFRunLoopRun()` on macOS, `GetMessageA` in the WSL
+  helper) and consumes no CPU between events.
+- **Compiled native agents** — Direct system calls compiled with aggressive optimization flags
+  (`-O3 -march=native -flto -fipa-pta` on Linux; `-Os -fobjc-arc` on macOS) and link-time dead code
+  elimination; no interpreter overhead.
+- **RAM-backed cache** — The daemon's cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions),
+  with `TMPDIR` or `/tmp` as the shell-side fallback. The agent's short-lived modes (`--oneshot`,
+  `--copy-clipboard`, `--clear-primary`) do their own resolution when invoked without an explicit cache
+  directory: `XDG_RUNTIME_DIR` → `/dev/shm` → `$HOME/.cache` on Linux, `$TMPDIR` → `/tmp` on macOS. On
+  standard systemd-based systems, all cache I/O remains in memory. The cache directory is tightened to
+  `0700` at agent startup (or by the daemon entry point on macOS), so the cached `primary`/`seq` files
+  (mode `0644`) are only accessible from their owner — other users on a shared `/tmp` or `/dev/shm`
+  cannot traverse into the per-UID cache to read selected text.
 - **Wayland protocol path** — Native Wayland uses direct compositor protocols for PRIMARY selection and CLIPBOARD, avoiding `wl-copy`/`wl-paste` subprocesses and keeping clipboard operations inside the persistent agent process.
-- **Graceful fallback** — If the compiled agents are unavailable, the plugin falls back to standard clipboard
-  tools (`xclip`, `wl-paste`/`wl-copy`) transparently. No functionality is lost.
-
+- **Graceful fallback** — If the compiled agents are unavailable, the plugin falls back to standard
+  platform clipboard tools transparently: `xclip` (X11), `wl-paste`/`wl-copy` (Wayland),
+  `pbpaste`/`pbcopy` (macOS), `powershell.exe`/`clip.exe` (WSL). No functionality is lost.
 
 <details>
 <summary>WSL-Specific Architecture</summary>
@@ -2248,6 +2505,7 @@ The plugin provides tailored support for Windows Subsystem for Linux (WSL) with 
 **Platform Detection**
 
 WSL detection occurs at plugin load time through inspection of environment variables set by the WSL runtime:
+
 - `WSL_DISTRO_NAME` or `WSL_INTEROP` — uniformly present in both WSL1 and WSL2
 - Detection takes priority over X11/Wayland detection, ensuring the optimized WSL implementation is used
 - A unified detection mechanism ensures the plugin works seamlessly across both WSL versions
@@ -2255,6 +2513,7 @@ WSL detection occurs at plugin load time through inspection of environment varia
 **Dual-Generation Support**
 
 The plugin supports both WSL1 and WSL2 through a single implementation path:
+
 - **WSL2 (Current)** — Uses Wayland clipboard interoperability for native Windows clipboard access
 - **WSL1 (Legacy)** — Falls back to the Windows-side clipboard helper for clipboard operations
 - A tailored implementation at `impl-wsl/tailored-variants/impl-wayland-wsl/` provides consistent mouse tracking behavior, atomic scrollback delegation to the native Windows Terminal host, and clipboard integration across both generations
@@ -2266,6 +2525,7 @@ A key WSL optimization is **Atomic Scrollback Delegation**. In typical terminal 
 **Build Artifacts and Fallback Mechanism**
 
 The implementation uses a tiered artifact strategy:
+
 - **Primary path** — `impl-wsl/tailored-variants/impl-wayland-wsl/` (optimized for WSL)
 - **Legacy fallback** — `impl-wsl/zsh-edit-select-wsl.plugin.zsh` (loaded if tailored files are unavailable)
 - **On-demand compilation** — Build artifacts are generated automatically during plugin initialization if missing
@@ -2276,7 +2536,7 @@ Clipboard operations across the WSL-to-Windows boundary are handled by two purpo
 
 - **`zes-wsl-clipboard-helper.exe`** — Windows-side process that reads from and writes to the Windows clipboard via the Windows API. It monitors clipboard changes, retrieves UTF-8 clipboard text, and accepts clipboard content from the Linux side via inter-process communication.
 
-- **`zes-wsl-selection-agent`** — Linux-side daemon that communicates with the Windows helper through named pipes and maintains a high-performance cache of clipboard contents on the native Linux filesystem. The cache resides in `/dev/shm` (in-memory tmpfs), minimizing latency on keyboard events and selection operations.
+- **`zes-wsl-selection-agent`** — Linux-side daemon that communicates with the Windows helper through anonymous pipes (the helper's stdout is redirected to a `pipe()` the agent reads; on `--copy-clipboard` the agent writes to a pipe wired to the helper's stdin) and maintains a high-performance cache of clipboard contents on the native Linux filesystem. The cache resides in `XDG_RUNTIME_DIR` (in-memory tmpfs on systemd systems), with `TMPDIR` or `/tmp` as fallback, minimizing latency on keyboard events and selection operations.
 
 **Transparent Clipboard Access**
 
@@ -2286,7 +2546,6 @@ Together, these helper processes provide transparent clipboard semantics: plugin
 
 </details>
 
-
 ### Optimization Techniques
 
 <details>
@@ -2294,17 +2553,33 @@ Together, these helper processes provide transparent clipboard semantics: plugin
 
 **Backend Detection**
 
-- Platform detection runs once at plugin load time by inspecting `ZES_FORCE_IMPL`, `WSL_DISTRO_NAME`/`WSL_INTEROP`,
-  `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, and `DISPLAY` in priority order
-- The detected backend (`x11`, `wayland`, or `wsl`) is stored in read-only shell variables (`ZES_ACTIVE_IMPL`,
-  `ZES_DETECTION_REASON`, `ZES_IMPL_PATH`) and reused for the entire session
-- WSL detection (via `WSL_DISTRO_NAME` or `WSL_INTEROP` environment variables) takes priority over X11/Wayland
-  detection, ensuring the tailored WSL implementation is used when running in WSL
-- A double-load guard (`_ZES_LOADER_LOADED`) prevents re-execution when `.zshrc` is re-sourced mid-session
+- Platform detection runs once at plugin load time in a fixed priority order:
+    1. `ZES_FORCE_IMPL` — explicit user override (`x11`, `wayland`, `wsl`, or `macos`)
+    2. macOS — `OSTYPE == darwin*` routes to the native Accessibility / NSPasteboard implementation
+    3. WSL — `WSL_DISTRO_NAME` or `WSL_INTEROP` present (takes priority over X11/Wayland detection,
+       ensuring the tailored WSL implementation is used in both WSL1 and WSL2)
+    4. `XDG_SESSION_TYPE == wayland` — most reliable session-level indicator
+    5. `WAYLAND_DISPLAY` set — present even from within tmux
+    6. `DISPLAY` set — X11
+    7. `wl-paste` in `PATH` — Wayland tools installed, `WAYLAND_DISPLAY` just unset
+    8. Fallback to `x11` — safe default; `xclip` is widely available
+- The detected backend (`x11`, `wayland`, `wsl`, or `macos`) is stored in read-only shell variables
+  (`ZES_ACTIVE_IMPL`, `ZES_DETECTION_REASON`, `ZES_IMPL_PATH`) and reused for the entire session
+- A two-phase load guard prevents both re-entrancy and accidental partial initialization: a temporary
+  `_ZES_LOADER_LOADING` flag is set first and cleared on any validation failure (invalid `ZES_FORCE_IMPL`
+  or missing implementation file) so a corrected re-source initializes normally; the read-only
+  `_ZES_LOADER_LOADED` is only published after the implementation file has been validated, making
+  re-entrant loads a true one-shot
+- The root loader, every backend plugin, and both WSL dispatcher paths resolve their own sourced file
+  path via `${${(%):-%x}:A:h}` instead of `$0`/`${0:A:h}`. With `unsetopt functionargzero`, zsh sets
+  `$0` to `zsh` inside sourced files, so the old `${0:A:h}` form resolved to the caller's CWD and
+  nested backend sources failed silently (masked by the loader's `source … || true`). `%x` remains
+  the source filename under both option states and through adjacent `.zwc` loading, so the plugin now
+  loads correctly with `NO_FUNCTION_ARGZERO` set
 
 **Lazy Backend Loading**
 
-- Only the implementation matching the detected platform (X11, Wayland, or WSL) is sourced
+- Only the implementation matching the detected platform (X11, Wayland, WSL, or macOS) is sourced
 - The other implementations are never loaded into memory, reducing both startup time and memory footprint
 - The configuration wizard is also lazy-loaded — its file is only sourced when the user explicitly runs
   `edit-select config`
@@ -2315,15 +2590,43 @@ Together, these helper processes provide transparent clipboard semantics: plugin
 **Zsh Bytecode Compilation**
 
 - Plugin files and all backend `.zsh` files are compiled to `.zwc` (Zsh wordcode bytecode) on first load via
-  `zcompile`
+  `zcompile -U` (`-U` is load-bearing — `zcompile` expands aliases at parse time, so without `-U` a user
+  alias defined in `.zshenv` such as `alias rm='rm -iv'` would be baked into the cached bytecode and replayed
+  on every subsequent load)
 - The bytecode is reused on subsequent sessions, bypassing source parsing entirely
-- A file-existence guard (`[[ ! -f "${file}.zwc" ]]`) prevents redundant recompilation
+- Recompilation is guarded by the staleness predicate `[[ ! -f file.zwc || src -nt file.zwc ]]` — a bare
+  existence check would never create an absent `.zwc` (in zsh, `[[ src -nt target ]]` is **false** when
+  `target` is missing, the opposite of `test`/coreutils), so the `! -f` prefix is load-bearing, not just
+  an equal-mtime nicety
+- When the post-pull git hook is installed (the common case — see "Update notifications" under
+  [Manual Installation](#manual-installation)), the loader skips its startup **binary-provisioning** sweep
+  entirely: a marker file (`.zes-hooks-installed`) replaces ~5–10 per-startup stats with one, and
+  `hooks/zes-post-pull` runs the same `zcompile -U` recompile after each interactive `git pull` with a
+  controlling terminal. The hook's `-U` is load-bearing here, not cosmetic: the hook runs as `zsh <script>`
+  from a post-merge/post-rewrite invocation, so `~/.zshenv` is sourced and any aliases there are live —
+  without `-U`, an alias like `alias rm='rm -iv'` would be baked into the cached bytecode and replayed on
+  every subsequent load, and on the hooks fast path that hook-written bytecode is the bytecode users
+  actually run. Detached or automated pulls print a reminder and require `edit-select update`
+- **Bytecode compilation is gated separately from binary provisioning**, and the distinction is
+  load-bearing. Sharing one marker gate made `.zwc` absence _permanent_: once the hook marker existed the
+  whole block was skipped, so a wiped cache (the documented `find . -name '*.zwc' -delete`), a platform
+  switch that had compiled a different implementation, or an install where `--setup` never ran would leave
+  ~1500 lines parsing from source on every start, forever. The compile block therefore has its own
+  one-stat condition (`[[ ! -f "${plugin}.zwc" || ! -f .zes-hooks-installed ]]`) and self-heals in a single
+  load. Widening the shared marker gate instead would have re-enabled the provisioning block — including
+  its network fetch — on any shell whose `.zwc` merely happened to be missing; keeping the two gates
+  separate avoids that entirely. Measured: 17.3 ms per load with the bytecode absent versus 7.9 ms with it
+  present — the ~9.4 ms/shell that makes this gate worth its one extra stat, an order of magnitude more than
+  the marker fast path itself saves. Steady state is unchanged at ~10 ms / 172 syscalls
 
 **Agent Auto-Compilation**
 
-- If the compiled agent binary is missing but its `Makefile` is present, the loader runs `make` automatically
-  in a subshell
+- If the compiled agent binary is missing, the loader first attempts to download a pre-built portable
+  binary from the latest GitHub Release (via `assets/fetch-agents.zsh`, SHA256-verified and atomic-rename)
+- If the download is unavailable or fails (offline / build-from-source / non-release-arch case) and the
+  `Makefile` is present, the loader runs `make` automatically in a subshell
 - Build errors produce stderr diagnostics naming the required `-dev` packages for the user's distribution
+  (e.g. `libx11-dev`/`libxfixes-dev` on X11, `libwayland-dev`/`wayland-protocols` on Wayland)
 
 **Configuration Loading**
 
@@ -2337,12 +2640,12 @@ The wizard file is lazy-loaded — sourced only when the user explicitly invokes
 adding zero overhead to normal shell sessions. All wizard operations are implemented entirely as Zsh
 built-in operations with no subprocess spawning:
 
-- Config reads use `while IFS= read -r` loops; config writes use `print -r --` with Zsh array filtering
+- Config reads use `$(<file)` Zsh builtin reads; config writes use `printf` with Zsh array filtering
   (`${(@)array:#KEY=*}`) — no `sed` or `grep` forks at any point in the config I/O path
 - Screen redraws use inline ANSI escape sequences (`printf '\033[2J\033[3J\033[H'`) instead of the
   `clear` command; this also clears the scrollback buffer in a single `write()` call rather than a fork
-- The color gradient used in the wizard UI is computed once and cached in `$_ZESW_GRADIENT_CACHE` on
-  first invocation; subsequent calls within the same shell session reuse the cached values directly
+- The color gradient used in the wizard UI is emitted as inline 24-bit ANSI escape sequences baked
+  directly into the banner routine — no `tput`, no color-lookup subprocess, and no per-character math
 - Keybinding changes applied through the wizard take effect immediately in the current shell session via
   direct `bindkey` calls — no shell restart or `.zshrc` re-source is required
 
@@ -2355,55 +2658,120 @@ built-in operations with no subprocess spawning:
 - The agent is launched inside a subshell using the pattern `( agent_binary "$cache_dir" &>/dev/null & ; disown )`.
   The wrapping subshell isolates job control: the agent process does not appear in the shell's `jobs` list,
   does not receive `SIGHUP` when the terminal closes, and does not trigger Zsh background-job notifications.
-- The plugin polls for the agent's readiness signal (the `seq` cache file appearing) with a maximum wait of
-  1 second (40 × 25 ms intervals), rather than using a fixed sleep — the poll exits as soon as the file
-  appears, so startup overhead matches actual agent initialization time.
+- The plugin polls for the `seq` cache file to appear with a maximum wait of 1 second (40 × 25 ms intervals),
+  rather than using a fixed sleep — the poll exits as soon as the file appears, so startup overhead matches
+  actual initialization time. Precisely, this file signals that the agent's **pre-daemon cache
+  initialization** has run, not that the daemon is fully up: daemonization, PID publication, and display-server
+  event setup continue afterward. That is deliberate and sufficient — the cache the shell reads exists from
+  this point on, so no widget can observe a missing file, and the amortized liveness probe covers the rest.
 - If a running agent is already present (PID file exists and `kill -0` succeeds), it is reused without
-  restart.
-- After the readiness poll completes, the plugin reads the initial `seq` file mtime and sets
-  `_EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1`. This marks the startup mtime as already-seen, preventing the first
-  observed value from being treated as a new selection event on the first ZLE callback.
+  restart — this check runs _before_ any cleanup or launch, so a live daemon is always adopted rather than
+  duplicated.
+- **X11 only:** if `DISPLAY` is unset, `_zes_start_monitor` resolves the failure itself instead of launching
+  and waiting. The agent's very first statement is `if (!getenv("DISPLAY")) return 1`, so it exits before
+  creating any cache file and the readiness poll could only ever run out its full 1-second budget. The early
+  return reaches an identical end state (`_EDIT_SELECT_DAEMON_ACTIVE=0`, no cache files, clipboard operations
+  falling back to `xclip`) in **0.004 s instead of 1.109 s** — measured. The live-daemon reuse path above
+  still returns first, so an already-running agent is unaffected.
+- After the readiness poll completes, the plugin reads the initial `seq` file content and stores it as the
+  detection baseline. The X11, Wayland, and WSL backends record it via `_EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1`
+  (marking the startup value as already-seen, preventing the first observed value from being treated as a new
+  selection event on the first ZLE callback); macOS stores it directly in `_EDIT_SELECT_LAST_SEQ` — its
+  content-comparison scheme does not need the event-fired latch
 
 </details>
 
 <details>
 <summary><b>Runtime Execution</b></summary>
 
-**mtime-Based Selection Detection**
+**Content-Based Selection Detection**
 
-The typing hot path is designed around a single `stat()` syscall per keypress:
+The typing hot path is designed around a single fork-free file read per keypress:
 
-1. The background agent writes selection content to a `primary` cache file, then updates a `seq` file
-2. The shell detects changes by reading the `seq` file's modification time via `zstat` (the Zsh builtin,
-  which performs a direct `stat()` syscall — no process fork)
-3. If the mtime matches the cached value, the function returns immediately with no further work
-4. If the mtime has changed, the `primary` file content is read via `$(<file)` (Zsh builtin read — also
-  zero forks) and stored in a shell variable
+1. The background agent writes selection content to a `primary` cache file, then writes a monotonic counter
+   to a `seq` file
+2. The shell detects changes by reading the `seq` file's content via the `$(<file)` builtin (a Zsh-optimized
+   read — no process fork), guarded by a `[[ -r ]]` test that also serves as the daemon-liveness check
+3. If the content matches the cached value, the function returns immediately with no further work
+4. If the content has changed, the `primary` file content is read (also fork-free) and stored in a shell
+   variable
 
-Under normal typing conditions with no selection changes, the entire detection path costs one `stat()` syscall
-and an integer comparison per keypress.
+Under normal typing conditions with no selection changes, the entire detection path costs one small file
+read and a string comparison per keypress. Comparing `seq` content (rather than its modification time) makes
+detection exact: `zstat +mtime` exposes only integer-second resolution, so two selection changes within the
+same second would share an mtime and the second would be missed; a monotonic counter never aliases.
+
+> **Fork discipline (load-bearing for the hot path):** Only the bare `$(<file)` form is fork-free in zsh
+> (`ZSH_SUBSHELL` stays at 0 — it is a builtin, faster than `zstat +mtime`). A redirect _inside_ the
+> construct — `$(<file 2>/dev/null)` — **re-introduces `fork()`** (the redirect forces a subshell). The
+> plugin uses two read shapes accordingly: the **hot path** (per-keypress sync, per-redraw hook) uses the
+> guarded-bare form `[[ -r f ]] && x=$(<f) || true` (~11.6 µs, zero forks — deliberately _without_
+> `2>/dev/null`, since the `[[ -r ]]` test already stands in for stderr suppression); the **cold paths**
+> (focus-in, paste-reseed, startup pre-populate) use the brace-grouped form `{ x=$(<f) || true } 2>/dev/null`
+> (~21 µs — the `2>/dev/null` fd save/restore is the cost, but it is on a non-keystroke path so it doesn't
+> matter).
+>
+> **Guard placement matters under `err_return`.** When `err_return` is active, a failing right-hand side
+> of an AND-list (e.g. the read inside `[[ -r f ]] && x=$(<f)`) aborts the enclosing function exactly like
+> a bare command — the AND-list does _not_ mask it the way it masks a failing _left_ test. Worse, a
+> trailing `|| true` placed _outside_ a brace group (`{ x=$(<f) } 2>/dev/null || true`) is **defeated**
+> once a caller observes the function's status — and that observation is routine: `zsh-syntax-highlighting`
+> wraps every widget as `builtin zle "$@" && _zsh_highlight`, so each widget's return code is inspected on
+> every keystroke when it is loaded. Three shapes are therefore used deliberately, and which one is correct
+> depends on scope: the **in-brace** form (`{ x=$(<f) || true } 2>/dev/null`) wherever a caller may observe
+> the enclosing function's status; the **trailing** form on a _simple_ command (`[[ -r f ]] && x=$(<f) || true`),
+> which unlike a brace group holds in every caller context and so keeps the hot path free of `2>/dev/null`;
+> and the **outside** form (`{ x=$(<f) } 2>/dev/null || true`) only at file scope — the startup
+> pre-populate — where the rc reaches nothing but the `source … || true` shield in the root loader. A fourth
+> case needs no guard at all: `{ local x=$(<f) } 2>/dev/null` with `local` on the _same_ line, because the
+> `local` builtin's own success masks the substitution's failure. The same discipline extends past cache
+> reads to every status-ignored best-effort statement on these paths — daemon `disown`, wait-loop increments
+> (`((++n))`, pre-increment because the post-increment form yields 0 and would itself report failure),
+> cache-file cleanups, PRIMARY clears, and incidental terminal writes — so a user's `err_return` set for
+> their own scripts cannot abort a widget midway and strand selection state.
 
 **Write-Ordering Guarantee**
 
 The agent always writes the `primary` content file before updating the `seq` file. Since the shell uses the
-`seq` file's mtime as its change signal, this ordering guarantees the shell never reads a half-written
+`seq` file's content as its change signal, this ordering guarantees the shell never reads a half-written
 `primary` file.
 
 **In-Memory State Caching**
 
 - The last-known selection state is held in shell variables (`_EDIT_SELECT_LAST_PRIMARY`,
-  `_EDIT_SELECT_LAST_MTIME`)
-- `_zes_sync_selection_state()` returns immediately if the cache file mtime is unchanged
-- An event-fired gate (`_EDIT_SELECT_EVENT_FIRED_FOR_MTIME`) prevents the same mtime from triggering
-  redundant processing across multiple ZLE callbacks within the same redraw cycle
+  `_EDIT_SELECT_LAST_SEQ`)
+- `_zes_sync_selection_state()` returns immediately if the `seq` content is unchanged
+- An event-fired gate (`_EDIT_SELECT_EVENT_FIRED_FOR_SEQ`) marks each new `seq` value as already-processed so
+  the same value cannot trigger the selection twice across multiple ZLE callbacks. It is set to `1` when a new
+  `seq` is observed, and is deliberately **not** cleared again inside the pre-redraw hook: clearing it there
+  would re-arm an already-consumed selection, so a selection the user had visually cleared by clicking
+  elsewhere (the click emits `\e[C`/`\e[D` cursor keys, but the agent publishes no new event) would be deleted
+  or replaced on the next keypress. The latch therefore stays set until the next genuine agent write, which is
+  what keeps a cleared selection from being treated as live.
+  macOS omits the gate entirely — its content-comparison scheme already deduplicates, so the dead state
+  variable was removed there
 - Keyboard selections bypass the mouse-detection path entirely
+- On the **no-event keystroke** — the hottest path, where nothing is selected and the agent published nothing —
+  `_zes_detect_mouse_selection()` tests the cached selection for emptiness _in place_ via
+  `[[ -z "${_EDIT_SELECT_LAST_PRIMARY:+x}" ]]` instead of first copying it into a local. The copy was
+  O(selection-size) on every keystroke and the local was only ever read by that one emptiness test, and
+  `${var:+x}` keeps the test itself O(1) — the plain `[[ -z "$var" ]]` form would materialize the whole
+  cached value, which can be an entire raw scrollback drag when the matcher did not resolve it. This is a
+  deliberate trade rather than a free win: measured with Callgrind, the `:+x` expansion costs ~772
+  instructions more at a 1-byte cached selection, breaks even near 40 bytes, and saves ~1816 at 128 bytes —
+  a worst case of +0.058 µs per keystroke, against a 200 KB selection dropping from ~450 µs to ~1.2 µs. The
+  pathological case is the one a user would actually feel while typing, so the trade is taken deliberately
 - State is invalidated only when the agent writes a new cache entry
 - Widget handlers call `zle -c` (flush pending typeahead) rather than `zle -Rc` (flush + force full
   redraw); this avoids an unnecessary redraw cycle on every keypress that does not modify the display
-- After each paste or cut operation, `_zes_sync_after_paste()` re-reads the current `seq` file mtime and
-  `primary` file content directly from the daemon cache and updates `_EDIT_SELECT_LAST_MTIME` and
-  `_EDIT_SELECT_LAST_PRIMARY`. This resets the detection baseline to the post-operation state, preventing the
-  mtime written during the operation from being re-detected as a new selection event on the next ZLE callback.
+- After each paste or cut operation, `_zes_sync_after_paste()` resets the detection baseline to the
+  post-operation state, so the `seq` value written during the operation is not re-detected as a new selection
+  event on the next ZLE callback. Two shapes exist, and the difference is intentional rather than an
+  oversight: **Wayland, macOS, and both WSL backends** re-read the current `seq` and `primary` content from
+  the daemon cache into `_EDIT_SELECT_LAST_SEQ` / `_EDIT_SELECT_LAST_PRIMARY`, while **X11** performs no
+  cache read at all — it clears the three state variables and calls `_zes_clear_primary`, which is sufficient
+  there because clearing `LAST_PRIMARY` already prevents the just-consumed selection from re-matching.
+  Wayland and tailored-WSL additionally reseed from `_zes_get_primary` when the daemon is not running.
 
 **Direct Buffer Manipulation**
 
@@ -2417,7 +2785,14 @@ This prevents these operations from writing to ZLE's kill buffer, which would in
 
 Cut copies the selected text to the clipboard before deleting it from the buffer. By performing the copy
 first, the clipboard server begins serving the content to other applications immediately while the subsequent
-buffer deletion completes — a single in-memory string splice with no external I/O.
+buffer deletion completes — a single in-memory string splice with no external I/O. The ordering is also what
+lets the deletion be gated on the copy's exit status, so a clipboard failure cannot destroy text that was
+never captured (see the OSC 52 discussion under "Protocol & Compositor Compatibility" below).
+
+The one deliberate exception is **macOS cut from a mouse selection**, which deletes first and then copies
+asynchronously. There the local copy is a non-blocking `&!` hand-off, so copy-first would mean waiting on a
+spawned process before the region visibly disappears; the keyboard-region path on macOS keeps the standard
+copy-first, status-gated order.
 
 **Agent Health Monitoring**
 
@@ -2426,21 +2801,87 @@ buffer deletion completes — a single in-memory string splice with no external 
 - If the agent process has exited, it is restarted transparently
 - Health checks are not issued on individual keypress operations
 
+**Prompt-Aware Selection Resolution** _(X11 / Wayland / macOS)_
+
+Mouse selections reported by the terminal carry the raw highlighted region, which may include the prompt
+prefix and/or a right-aligned status suffix that is not part of the editable command buffer. The plugin runs a
+prompt-aware resolver (`_zes_match_selection_in_buffer`) on every new mouse-selection event before any copy /
+cut / type-over / paste / delete action:
+
+1. **Length-guarded exact match** against the command buffer — the fast path for the common case where the
+   raw highlight equals an editable region verbatim.
+2. **Reverse-containment fallback** — when the selection is a strict superset of an editable region (the
+   prompt-prefixed or status-suffixed case), bounded by a `max_trim` budget (currently 512 chars) so an
+   absurdly long prompt can never be silently "matched."
+3. **Multi-line resolver** (`_zes_resolve_multiline`) — strips one trailing terminator, splits by `(@f)`
+   (preserving empty lines), requires row 1 CONTAINMENT of the buffer's first line and rows 2…N to EXACTLY
+   match the buffer's continuation lines, contiguous, no padding gaps.
+4. **Single-line trimmed fallback** — binary search over a trim budget to catch single-line drags that
+   include transient terminal decorations but do not split cleanly into rows.
+5. **Fail-closed** (X11/Wayland): an unmatched selection is rejected; `_EDIT_SELECT_ACTIVE_SELECTION` is
+   left empty, no copy/cut/replace happens (correct-or-nothing). On macOS, an unmatched multi-line
+   selection falls through to the single-line trimmer rather than failing closed, preserving the platform's
+   pre-existing single-line behavior.
+
+The dedup fast path at the top of `_zes_detect_mouse_selection()` compares `_EDIT_SELECT_LAST_PRIMARY` against
+`_EDIT_SELECT_ACTIVE_SELECTION`. Both are set to the **matched** editable text (not the raw highlight) on a
+successful resolution — leaving `LAST_PRIMARY` holding the raw prompt-including source would silently
+invalidate the still-valid active match on the next non-event keypress. The raw source is kept only in a local
+variable. WSL uses its own mouse-tracking path that already resolves exact buffer ranges, so it does not need
+the resolver.
+
+**Occurrence Scanning** _(duplicate-selection disambiguation)_
+
+Once a selection is resolved, the plugin must find _where_ in the buffer it occurs — to pick the occurrence
+under the cursor, and to decide whether the
+[Mouse Replacement Safeguard](#mouse-replacement-safeguard-click-to-expand) prompt is needed. The scan is
+built on Zsh's C-level pattern-strip idiom rather than a shell-level character walk: `${buf%%"$sel"*}`
+strips everything from the first match onward, so the match offset is just the length of what remains, and
+`buf="${BUFFER:$idx}"` advances past it. Each step is one C-level operation inside the shell rather than an
+interpreted loop iteration, which removes the O(buffer²) behaviour a per-character substring walk has on
+large multi-byte buffers. Measured on an 11 KB buffer: **1090 ms → 1.74 ms (626×)**, across the 12 scan
+loops in the X11, Wayland, and macOS plugins (four each), and proven to produce byte-identical matches to
+the walk it replaced.
+
+Each loop also stops as soon as its answer is fixed rather than scanning to the end of the buffer, because
+occurrences are produced strictly left to right:
+
+- The delete/replace scan breaks when the cursor falls inside the occurrence just found, or when a second
+  occurrence already starts _past_ the cursor — no later one can contain it either.
+- The two occurrence-**count** loops exist only to answer `== 1` and `>= 2`, so they stop at two hits
+  instead of counting every match in the buffer.
+
+Both prunes are pure early exits: the value each loop reports is unchanged, only the work to reach it is
+smaller.
+
 **Event-Driven Detection**
 
 - **X11 / XWayland**: The agent subscribes to XFixes `XFixesSetSelectionOwnerNotifyMask` events; it wakes only
   on selection owner changes. The main loop uses `poll()` with a 1-second timeout used solely for clean
   `SIGTERM` shutdown — no periodic work is performed on timeout
 - **Wayland**: The compositor delivers primary selection events on owner change via
-  `zwp_primary_selection_unstable_v1`. A 50 ms `poll()` timeout provides a secondary detection path for
-  content changes within the same selection owner (e.g., the user extending a terminal text selection without
-  releasing the mouse button — which changes content without changing the selection owner)
-- All agents sleep in `poll()` between events, consuming no CPU during idle periods
+  `zwp_primary_selection_unstable_v1`. The daemon loop's `poll()` timeout is adaptive: 1 second when a
+  data-control manager (`ext_data_control_v1` or `zwlr_data_control_unstable_v1`) is active (the common
+  case on modern compositors — no per-timeout work is done); 50 ms otherwise (the `wl_data_device` path
+  used on GNOME/Mutter pre-47), where each timeout expiration re-reads the current offer to catch content
+  changes made without a selection-owner flip — e.g. the user extending a terminal text selection without
+  releasing the mouse button
+- All Linux/X11-family agents sleep in `poll()` between events, consuming no CPU during idle periods
+- **macOS**: The daemon runs a `CFRunLoop` driving a CGEventTap (mouse-down/drag/up); on each relevant mouse-up
+  it synchronously reads the focused element's `kAXSelectedTextAttribute` from the Accessibility API rather than
+  installing a long-lived `AXObserver`. The loop is fully event-driven and consumes no CPU while idle. The
+  short-lived modes (`--get-clipboard`, `--copy-clipboard`) deliberately skip
+  `[NSApplication sharedApplication]` initialization — `NSPasteboard` is a Foundation-level API that needs no
+  running `NSApplication`, so dropping the AppKit init saves ~70 ms per paste-retry call (3.4× faster on the
+  paste retry loop)
+- **WSL**: The Linux-side agent sleeps on `poll()` waiting for clipboard-notification lines from the
+  helper; the helper.exe sleeps in its Win32 `GetMessageA` loop until the OS delivers a clipboard-format
+  change notification
 
 </details>
 
 <details>
-<summary><b>C Agent Internals</b></summary>
+<summary><b>Native Agent Internals</b></summary>
 
 **Compilation & Binary Optimization**
 
@@ -2468,46 +2909,88 @@ performance:
 - `-Wl,--hash-style=gnu` — GNU hash table for faster dynamic symbol lookup
 - `-s -Wl,--build-id=none -fno-ident` — Strips all symbols, build-id, and compiler version strings from the
   binary
-- `-fno-strict-aliasing` _(X11 and XWayland agents only)_ — Permits the type-punning pointer casts required
-  by Xlib's event structures without aliasing-rule violations; not applied to the Wayland agent, which does
-  not cast between unrelated pointer types
+- `-fno-strict-aliasing` _(all Linux agents except the native Wayland agent)_ — Permits the type-punning
+  pointer casts required by Xlib's event structures (X11, native XWayland, WSL-tailored XWayland) without
+  aliasing-rule violations; also retained by the WSL `zes-wsl-selection-agent` which uses `memcpy`-based
+  buffer moves rather than casts, keeping the policy uniform across the X-family. The native Wayland agent
+  is the only agent that never casts between unrelated pointer types, so it does not need the flag
 - `-fno-stack-protector` — Removes stack-canary instrumentation overhead; the agents run locally as
   unprivileged user daemons with no network-facing attack surface
 - System libraries (`libwayland-client`, `libX11`, `libXfixes`) are the only runtime dependencies
 
+**macOS compilation differs:** the macOS agent uses Apple clang with `-Os` (size-optimized), `-fobjc-arc`
+(Automatic Reference Counting for Objective-C), `-Wl,-dead_strip` (ld64's equivalent of `--gc-sections`),
+and links against `AppKit`, `ApplicationServices`, and `CoreGraphics` frameworks. Apple clang does not
+support `-march=native`, `-fipa-pta`, `-fno-plt`, or `-fno-semantic-interposition` — these GCC-specific
+flags are Linux-only. The build also runs `strip` after linking rather than passing `-s` to the linker.
+
 **Operation Modes**
 
-Each agent binary supports five operation modes within a single executable, eliminating the need for separate
-per-mode binaries:
+Each agent binary supports the same five core operation modes within a single executable, eliminating the need
+for separate per-mode binaries. (The macOS agent adds four platform-specific flags on top of these —
+`--check-ax` and `--request-ax` for Accessibility permission state, `--status` for diagnostics, and the
+internal `--_daemon-child` used by its `posix_spawn` re-exec — but the five below are the cross-platform
+contract the shell backends actually drive.)
 
-| Mode | CLI Flag | Behavior |
-| --- | --- | --- |
-| **Daemon** | _(default)_ | Persistent PRIMARY selection monitoring with event-driven cache updates |
-| **Oneshot** | `--oneshot` | Print current PRIMARY selection to stdout and exit |
-| **Get clipboard** | `--get-clipboard` | Print current CLIPBOARD contents to stdout and exit |
-| **Copy clipboard** | `--copy-clipboard` | Read stdin, take clipboard ownership, fork a background server |
-| **Clear primary** | `--clear-primary` | Clear the PRIMARY selection and exit |
+| Mode               | CLI Flag           | Behavior                                                                                                                                                    |
+| ------------------ | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Daemon**         | _(default)_        | Persistent PRIMARY selection monitoring with event-driven cache updates; CLIPBOARD content is fetched on demand by `--get-clipboard` (never watched/cached) |
+| **Oneshot**        | `--oneshot`        | Print current selection to stdout and exit                                                                                                                  |
+| **Get clipboard**  | `--get-clipboard`  | Print current CLIPBOARD contents to stdout and exit                                                                                                         |
+| **Copy clipboard** | `--copy-clipboard` | Read stdin, take clipboard ownership, fork a background server                                                                                              |
+| **Clear primary**  | `--clear-primary`  | Clear the PRIMARY selection and exit                                                                                                                        |
+
+Platform-specific notes:
+
+- **Daemon** — Linux X11/Wayland/XWayland agents and the WSL Linux-side agent block on `poll()` (1 s
+  timeout, solely for clean `SIGTERM` shutdown); the macOS daemon blocks in `CFRunLoopRun()` driving a
+  CGEventTap + on-demand `kAXSelectedTextAttribute` read; the WSL helper.exe blocks in a Win32 `GetMessageA` loop until the OS
+  delivers a clipboard-format change notification
+- **Oneshot** — X11/XWayland/Wayland read the PRIMARY selection; WSL/macOS read the CLIPBOARD (neither
+  platform has a PRIMARY selection), and `--get-clipboard` is an alias for `--oneshot` on both WSL and
+  macOS (they share a CLIPBOARD-only model, so the two flags collapse to the same code path)
+- **Copy clipboard** — X11/XWayland/Wayland fork a background server that holds clipboard ownership and
+  serves paste requests (the child calls `setsid()` and ignores `SIGHUP` to survive terminal closure);
+  WSL pipes stdin to `zes-wsl-clipboard-helper.exe` (a short-lived Win32 process, no persistent server);
+  macOS writes directly to `NSPasteboard` and returns without forking
+- **Clear primary** — the flag exists in every agent, but two platforms deliberately never invoke it from
+  the shell. On **macOS** and on **WSL** (both the generic backend and the tailored backend's WSL-native
+  route) `_zes_clear_primary` truncates the local `primary` cache file directly, leaving the system
+  pasteboard / Windows clipboard untouched. On WSL this is a correctness requirement, not just an
+  optimization: the short-lived agent's `--clear-primary` re-reads `seq` from the file and increments it,
+  while the daemon keeps its own in-memory counter — so the daemon's next event could re-emit a value the
+  shell had already consumed, making an identical re-selection invisible. Truncating locally keeps `seq`
+  progression owned solely by the daemon. The X11, Wayland, and the tailored WSL XWayland/Wayland routes do
+  invoke the flag, because there a real display-server PRIMARY selection has to be released before the local
+  cache is truncated
 
 **Persistent File Descriptor Architecture**
 
-All three agents open the cache file descriptors (`fd_primary`, `fd_seq`) once at daemon startup and hold them
-open for the entire agent lifetime. Cache writes use `pwrite()` (atomic positional write — no preceding
+The Linux agents (X11, Wayland, XWayland, WSL) and the macOS daemon open the cache file descriptors
+(`fd_primary`/`g_fd_primary`, `fd_seq`/`g_fd_seq`) once at daemon startup and hold them open for the entire
+agent lifetime. Cache writes use `pwrite()` (atomic positional write — no preceding
 `lseek()`) followed by `ftruncate()` to trim the file to the exact written length, preventing stale trailing
 bytes from longer previous entries. This reduces each cache update to 2 syscalls per file, compared to the
-`open()`/`write()`/`fsync()`/`close()` pattern (4 syscalls per file) used by conventional approaches.
+`open()`/`write()`/`fsync()`/`close()` pattern (4 syscalls per file) used by conventional approaches. On the
+Linux agents, if either persistent open fails at startup the successfully-opened half is closed and both
+globals are reset to `-1` (the hot branch already requires both descriptors, so a half-open one would otherwise
+be retained for the daemon lifetime without ever being used); macOS is exempt because its descriptors are
+independently useful and the failure path keeps working through the pathname fallback.
 
 **Content Deduplication** _(Wayland agent)_
 
-The Wayland agent's `check_and_update_primary()` and `ps_device_handle_selection()` compare incoming selection
-content against a cached copy (`last_known_content`) using `memcmp()` before writing. When the content is
-unchanged — common during static selections or repeated compositor events — the cache write is skipped
-entirely, avoiding unnecessary disk I/O. When new content does arrive, buffer ownership is transferred by
-nulling the source pointer (`sel = NULL`) after assigning it to `last_known_content`, rather than
-duplicating the buffer — eliminating one `malloc` + `memcpy` per selection event.
+The Wayland agent's `process_primary_update()` (invoked from `ps_device_handle_selection()` and the
+data-control offer callbacks) compares incoming selection content against a cached copy
+(`last_known_content`) using `memcmp()` before writing. When the content is unchanged — common during static
+selections or repeated compositor events — the cache write is skipped entirely, avoiding unnecessary disk
+I/O. When new content does arrive, buffer ownership is transferred by nulling the source pointer (`sel = NULL`)
+after assigning it to `last_known_content`, rather than duplicating the buffer — eliminating one `malloc` +
+`memcpy` per selection event.
 
-The X11 and XWayland agents intentionally skip deduplication: they always increment the sequence counter and
-write, because a re-selection of identical text (e.g., deselect then re-select the same word) must still
-fire a new event in the shell for correct mouse-selection tracking.
+The X11 and XWayland agents (native XWayland and the WSL-tailored XWayland fork) intentionally skip
+deduplication: their `check_and_update_primary()` always increments the sequence counter and writes
+unconditionally, because a re-selection of identical text (e.g., deselect then re-select the same word) must
+still fire a new event in the shell for correct mouse-selection tracking.
 
 **Descriptor Safety**
 
@@ -2517,37 +3000,78 @@ process.
 
 **Sequence Counter Design**
 
-The sequence counter is seeded from `time(NULL)` at daemon startup. This provides monotonic ordering across
-agent restarts — a newly started agent will always produce sequence values higher than those from the previous
-instance, preventing the shell from misinterpreting a restart as "no change." The daemon writes the initial
-sequence value to the `seq` file before the shell begins polling, closing the startup race window.
+The sequence counter is seeded from `time(NULL)` at startup and incremented once per published selection
+event. Within a single daemon's lifetime that makes every event's value distinct, so two selection changes
+inside the same wall-clock second can never alias — the failure mode that ruled out `zstat +mtime`, whose
+resolution is one integer second.
+
+Across a **restart** the value is best understood as an opaque **comparison token**, not a numerically
+monotonic counter. The shell compares `seq` for _inequality_ (`[[ "$current_seq" != "$_EDIT_SELECT_LAST_SEQ" ]]`),
+never for order, so all that is required is that a fresh daemon's token differ from the one the shell last
+observed — which time-seeding delivers in practice. Strict numeric monotonicity is deliberately _not_
+claimed: a long-lived daemon can increment past the current wall clock, so its successor's `time(NULL)` seed
+may legitimately be lower. The backends close the residual window structurally rather than arithmetically,
+by deleting the stale `seq`/`primary` files before launching a replacement, so a new daemon's first token is
+never compared against a dead one's last.
+
+The initial `seq` value is written by the pre-daemon process, before `daemon()`/`posix_spawn`, so the file
+exists by the time the shell begins polling.
+
+On macOS the parent process writes the `agent.pid` file **before** writing the readiness `seq` value. The child
+that becomes the daemon performs its AppKit initialization (`[NSApplication sharedApplication]`) only after
+`posix_spawn`, which takes ~70 ms; if the parent wrote `seq` first the shell's readiness poll could observe `seq`
+present while `agent.pid` was still absent, and a second `_zes_start_monitor` invocation (configuration apply) would
+conclude no daemon was running and spawn a duplicate event-tap daemon. Writing the pid first in the spawning
+process guarantees `pid-on-disk` happens-before `seq-on-disk`, so any shell that sees a readiness `seq` value
+also sees a resolvable pid — the pid analogue of the "SEQ IS WRITTEN LAST" invariant. The Linux/X11/Wayland/WSL
+agents instead write both files from the daemonised child after `daemon()`/`fork()`, which is acceptable because
+their startup cost is sub-millisecond and the readiness poll loop covers the gap.
 
 **X11 Atom Handling**
 
 - The native X11 agent (`zes-x11-selection-agent`) uses private atom names (`ZES_SEL`, `ZES_CLIP`) as
   selection conversion properties. This avoids collisions with properties written by other applications on a
   shared X server.
-- The XWayland agent (`zes-xwayland-agent`) reuses the standard `PRIMARY` and `CLIPBOARD` atoms directly as
-  property names, which is safe because XWayland provides an isolated per-session X server where no other
-  clients compete for property names.
-- Both agents intern all atom handles once at startup and reuse them for the agent's lifetime — no per-event
-  `XInternAtom()` round-trips to the X server.
+- The XWayland agent (`zes-xwayland-agent`) and the WSL-tailored XWayland agent reuse the standard `PRIMARY`
+  and `CLIPBOARD` atoms directly as property names, which is safe because XWayland provides an isolated
+  per-session X server where no other clients compete for property names.
+- All three X-family agents intern their atoms once at startup via a single batched `XInternAtoms()` call
+  (six names on X11, four on each XWayland variant) and reuse them for the agent's lifetime — `XInternAtom`
+  is synchronous, so each non-batched call would flush the X request buffer and wait for its own reply; the
+  batched form pipelines all names in one request and waits once, which is the difference that matters for the
+  short-lived `--get-clipboard` / `--copy-clipboard` / `--clear-primary` modes the shell forks per clipboard
+  operation.
+- `XFlush()` is issued only where a reply is genuinely needed and nothing else would force the buffer out.
+  Exactly three survive per agent: after `XConvertSelection` (the request must reach the server before the
+  agent polls for `SelectionNotify`), after the XFixes subscription, and after the `SelectionRequest`
+  response. Flushes after a synchronous `XGetSelectionOwner` verification — which already round-trips, and so
+  has necessarily flushed — and in `--clear-primary` immediately before `XCloseDisplay`'s own final sync were
+  removed as pure duplication. The response flush is the one that cannot be dropped: the clipboard child exits
+  via `_exit()`, which does not drain Xlib's buffer, so without it a queued reply can be discarded after
+  `SelectionClear` and the requesting application sees an empty paste.
 
-**Clipboard Server Lifecycle**
+**Clipboard Server Lifecycle** _(X11 / XWayland / Wayland)_
 
-When the shell copies text to the clipboard (`--copy-clipboard`), the agent forks a background child process
-that becomes the clipboard owner and serves paste requests to other applications:
+When the shell copies text to the clipboard (`--copy-clipboard`) on X11/XWayland/Wayland, the agent forks a
+background child process that becomes the clipboard owner and serves paste requests to other applications:
 
 - The parent process exits immediately, returning control to the shell
 - The child calls `setsid()` to create a new session and ignores `SIGHUP` to survive terminal closure.
   The Wayland agent additionally ignores `SIGPIPE` because paste requestors may close their pipe
   mid-transfer
 - **X11 / XWayland**: The server advertises `TARGETS`, `UTF8_STRING`, and `XA_STRING`, and serves
-  `SelectionRequest` events in a `poll()` loop with 100 ms timeout. It exits when another application takes
-  clipboard ownership (`SelectionClear`) or after approximately 50 seconds of idle time
+  `SelectionRequest` events in a `poll()` loop with a 100 ms timeout (500 iterations = 50 s). It exits when
+  another application takes clipboard ownership (`SelectionClear`), or after ~50 s if it was **never asked for
+  the selection at all**. A `selection_served` latch switches the timeout off permanently once the first
+  request has been answered, so copied text does not expire out from under the user 50 seconds later — from
+  that point the child lives until another client takes ownership. This is deliberate on X11, where CLIPBOARD
+  content only survives as long as its owner process does
 - **Wayland**: The server creates a `wl_data_source` offering multiple MIME types
   (`text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING`) and responds to `send` callbacks. It
   exits when the compositor signals ownership loss via the `cancelled` callback
+- **macOS / WSL**: No background server is spawned. macOS writes directly to `NSPasteboard` (system-wide
+  clipboard service) and returns; WSL pipes stdin to the helper.exe which writes to the Windows clipboard
+  and exits — both rely on the OS clipboard service to serve subsequent paste requests from other apps
 
 **Adaptive Poll Timeouts** _(selection retrieval)_
 
@@ -2558,6 +3082,12 @@ responsiveness against syscall frequency:
   thereafter to reduce syscall rate during slow responses
 - **Wayland**: 500 ms initial timeout covers the IPC round-trip; subsequent read chunks use a 100 ms timeout
   to detect EOF quickly
+- **macOS (Path B / GPU terminals)**: The reactive `Cmd+C` watcher polls the clipboard via a GCD timer at
+  1 ms granularity for the first 75 ms (`ESCALATION_TICK`), then injects `Cmd+C` and continues polling until
+  the candidate selection is stable for 25 ms (`SETTLE_TICKS`) or the 700 ms safety cap is reached
+  (`MAX_POLL_TICKS`)
+- **WSL**: Selection content arrives asynchronously via the helper.exe's pipe — the Linux-side agent simply
+  reads complete lines as they arrive; no adaptive polling is performed
 
 **Non-Blocking Clipboard Reads** _(Wayland agent)_
 
@@ -2581,16 +3111,46 @@ supported by all major compositors.
 Clipboard operations use a three-mechanism priority chain, selected based on compositor capabilities:
 
 1. **`ext_data_control_v1`** (preferred) — The standardized successor to the wlroots data-control protocol.
-  Supports clipboard read and write without requiring keyboard focus. The agent prefers this over `zwlr` when
-  both are advertised.
+   Supports clipboard read and write without requiring keyboard focus. The agent prefers this over `zwlr` when
+   both are advertised.
 2. **`zwlr_data_control_unstable_v1`** — The wlroots-originated data-control protocol, serving as fallback
-  when `ext_data_control_v1` is not available. Same capabilities.
+   when `ext_data_control_v1` is not available. Same capabilities.
 3. **`wl_data_device`** — Core Wayland protocol fallback for compositors without any data-control extension
-  (primarily GNOME/Mutter versions before 47). Requires a valid keyboard focus serial, which the agent
-  obtains by creating a visible surface.
+   (primarily GNOME/Mutter versions before 47). Requires a valid keyboard focus serial, which the agent
+   obtains by creating a visible surface.
 
-An additional **OSC 52** path is available for clipboard writes — a fire-and-forget terminal escape sequence
-written in a single `write()` call to `/dev/tty`, requiring no Wayland protocol involvement.
+**Registry bind version capping.** Every `wl_registry_bind` in the agent caps the requested interface
+version at the highest version the agent actually uses (`wl_data_device_manager` ≤ 3, `wl_compositor` ≤ 4,
+`zwlr_data_control_manager_v1` ≤ 2, `wl_seat` ≤ 2). The `wl_seat` bind is load-bearing here: the agent issues
+only `wl_seat.get_keyboard` / `.destroy` (both available since v1) and installs no `wl_seat` listener, so it
+consumes none of the v2-only `name` event — but requesting a version the compositor does _not_ advertise is
+a protocol error that kills the client. Capping with `version < N ? version : N` strictly removes that
+failure mode (it differs from a hard `N` only at advertised=1, where the old code would have requested an
+unavailable version) and changes nothing on every real compositor, all of which advertise `wl_seat` ≥ 5.
+
+An additional **OSC 52** clipboard-write path is shared by **all five backends** (X11, Wayland, WSL-generic,
+WSL-tailored, macOS) — a terminal escape sequence written in a single `write()` call to `/dev/tty` that
+requires no display-server protocol involvement. Activated whenever `$SSH_CLIENT`/`$SSH_TTY`/`$SSH_CONNECTION`
+indicates an SSH session (see [SSH Support](#ssh-support) for the user-facing details), it tunnels the
+selection back to the user's local terminal through the SSH channel. The base64 encoder uses `-w 0` on
+Linux/WSL and `-b 0` on macOS (suppress line-wrapping that would corrupt the OSC 52 sequence), and both the
+encoder and the `/dev/tty` write propagate their return code — the encoder via `|| return $?` before any
+escape byte is emitted, so a failed encode can never write a truncated payload. tmux and GNU Screen DCS
+passthrough wrapping is handled inside the same code path.
+
+That propagated status is what makes **cut** safe over SSH: every backend's keyboard-region cut gates
+deletion on the copy succeeding (`_zes_copy_to_clipboard … || { zle -M "Cut failed: clipboard unavailable"; return; }`),
+so a failed OSC 52 write leaves the region intact and reports the failure instead of destroying text that was
+never copied. Two deliberate asymmetries are worth knowing:
+
+- **Copy** does _not_ gate on it on X11, Wayland, macOS, and WSL-generic — those `_zes_copy_to_clipboard`
+  calls end in `|| true`, so a failed copy still deactivates the region silently. Only the WSL-tailored
+  plugin surfaces a `Copy failed: clipboard unavailable` message. Copy is non-destructive (the buffer is
+  unchanged, the text is still on screen), which is why the stricter treatment was applied to cut first.
+- **macOS mouse-selection cut** deletes _before_ copying, by design: the local copy path hands off
+  asynchronously via `&!` (background + disown — no subshell fork, no job-table entry), and the comment at
+  that branch marks the ordering as deliberate for instant visual feedback. Gating it would convert a
+  non-blocking hand-off into a blocking wait on every local mouse cut.
 
 **Mutter/GNOME Compatibility**
 
@@ -2632,38 +3192,62 @@ requirement, and offers broader compositor compatibility.
 
 The `_zes_sync_selection_state()` function is called by every widget before acting. Its execution path:
 
-1. `zstat -A stat_info +mtime "$SEQ_FILE"` — reads the sequence cache file's mtime via a single `stat()`
-  syscall (Zsh builtin, zero forks)
-2. If the mtime matches `_EDIT_SELECT_LAST_MTIME`, the function returns immediately
-3. If the mtime has changed, the `primary` file is read via `$(<file)` (Zsh builtin) and
-  `_EDIT_SELECT_NEW_SELECTION_EVENT` is set to 1
-4. The new mtime and an event-fired gate (`_EDIT_SELECT_EVENT_FIRED_FOR_MTIME`) are updated to prevent the
-  same mtime from re-triggering across multiple ZLE callbacks
+1. `[[ -r "$SEQ_FILE" ]] && current_seq=$(<"$SEQ_FILE")` — reads the sequence cache file's content via the
+   `$(<file)` builtin (Zsh-optimized, zero forks); the `[[ -r ]]` guard doubles as the daemon-liveness check
+2. If the content matches `_EDIT_SELECT_LAST_SEQ`, the function returns immediately
+3. If the content has changed, the `primary` file is read via `$(<file)` (Zsh builtin) and
+   `_EDIT_SELECT_NEW_SELECTION_EVENT` is set to 1
+4. The new `seq` value is recorded and the event-fired gate (`_EDIT_SELECT_EVENT_FIRED_FOR_SEQ`) is set, so the
+   same value cannot re-trigger the selection across later ZLE callbacks. On a subsequent callback that sees an
+   unchanged `seq`, this gate is what suppresses the stale event and drops any leftover active selection — the
+   mechanism that prevents an operation from landing on a selection the user has already cleared. (macOS omits
+   this gate — its content-comparison scheme already deduplicates, so the latch is vestigial there and was
+   removed.)
 
 **ZLE Pre-Redraw Hook**
 
-The `edit-select::zle-line-pre-redraw` hook is registered via `add-zle-hook-widget` and runs before every
-prompt redraw. It performs:
+The `edit-select::zle-line-pre-redraw` hook and the `zle-line-init` focus-reporting hook are both registered
+via `add-zle-hook-widget`. Registration is **deferred to the first precmd** by a one-shot helper
+(`_zes_register_redraw_hook`) rather than performed at plugin load time. This avoids interacting with
+user-widget wrappers that other plugins (notably `zsh-syntax-highlighting`) install at their own load time:
+registering at load would make `zle-line-pre-redraw` a user widget that gets wrapped, forcing a redundant
+re-highlight pass on every ZLE redraw. That cost is concentrated exactly where it is most visible: a
+click-to-move-cursor in a GPU terminal arrives as a _burst_ of `\e[C`/`\e[D` arrows, one redraw each, so a
+wrapped hook adds roughly **2 ms per arrow** and the cursor visibly crawls across a long buffer. Deferring
+registration takes `_zsh_highlight` from **3.45 calls/arrow back to 1.25 — identical to running with no
+plugin loaded at all**. Because `precmd` fires after `~/.zshrc` finishes, the widget does not exist when those
+plugins do their one-time load-time wrap and is never wrapped. The event order `precmd → line-init →
+pre-redraw` guarantees the hooks are active before any prompt redraw, so the deferral has no behavioral cost.
+The literal `CSI I` / `CSI O` focus bindings stay immediate at load (only the `zle-line-init` **registration**
+moves), so cross-pane focus isolation is unaffected. The hook runs before every prompt redraw and performs:
 
 1. **Amortized liveness probe**: Checks `kill -0 $pid` only if `EPOCHSECONDS > _ZES_LAST_PID_CHECK + 30`.
-  If the agent has died, restarts it transparently.
-2. **Mtime check**: Same `zstat` path as `_zes_sync_selection_state()` — one `stat()` syscall per redraw. On
-  mtime change, reads the `primary` file and sets the event flag.
+   If the agent has died, restarts it transparently.
+2. **Content check**: Same `$(<seq)` path as `_zes_sync_selection_state()` — one small file read per redraw.
+   On content change, reads the `primary` file and sets the event flag. The hook does **not** touch
+   `_EDIT_SELECT_EVENT_FIRED_FOR_SEQ`: a click that clears a mouse selection emits `\e[C`/`\e[D` cursor keys
+   (one redraw each) but publishes no agent event, so the hook cannot distinguish "still selected" from
+   "cleared by that click" — the cache and every state flag are identical. Leaving the latch set lets the
+   widget sync suppress the stale event on the next keypress, which is what keeps a visually-cleared selection
+   from being deleted or replaced.
 
 **Cache File Protocol**
 
 - The agent writes primary content first, then increments and writes the sequence number — this ordering
   guarantee prevents the shell from reading a partially updated `primary` file
-- The shell reads only the sequence file's mtime as the change signal
-- Full content is read only when a change is confirmed
-- The sequence counter starts from `time(NULL)`, providing monotonic ordering even across agent restarts
+- The shell reads only the sequence file's content as the change signal
+- Full `primary` content is read only when a change is confirmed
+- The sequence counter starts from `time(NULL)` and increments per event, so distinct changes within one
+  daemon's lifetime always produce distinct `seq` values, including within the same second. Across restarts
+  the value is a comparison token rather than a numerically ordered counter — the shell tests it for
+  inequality, not order (see "Sequence Counter Design")
 
 **Early Return Conditions**
 
-- Unchanged mtime → immediate return before any selection comparison
+- Unchanged `seq` content → immediate return before any selection comparison
 - Mouse replacement disabled → `_zes_detect_mouse_selection()` returns immediately
 - Active keyboard selection → mouse detection path is never entered
-- Stale selection state → invalidated on mtime change, not on a timer
+- Stale selection state → invalidated on `seq` content change, not on a timer
 
 </details>
 
@@ -2672,23 +3256,39 @@ prompt redraw. It performs:
 
 **DECSET 1004 Focus Tracking**
 
-Terminal focus tracking is enabled at startup via `printf '\e[?1004h' >/dev/tty`. The escape sequence is
-written to `/dev/tty` rather than stdout to avoid triggering Powerlevel10k instant-prompt console-output
-warnings. Terminals that do not support DECSET 1004 silently ignore the request; the plugin's behavior is
+Focus tracking is not a one-shot startup write. It is re-enabled on **every new prompt** by
+`_zes_enable_focus_reporting` (registered as a `zle-line-init` hook) and disabled again by
+`_zes_disable_focus_reporting` on `preexec`, before any foreground command runs — otherwise a program running
+while the pane gains or loses focus would receive the raw `CSI I` / `CSI O` sequences as stray input. Each
+write is `print -n '\e[?1004h' >$TTY || true` (`\e[?1004l` to disable): the sequence goes to `$TTY` rather
+than stdout so it cannot trigger Powerlevel10k instant-prompt console-output warnings, and the trailing guard
+keeps a failed write — a closed or redirected tty — from aborting the widget under a user's inherited
+`err_return`. Terminals that do not support DECSET 1004 silently ignore the request; the plugin's behavior is
 unchanged.
 
 **Focus-In Handler**
 
 When the terminal pane receives focus (`CSI I` escape sequence), the `_zes_terminal_focus_in` handler:
 
-1. Records the current `seq` file mtime as already-seen (`_EDIT_SELECT_LAST_MTIME`)
-2. Sets `_EDIT_SELECT_EVENT_FIRED_FOR_MTIME = 1`
-3. Clears `_EDIT_SELECT_NEW_SELECTION_EVENT`, `_EDIT_SELECT_ACTIVE_SELECTION`, and
-  `_EDIT_SELECT_PENDING_SELECTION`
+1. Records the current `seq` file content as already-seen (`_EDIT_SELECT_LAST_SEQ`)
+2. Sets `_EDIT_SELECT_EVENT_FIRED_FOR_SEQ = 1`
+3. Clears `_EDIT_SELECT_NEW_SELECTION_EVENT` and `_EDIT_SELECT_ACTIVE_SELECTION`
 
 This ensures that selection events written by another pane to the shared cache while this pane was unfocused
 are not mistakenly treated as new mouse selections. Focus events are bound in all keymaps (`emacs`,
 `edit-select`, and `main`).
+
+**`_EDIT_SELECT_PENDING_SELECTION` deliberately survives a focus round-trip** on X11, Wayland, and
+WSL-generic. An in-flight duplicate-occurrence prompt (see
+[Mouse Replacement Safeguard](#mouse-replacement-safeguard-click-to-expand)) is exactly the state a user is
+about to resolve by clicking to move the cursor — and on many terminals that click is itself a focus event.
+Clearing `PENDING` here would drop the disambiguation while its `zle -M` message stayed on screen, stranding
+a prompt that no longer gates anything. Instead the pending-resolution path inside
+`_zes_detect_mouse_selection()` owns the teardown, clearing the flag and the message together once the
+cursor identifies an occurrence. The WSL-tailored variant does clear `PENDING` on focus-in, because its
+authoritative SGR mouse tracking re-derives the exact range on the next gesture and has no ambiguity to
+preserve; macOS routes focus-in through `_zes_reset_mouse_selection_state`, which clears `PENDING` _and_ the
+prompt message atomically, reaching the same end state by a different route.
 
 **Independent Selection State**
 
@@ -2700,15 +3300,20 @@ cleared after each cut/paste operation to prevent a subsequent pane's detection 
 <details>
 <summary><b>Resource Behavior</b></summary>
 
-- All detection and configuration reads use in-memory cached values — no file I/O during normal typing
-- Selection state changes are detected via one `stat()` syscall per keypress; file content is read only when
-  the mtime has changed
+- Configuration and key-binding values are resolved once at load time into shell variables — no config file is
+  ever re-read while typing, and no clipboard utility is ever forked on the keystroke path
+- The only file touched during normal typing is `seq`: one small fork-free read per keypress, on a tmpfs-backed
+  path. `primary` is read only when that value has actually changed
 - Agent liveness verification runs at 30-second intervals; it is not issued on individual keystroke operations
-- C agents operate with direct system calls only; no interpreter or scripting runtime is involved at runtime
+- Native agents operate with direct system calls only; no shell interpreter or script parsing is involved
+  at runtime (macOS links against the Objective-C runtime system framework — also not shell-level overhead)
 - Zsh plugin scripts are compiled to `.zwc` bytecode on first load; source parsing is skipped on all
   subsequent sessions
-- Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions), `TMPDIR`, or `/tmp`; on
-  standard systemd-based systems, no disk I/O occurs
+- Cache files reside in `XDG_RUNTIME_DIR` (tmpfs on most Linux distributions), `TMPDIR`, or `/tmp` on the
+  shell side (which passes the resolved path to the daemon as its first argv); on standard systemd-based
+  systems, no disk I/O occurs. The C agent's own cache-directory resolution (used only by short-lived modes
+  invoked without an explicit cache dir argument) falls back to `/dev/shm` then `$HOME/.cache` on Linux,
+  and `$TMPDIR` → `/tmp` on macOS
 - Integer state flags (`_EDIT_SELECT_DAEMON_ACTIVE`, `_EDIT_SELECT_NEW_SELECTION_EVENT`, etc.) enable fast
   arithmetic checks without string comparison
 - `EPOCHSECONDS` and `EPOCHREALTIME` (from `zsh/datetime`) provide second-resolution and
@@ -2765,11 +3370,13 @@ on both platforms; the remaining latency is the native protocol IPC round-trip t
 - The agent maintains clipboard ownership and responds to paste requests internally, without involving the
   shell process
 - On X11/XWayland, the clipboard server exits when another application takes clipboard ownership
-  (`SelectionClear` event) or after approximately 50 seconds of inactivity (whichever comes first)
+  (`SelectionClear` event), or after approximately 50 seconds if the selection was never requested; once it
+  has served a paste the idle timeout is latched off and the content stays available until ownership changes
 - On Wayland, the clipboard server exits when the compositor signals ownership loss via the `cancelled`
   callback
-- If the compiled agents are unavailable, the plugin falls back to `xclip` (X11) or `wl-copy`/`wl-paste`
-  (Wayland) — all functionality is preserved
+- If the compiled agents are unavailable, the plugin falls back to standard platform clipboard
+  tools — `xclip` (X11), `wl-paste`/`wl-copy` (Wayland), `pbpaste`/`pbcopy` (macOS),
+  `powershell.exe Get-Clipboard`/`clip.exe` (WSL) — all functionality is preserved
 
 > **Benchmark Methodology:** Tests conducted using purpose-built C benchmarking tools with
 > `clock_gettime(CLOCK_MONOTONIC)` for nanosecond accuracy. Each iteration measures the full end-to-end path
@@ -2778,19 +3385,16 @@ on both platforms; the remaining latency is the native protocol IPC round-trip t
 
 </details>
 
-
-
-
 ---
 
 ## Manual Agents Build (optional)
 
->[!TIP]
->You can build agents from source and automatically install missing build dependencies with:
+> [!TIP]
+> You can build agents from source and automatically install missing build dependencies with:
 >
->```bash
->edit-select build
->```
+> ```bash
+> edit-select build
+> ```
 
 <details>
 <summary><b>How to check if you're using X11 or Wayland</b></summary>
@@ -2965,24 +3569,24 @@ This project is licensed under the [MIT License](LICENSE).
 ## Acknowledgments
 
 - #### This project began as a fork ([Michael-Matta1/zsh-shift-select](https://github.com/Michael-Matta1/zsh-shift-select)) of [jirutka/zsh-shift-select](https://github.com/jirutka/zsh-shift-select)
-  - The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin
-    only supported deleting selected text and did not offer copying by default. Since then, the project has
-    evolved with its own new features, enhancements, bug fixes, design improvements, and a fully changed
-    codebase, and it now provides a full editor-like experience.
+    - The fork was started to add the ability to copy selected text, because the jirutka/zsh-shift-select plugin
+      only supported deleting selected text and did not offer copying by default. Since then, the project has
+      evolved with its own new features, enhancements, bug fixes, design improvements, and a fully changed
+      codebase, and it now provides a full editor-like experience.
 
 - #### Wayland Protocol Specifications
 
-  The bundled Wayland protocol XML files and their `wayland-scanner`-generated C bindings are covered by their
-  respective copyright and license terms:
-  - [`primary-selection-unstable-v1.xml`](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml) —
-    Copyright © 2015, 2016 Red Hat (MIT License)
-  - [`wlr-data-control-unstable-v1.xml`](impl-wayland/backends/wayland/wlr-data-control-unstable-v1.xml) —
-    Copyright © 2018 Simon Ser, © 2019 Ivan Molodetskikh (MIT-like License)
-  - [`ext-data-control-v1.xml`](impl-wayland/backends/wayland/ext-data-control-v1.xml) — Copyright © 2018
-    Simon Ser, © 2019 Ivan Molodetskikh, © 2024 Neal Gompa (MIT-like License)
+    The bundled Wayland protocol XML files and their `wayland-scanner`-generated C bindings are covered by their
+    respective copyright and license terms:
+    - [`primary-selection-unstable-v1.xml`](impl-wayland/backends/wayland/primary-selection-unstable-v1.xml) —
+      Copyright © 2015, 2016 Red Hat (MIT License)
+    - [`wlr-data-control-unstable-v1.xml`](impl-wayland/backends/wayland/wlr-data-control-unstable-v1.xml) —
+      Copyright © 2018 Simon Ser, © 2019 Ivan Molodetskikh (MIT-like License)
+    - [`ext-data-control-v1.xml`](impl-wayland/backends/wayland/ext-data-control-v1.xml) — Copyright © 2018
+      Simon Ser, © 2019 Ivan Molodetskikh, © 2024 Neal Gompa (MIT-like License)
 
-  The `xdg-shell` binding files follow the same pattern, generated from the `xdg-shell.xml` specification in
-  the wayland-protocols repository.
+    The `xdg-shell` binding files follow the same pattern, generated from the `xdg-shell.xml` specification in
+    the wayland-protocols repository.
 
 ---
 

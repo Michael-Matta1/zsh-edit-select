@@ -389,15 +389,58 @@ EOF
             # Pass filepaths as arguments to Python instead of embedding in code
             result=$(
                 python3 - "$config" "$bindings_tmpfile" <<'PYTHON_SCRIPT'
-import json, sys
+import json, sys, re, os, tempfile, shutil
 
 config_file = sys.argv[1]
 bindings_file = sys.argv[2]
 
+def _strip_jsonc(text):
+    # Strip // line and /* */ block comments (respecting string literals),
+    # then drop trailing commas before } or ].  Called ONLY after strict JSON
+    # parsing has already failed, and its result is re-parsed with json.loads;
+    # if that still fails we fall back to data=[] exactly as before.  So this
+    # can only ever RECOVER a JSONC file the old code silently discarded — for
+    # every input the old code accepted, output is byte-identical.
+    out = []
+    i, n = 0, len(text)
+    in_str = False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == '\\' and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if c == '"':
+                in_str = False
+            i += 1; continue
+        if c == '"':
+            in_str = True; out.append(c); i += 1; continue
+        if c == '/' and i + 1 < n and text[i + 1] == '/':
+            i += 2
+            while i < n and text[i] != '\n':
+                i += 1
+            continue
+        if c == '/' and i + 1 < n and text[i + 1] == '*':
+            i += 2
+            while i + 1 < n and not (text[i] == '*' and text[i + 1] == '/'):
+                i += 1
+            i += 2
+            continue
+        out.append(c); i += 1
+    return re.sub(r',(\s*[}\]])', r'\1', ''.join(out))
+
 try:
     with open(config_file, 'r') as f:
+        raw = f.read()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Recovery: VS Code keybindings.json is JSONC (its default template
+        # ships a // comment).  Tolerate comments / trailing commas so the
+        # user's existing keybindings are preserved instead of overwritten.
+        # If recovery still fails, fall back to the original data=[] behaviour.
         try:
-            data = json.load(f)
+            data = json.loads(_strip_jsonc(raw))
         except json.JSONDecodeError:
             data = []
 
@@ -409,8 +452,25 @@ try:
 
     data.extend(new_bindings)
 
-    with open(config_file, 'w') as f:
-        json.dump(data, f, indent=4)
+    # Write to a temp file in the same dir, preserve the original file's mode,
+    # then atomically replace — an interrupted write can never corrupt the live
+    # keybindings.json.
+    dir_name = os.path.dirname(config_file) or '.'
+    fd, temp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(data, f, indent=4)
+        try:
+            os.chmod(temp_path, os.stat(config_file).st_mode & 0o777)
+        except OSError:
+            pass
+        shutil.move(temp_path, config_file)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
 
     print('OK')
 except Exception as e:
@@ -434,7 +494,18 @@ PYTHON_SCRIPT
     print_info "Using shell fallback for JSON update"
 
     # Shell fallback (sed/echo)
-    if grep -q "^[[:space:]]*\[[[:space:]]*\][[:space:]]*$" "$config" 2>/dev/null; then
+    # Detect an empty array regardless of internal newlines: VS Code writes its
+    # default empty keybindings file as "[\n]", which the single-line regex
+    # below misses — the insert branch would then emit "[\n,{...}]" (invalid
+    # JSON).  The whitespace-stripped whole-file check catches that; the
+    # original grep is kept as an OR so every previously-matched case is
+    # handled byte-identically.
+    local _zes_compact=""
+    if [[ -r "$config" ]]; then
+        _zes_compact="$(<"$config")"
+        _zes_compact="${_zes_compact//[[:space:]]/}"
+    fi
+    if [[ "$_zes_compact" == "[]" ]] || grep -q "^[[:space:]]*\[[[:space:]]*\][[:space:]]*$" "$config" 2>/dev/null; then
         # Empty array - replace with our bindings
         echo "[$shell_insert_block]" >"$config" || {
             print_error "Failed to write VS Code config"
@@ -509,13 +580,60 @@ configure_windows_terminal() {
 import json
 import sys
 import os
+import re
 import shutil
 import tempfile
+
+def _strip_jsonc(text):
+    # Strip // line and /* */ block comments (respecting string literals),
+    # then drop trailing commas before } or ].  Called ONLY after strict JSON
+    # parsing has already failed, and its result is re-parsed with json.loads;
+    # if that still fails we let the outer except return 1 exactly as before.
+    # For every input the old code accepted, output is byte-identical.
+    out = []
+    i, n = 0, len(text)
+    in_str = False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == '\\' and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if c == '"':
+                in_str = False
+            i += 1; continue
+        if c == '"':
+            in_str = True; out.append(c); i += 1; continue
+        if c == '/' and i + 1 < n and text[i + 1] == '/':
+            i += 2
+            while i < n and text[i] != '\n':
+                i += 1
+            continue
+        if c == '/' and i + 1 < n and text[i + 1] == '*':
+            i += 2
+            while i + 1 < n and not (text[i] == '*' and text[i + 1] == '/'):
+                i += 1
+            i += 2
+            continue
+        out.append(c); i += 1
+    return re.sub(r',(\s*[}\]])', r'\1', ''.join(out))
 
 def update_json(file_path, reversed_copy):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+            raw = f.read()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # Recovery: Windows Terminal settings.json is JSONC (its default
+            # template ships a // comment).  Tolerate comments / trailing
+            # commas so the user's existing settings are preserved instead of
+            # the installer aborting.  If recovery still fails, fall through
+            # to the original except-Exception path (return 1).
+            try:
+                data = json.loads(_strip_jsonc(raw))
+            except json.JSONDecodeError:
+                raise ValueError("settings.json is not valid JSON or JSONC")
 
         # Check if already fully configured
         if data.get('_zes_configured') == True:

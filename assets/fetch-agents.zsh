@@ -40,6 +40,8 @@ function _zes_fetch_binary() {
   local _asset="$1"   # release asset filename, e.g. "zes-wl-selection-agent-aarch64" or "zes-wsl-clipboard-helper.exe"
   local _dest="$2"    # absolute path where the binary should land
 
+  [[ -n "$_asset" ]] || return 1
+
   local _base_url="https://github.com/Michael-Matta1/zsh-edit-select/releases/latest/download"
   local _tmp="${_dest}.tmp.$$"
   local _dl_cmd=""
@@ -60,7 +62,7 @@ function _zes_fetch_binary() {
   [[ -w "${_dest:h}" ]] || return 1
 
   # ── Download ────────────────────────────────────────────────────────────
-  eval "${_dl_cmd} ${(q)_tmp} ${(q)_base_url}/${_asset}" 2>/dev/null \
+  eval "${_dl_cmd} ${(q)_tmp} ${(q)_base_url}/${(q)_asset}" 2>/dev/null \
     || { rm -f "$_tmp"; return 1; }
 
   # Guard against an empty body returned with a successful HTTP status
@@ -130,6 +132,8 @@ function _zes_fetch_binary() {
 #
 #   Linux x86_64   → <basename>           (default build, no suffix)
 #   Linux aarch64  → <basename>-aarch64
+#   Linux armv7l   → <basename>-armv7l    (32-bit hard-float, Raspberry Pi 3/4/5)
+#   Linux riscv64  → <basename>-riscv64
 #   macOS any      → <basename>           (universal fat binary, one file)
 #   *.exe          → <basename>           (WSL helper is always x86_64)
 #
@@ -147,16 +151,19 @@ function _zes_asset_name() {
   # Intel (x86_64) and Apple Silicon (arm64).  No suffix needed.
   [[ "$_impl" == "macos" ]] && { print "$_base"; return 0; }
 
-  # Linux: select by uname -m.  Only x86_64 and aarch64/arm64 have prebuilt
-  # binaries.  Any other arch returns 1 immediately so the caller skips the
-  # download and falls straight through to the `make` source-build fallback.
-  # This prevents silently downloading an x86_64 binary onto a RISC-V or
-  # armv7l machine where it would fail at exec time with no useful message.
+  # Linux: select by uname -m.  Prebuilt binaries exist for x86_64, aarch64,
+  # armv7l (Raspberry Pi 3/4/5 32-bit) and riscv64 (VisionFive etc.).
+  # Any other arch returns 1 immediately so the caller skips the download
+  # and falls straight through to the `make` source-build fallback.
+  # This prevents silently downloading an x86_64 binary onto a different
+  # arch where it would fail at exec time with no useful message.
   local _arch
   _arch=$(uname -m 2>/dev/null)
   case "$_arch" in
-    aarch64|arm64) print "${_base}-aarch64" ;;
-    x86_64|amd64)  print "$_base" ;;
+    aarch64|arm64)    print "${_base}-aarch64" ;;
+    x86_64|amd64)     print "$_base" ;;
+    armv7l)           print "${_base}-armv7l" ;;
+    riscv64)          print "${_base}-riscv64" ;;
     *)
       print -u2 "zsh-edit-select: no prebuilt binary for arch '${_arch}' — will compile from source"
       return 1

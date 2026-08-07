@@ -14,8 +14,8 @@
 //   handle_mouse_up(click_count, drag_pixels):
 //
 //     PATH A — Accessibility API:
-//       Read kAXSelectedTextAttribute.  Works: Terminal.app, iTerm2, AppKit.
-//       Fails: GPU terminals → kAXErrorAttributeUnsupported.
+//       Read kAXSelectedTextAttribute.  Works: Terminal.app, iTerm2, kitty,
+//       and AppKit apps.  It is unavailable in some GPU terminals.
 //       No clipboard involvement.
 //
 //     UNIFIED ESCALATION:
@@ -35,7 +35,7 @@
 //       clipboard.
 //
 // ── CRITICAL INVARIANT: SEQ IS WRITTEN LAST ──────────────────────────
-//   seq mtime is the ZLE change-detection signal.  We write seq AFTER
+//   seq content is the ZLE change-detection signal.  We write seq AFTER
 //   restoring the clipboard so ZLE never reads a stale clipboard.
 //   Order: write primary content → restore clipboard → write seq.
 //
@@ -89,7 +89,8 @@ static char g_cache_dir[512];
 static char g_primary_path[560];
 static char g_seq_path[560];
 static char g_pid_path[560];
-static char g_pending_path[560];  /* exists while a watcher is active */
+static char g_pending_path[560];  /* exists while a reactive capture may be in flight */
+static mode_t g_cache_mode = 0;   /* dir perms captured by ensure_cache_dir's stat */
 
 /* ── Persistent fds ──────────────────────────────────────────────────── */
 static int g_fd_primary = -1;
@@ -224,22 +225,38 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
 
 /* ensure_cache_dir()  Priority: explicit arg > $TMPDIR > /tmp */
 static int ensure_cache_dir(const char *dir) {
+    int n;
     if (dir && dir[0]) {
-        snprintf(g_cache_dir, sizeof(g_cache_dir), "%s", dir);
+        n = snprintf(g_cache_dir, sizeof(g_cache_dir), "%s", dir);
     } else {
         const char *t = getenv("TMPDIR");
         if (t && t[0])
-            snprintf(g_cache_dir, sizeof(g_cache_dir), "%s/zsh-edit-select-%d", t, (int)getuid());
+            n = snprintf(g_cache_dir, sizeof(g_cache_dir), "%s/zsh-edit-select-%d", t, (int)getuid());
         else
-            snprintf(g_cache_dir, sizeof(g_cache_dir), "/tmp/zsh-edit-select-%d", (int)getuid());
+            n = snprintf(g_cache_dir, sizeof(g_cache_dir), "/tmp/zsh-edit-select-%d", (int)getuid());
     }
-    snprintf(g_primary_path,  sizeof(g_primary_path),  "%s/%s",      g_cache_dir, PRIMARY_FILE);
-    snprintf(g_seq_path,      sizeof(g_seq_path),      "%s/%s",      g_cache_dir, SEQ_FILE);
-    snprintf(g_pid_path,      sizeof(g_pid_path),      "%s/%s",      g_cache_dir, PID_FILE);
-    snprintf(g_pending_path,  sizeof(g_pending_path),  "%s/pending", g_cache_dir);
+
+    /* The shell and agent must use byte-identical cache paths.  Never silently
+       truncate a user-supplied cache directory, or a very long TMPDIR, into a
+       second location that the shell cannot observe. */
+    if (n < 0 || (size_t)n >= sizeof(g_cache_dir)) return -1;
+    n = snprintf(g_primary_path, sizeof(g_primary_path), "%s/%s", g_cache_dir, PRIMARY_FILE);
+    if (n < 0 || (size_t)n >= sizeof(g_primary_path)) return -1;
+    n = snprintf(g_seq_path, sizeof(g_seq_path), "%s/%s", g_cache_dir, SEQ_FILE);
+    if (n < 0 || (size_t)n >= sizeof(g_seq_path)) return -1;
+    n = snprintf(g_pid_path, sizeof(g_pid_path), "%s/%s", g_cache_dir, PID_FILE);
+    if (n < 0 || (size_t)n >= sizeof(g_pid_path)) return -1;
+    n = snprintf(g_pending_path, sizeof(g_pending_path), "%s/pending", g_cache_dir);
+    if (n < 0 || (size_t)n >= sizeof(g_pending_path)) return -1;
+
     struct stat st;
-    if (stat(g_cache_dir, &st) == -1)
+    if (stat(g_cache_dir, &st) == -1) {
         if (mkdir(g_cache_dir, 0700) == -1 && errno != EEXIST) return -1;
+        if (stat(g_cache_dir, &st) == -1) return -1;
+    }
+    if (!S_ISDIR(st.st_mode)) { errno = ENOTDIR; return -1; }
+
+    g_cache_mode = st.st_mode & 0777;  /* captured for run_daemon's chmod guard */
     return 0;
 }
 
@@ -292,46 +309,30 @@ static void clipboard_restore_snapshot(NSArray *backup_items) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-    finalize_selection(utf8, len, delay_restore, restore_snapshot, gen)
+    finalize_selection(utf8, len, restore_snapshot, gen)
    Central commit point used by ALL capture paths.
-   If delay_restore is true, wait 40ms before restoring clipboard & deleting
-   pending marker. This sweeps up asynchronous clipboard pollution from
-   terminals like Ghostty that copy-on-select to the system clipboard
-   *after* writing the named PB.
+   Waits 40ms before restoring the clipboard & deleting the pending marker.
+   This sweeps up asynchronous clipboard pollution from terminals like
+   Ghostty that copy-on-select to the system clipboard *after* writing the
+   named PB.
    ───────────────────────────────────────────────────────────────────── */
-static void finalize_selection(const char *utf8, size_t len, bool delay_restore,
+static void finalize_selection(const char *utf8, size_t len,
                                NSArray *restore_snapshot, uint64_t gen) {
-    size_t written = write_primary_content(utf8, len);
-    if (!written && len > 0) {
-        /* No-write fast path: restore clipboard and clear pending marker. */
-        if (delay_restore) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-                if (!g_running || g_gen != gen) return;
-                clipboard_restore_snapshot(restore_snapshot);
-                delete_pending_marker();
-            });
-        } else {
-            clipboard_restore_snapshot(restore_snapshot);
-            delete_pending_marker();
-        }
-        return;
-    }
-
-    /* If written is 0 but len is 0, it means it's a deselection (already empty).
-       We still want to flush seq and delete marker to be absolutely sure ZLE continues. */
-    if (delay_restore) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-            if (!g_running || g_gen != gen) return;
-            clipboard_restore_snapshot(restore_snapshot);
-            flush_seq();
-            delete_pending_marker();
-        });
-        return;
-    }
-
-    clipboard_restore_snapshot(restore_snapshot);  /* restore BEFORE seq write */
-    flush_seq();                                   /* signal ZLE — safe now */
-    delete_pending_marker();
+    /* write_primary_content returns:
+         0  for repeated-empty no-op   (len==0, g_last_len==0),
+         1  for deselection publish    (len==0, g_last_len>0),
+         len for non-empty publish     (len>0).
+       For len>0 the return is always nonzero, so there is no "wrote nothing
+       but had content" path — every case lands in the single commit flow below,
+       which restores the clipboard snapshot, flushes seq (signalling ZLE), and
+       deletes the pending marker. */
+    (void)write_primary_content(utf8, len);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        if (!g_running || g_gen != gen) return;
+        clipboard_restore_snapshot(restore_snapshot);
+        flush_seq();
+        delete_pending_marker();
+    });
 }
 
 /* Known hosts where AX often cannot expose canvas-rendered terminal selection.
@@ -350,8 +351,10 @@ static bool host_prefers_cmdc_fallback(void) {
    Returns:
       1  text captured.
       0  AX-capable + empty selection → primary cleared.
-         -1  fallback to Path B/C (unsupported AX or known AX-host failure/empty).
+         -1  fallback to Path B (unsupported AX or known AX-host failure/empty).
      -2  no focus / other error → do nothing.
+     AX_ELECTRON (-3)  AX-empty in an Electron host (VS Code/Cursor) →
+                       Path B with an immediate pre-inject.
    ───────────────────────────────────────────────────────────────────── */
 static int ax_try(void) {
     @autoreleasepool {
@@ -370,7 +373,7 @@ static int ax_try(void) {
         CFRelease(focused);
 
         if (e == kAXErrorAttributeUnsupported || e == kAXErrorActionUnsupported)
-            return -1;   /* GPU terminal */
+            return -1;   /* AX unsupported: use reactive fallback */
         if (e != kAXErrorSuccess || !val)
             return host_prefers_cmdc_fallback() ? -1 : -2;
 
@@ -453,8 +456,10 @@ static void inject_cmd_c(void) {
 
    Action-driven escalation strategy (no terminal-specific routing):
      Phase 1 (ticks 0 to ESCALATION_TICK-1):
-       Check named PBs only.  Non-invasive — covers terminals that
-       write to a named PB on selection (e.g. Ghostty copy-on-select=true).
+       Check named PBs AND the native clipboard changeCount.  Non-invasive
+       — covers terminals that write to a named PB on selection (e.g.
+       Ghostty copy-on-select=true) or copy-on-select straight to the
+       clipboard (instant native catch, no Cmd+C inject).
      Phase 2 (tick == ESCALATION_TICK):
        Inject Cmd+C.  Captures cc_inject_before for clipboard detection.
      Phase 2+ (ticks > ESCALATION_TICK):
@@ -553,7 +558,7 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
                     dispatch_source_cancel(w);
                     const char *utf8 = [stable_candidate UTF8String];
                     if (!utf8) utf8 = "";
-                    finalize_selection(utf8, strlen(utf8), true, restore_snapshot, gen);
+                    finalize_selection(utf8, strlen(utf8), restore_snapshot, gen);
                     return;
                 }
             }
@@ -566,12 +571,11 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
                 if (saw_candidate && stable_candidate.length > 0) {
                     const char *utf8 = [stable_candidate UTF8String];
                     if (!utf8) utf8 = "";
-                    finalize_selection(utf8, strlen(utf8), true, restore_snapshot, gen);
+                    finalize_selection(utf8, strlen(utf8), restore_snapshot, gen);
                     return;
                 }
 
                 clipboard_restore_snapshot(restore_snapshot);
-                delete_pending_marker();
 
                 /* DESELECTION FALLBACK:
                    If the watcher timed out, it means the terminal natively chose
@@ -579,6 +583,7 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
                    or double-clicked an empty space). We MUST clear the stale cache
                    preventing ZSH from hallucinating a phantom selection. */
                 clear_primary_cache();
+                delete_pending_marker();
             }
         }
     });
@@ -611,8 +616,6 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
     bool definite = (click_count >= 2) || (drag_pixels > DRAG_PX);
 
     if (!definite) {
-        /* Defensive cleanup in case a previous in-flight operation was canceled. */
-        delete_pending_marker();
         /* Non-definite click: restore clipboard if terminal's mouse-Up
            handler copied to clipboard (copy-on-any-click protection).
            Compares changeCount to detect unwanted clipboard writes. */
@@ -630,6 +633,8 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
                  clear_primary_cache();
             }
         }
+        /* Release waiters only after any deselection cache/seq publish above. */
+        delete_pending_marker();
         return;
     }
 
@@ -649,7 +654,7 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
                 if (str && str.length > 0) {
                     const char *utf8 = [str UTF8String];
                     if (!utf8) utf8 = "";
-                    finalize_selection(utf8, strlen(utf8), true, restore_snapshot, gen);
+                    finalize_selection(utf8, strlen(utf8), restore_snapshot, gen);
                     return;
                 }
             }
@@ -693,8 +698,7 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
         g_click_serial++;
         CGPoint p = CGEventGetLocation(event);
         g_down_x = p.x; g_down_y = p.y;
-        NSInteger cc_down = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
-        NSInteger c_down = cc_down;
+        NSInteger c_down = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
         dispatch_async(dispatch_get_main_queue(), ^{
             @autoreleasepool {
                 /* New click burst started: cancel any prior in-flight watcher so
@@ -740,16 +744,15 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
         });
     }
     else if (type == kCGEventLeftMouseUp) {
-        CGPoint   p    = CGEventGetLocation(event);
-        CGFloat   drag = sqrt((p.x-g_down_x)*(p.x-g_down_x) +
-                              (p.y-g_down_y)*(p.y-g_down_y));
-        NSInteger cc   = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
-        CGFloat   d    = drag;
-        NSInteger c    = cc;
+        CGPoint   p = CGEventGetLocation(event);
+        CGFloat   d = sqrt((p.x-g_down_x)*(p.x-g_down_x) +
+                           (p.y-g_down_y)*(p.y-g_down_y));
+        NSInteger c = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
 
-                bool allow_click_grace = !host_prefers_cmdc_fallback();
-
-                if (allow_click_grace && c == 2 && d <= DRAG_PX) {
+        /* Evaluate the fallback-host check only when a click burst actually
+           qualifies for a grace wait; single clicks and drag-selects (the
+           dominant case) never need the value. */
+        if (c == 2 && d <= DRAG_PX && !host_prefers_cmdc_fallback()) {
             uint64_t serial = g_click_serial;
             /* Mark capture pending immediately so fast first keypresses do not
                bypass replacement while waiting for possible triple-click. */
@@ -761,8 +764,13 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
                     return;
                 }
                 if (serial != g_click_serial) {
-                    /* Triple-click continued; ignore 2nd-click commit. */
-                    delete_pending_marker();
+                    /* A later click continued the burst (triple-click), so this
+                       double-click commit is stale — abandon it.  Do NOT delete
+                       the pending marker: the continuing click now owns the
+                       marker's lifecycle, and in a fast burst its grace block can
+                       already have committed and started the reactive watcher that
+                       relies on this marker.  Deleting here would pull the marker
+                       out from under that watcher. */
                     return;
                 }
                 handle_mouse_up(c, d);
@@ -770,7 +778,7 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
             return event;
         }
 
-        if (allow_click_grace && c >= 3 && d <= DRAG_PX) {
+        if (c >= 3 && d <= DRAG_PX && !host_prefers_cmdc_fallback()) {
             uint64_t serial = g_click_serial;
             create_pending_marker();
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, TRIPLE_CLICK_GRACE_MS * NSEC_PER_MSEC),
@@ -780,7 +788,9 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy,
                     return;
                 }
                 if (serial != g_click_serial) {
-                    delete_pending_marker();
+                    /* Superseded by a later click; that click owns the pending
+                       marker (see the double-click branch above for the full
+                       rationale).  Leave it in place. */
                     return;
                 }
                 handle_mouse_up(c, d);
@@ -840,11 +850,17 @@ static char *read_all_stdin(size_t *out_len) {
 }
 
 /* ── Short-lived modes ───────────────────────────────────────────────── */
+/* These modes only touch NSPasteboard, which is Foundation-level and needs
+   no running NSApplication.  We deliberately skip the [NSApplication
+   sharedApplication] + setActivationPolicy: pair that the long-lived daemon
+   worker performs: on this per-invocation path (a paste can call
+   --get-clipboard up to 20 times) that AppKit init costs ~70ms with no
+   functional benefit here.  Without an NSApplication instance the process
+   stays a plain CLI tool — NSApp is nil, so no Dock icon or activation flash
+   is possible.  The daemon keeps sharedApplication because its CGEventTap run
+   loop requires it. */
 static int run_oneshot(void) {
     @autoreleasepool {
-        [NSApplication sharedApplication];
-        [[NSApplication sharedApplication]
-            setActivationPolicy:NSApplicationActivationPolicyAccessory];
         size_t len = 0; char *data = get_clipboard_utf8(&len);
         if (data && len) { fwrite(data, 1, len, stdout); free(data); return 0; }
         free(data); return 1;
@@ -855,9 +871,6 @@ static int run_copy_clipboard(void) {
     size_t len = 0; char *data = read_all_stdin(&len);
     if (!data || !len) { free(data); return 1; }
     @autoreleasepool {
-        [NSApplication sharedApplication];
-        [[NSApplication sharedApplication]
-            setActivationPolicy:NSApplicationActivationPolicyAccessory];
         bool ok = set_clipboard_utf8(data, len);
         free(data); return ok ? 0 : 1;
     }
@@ -910,6 +923,14 @@ static int run_daemon_worker(const char *cache_dir_arg) {
     if (ensure_cache_dir(cache_dir_arg) != 0) return 1;
     setsid();
 
+    /* Re-seed g_seq to a time-based value so the child's first write is the
+       same byte-length as the parent's initial write_primary("", 0, time()).
+       Without this, g_seq starts at 0 and the first real event writes "1\n"
+       (2 bytes) via pwrite into a file that already contains the parent's
+       10-digit seq — between pwrite and ftruncate a concurrent $(<seq) in
+       the shell can read the 2 new bytes followed by 8 stale digits. */
+    g_seq = (unsigned long)time(NULL);
+
     @autoreleasepool {
         [NSApplication sharedApplication];
         [[NSApplication sharedApplication]
@@ -921,8 +942,9 @@ static int run_daemon_worker(const char *cache_dir_arg) {
     { int dn = open("/dev/null", O_RDWR|O_CLOEXEC);
       if (dn >= 0) { dup2(dn,0); dup2(dn,1); dup2(dn,2); if (dn>2) close(dn); } }
 
-    { FILE *f = fopen(g_pid_path, "w");
-      if (f) { fprintf(f, "%d\n", getpid()); fclose(f); } }
+    /* agent.pid is written by the parent (run_daemon) before it writes the
+       readiness seq, so it is already on disk here.  The child does not
+       rewrite it — single writer, no truncate race with a concurrent reader. */
 
     g_fd_primary = open(g_primary_path, O_WRONLY|O_CREAT|O_CLOEXEC, 0644);
     g_fd_seq     = open(g_seq_path,     O_WRONLY|O_CREAT|O_CLOEXEC, 0644);
@@ -977,8 +999,18 @@ static int run_daemon(const char *exe_path, const char *cache_dir_arg) {
         fprintf(stderr, "zes-macos-clipboard-agent: cannot create cache dir\n");
         return 1;
     }
-    g_seq = (unsigned long)time(NULL);
-    write_primary("", 0, g_seq);
+    /* The shell may have created this directory with its umask before the
+       agent starts. primary and seq contain selected text, so make the
+       per-user cache private before publishing any IPC files into it.
+       Keep this in the daemon entry point: --status is read-only and
+       --clear-primary only publishes an empty cache, so neither should alter
+       the user's cache-directory permissions.  Skip the syscall when the
+       dir is already exactly 0700 (g_cache_mode was captured by
+       ensure_cache_dir's stat, so the guard is a free integer compare). */
+    if (g_cache_mode != 0700 && chmod(g_cache_dir, 0700) != 0) {
+        fprintf(stderr, "zes-macos-clipboard-agent: cannot secure cache dir\n");
+        return 1;
+    }
 
     pid_t pid;
     const char *argv[] = { exe_path, "--_daemon-child", cache_dir_arg, NULL };
@@ -993,6 +1025,24 @@ static int run_daemon(const char *exe_path, const char *cache_dir_arg) {
         fprintf(stderr, "zes-macos-clipboard-agent: posix_spawn failed: %d\n", ret);
         return 1;
     }
+
+    /* Record the child's pid BEFORE writing the readiness seq below.
+       The shell's _zes_start_monitor keys readiness on the seq file but
+       resolves an existing daemon via `kill -0` on this pid file, and it
+       is invoked twice at startup (pre-populate, then apply-config).  The
+       child writes agent.pid only after a slow AppKit init (sharedApplication),
+       so if the parent wrote seq first the second _zes_start_monitor could
+       observe seq present but agent.pid still absent and spawn a duplicate
+       daemon (two event taps, one orphaned).  Writing pid here — before seq,
+       in this single process — guarantees pid-on-disk happens-before
+       seq-on-disk, so any shell that sees seq also sees a resolvable pid.
+       This is the pid analogue of the "SEQ IS WRITTEN LAST" invariant.  The
+       child no longer writes the pid (single writer, no truncate race). */
+    { FILE *f = fopen(g_pid_path, "w");
+      if (f) { fprintf(f, "%d\n", (int)pid); fclose(f); } }
+
+    g_seq = (unsigned long)time(NULL);
+    write_primary("", 0, g_seq);
     return 0;
 }
 

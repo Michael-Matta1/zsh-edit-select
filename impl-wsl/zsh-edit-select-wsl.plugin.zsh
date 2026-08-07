@@ -3,32 +3,36 @@
 #
 # WSL-native text selection and editing for Zsh command line.
 
-# Build WSL artifacts first so both the tailored and legacy WSL paths can use
-# the native helper binaries when needed.
-typeset -g _ZES_WSL_PLUGIN_ROOT="${0:A:h}"
+# Build WSL artifacts first so both the tailored and fallback WSL paths can
+# use the native helper binaries when needed.
+typeset -g _ZES_WSL_PLUGIN_ROOT="${${(%):-%x}:A:h}"
 if [[ "${_ZES_WSL_ARTIFACTS_BOOTSTRAPPED_ROOT:-}" != "$_ZES_WSL_PLUGIN_ROOT" ]] && [[ -r "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh" ]]; then
-    source "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh"
-    _zes_loader_build_wsl_artifacts "$_ZES_WSL_PLUGIN_ROOT"
+    # `|| true` on the source/build/unfunction: the root loader does not
+    # emulate zsh, so an inherited err_return/err_exit would otherwise abort
+    # the load here on a best-effort failure; the flag-set below independently
+    # verifies artifact presence.
+    source "$_ZES_WSL_PLUGIN_ROOT/loader-build.wsl.zsh" || true
+    _zes_loader_build_wsl_artifacts "$_ZES_WSL_PLUGIN_ROOT" || true
     if [[ -x "$_ZES_WSL_PLUGIN_ROOT/backends/wsl/zes-wsl-selection-agent" ]] && [[ -s "$_ZES_WSL_PLUGIN_ROOT/backends/wsl/zes-wsl-clipboard-helper.exe" ]]; then
         typeset -g _ZES_WSL_ARTIFACTS_BOOTSTRAPPED_ROOT="$_ZES_WSL_PLUGIN_ROOT"
     fi
-    unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null
+    unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null || true
 fi
 unset _ZES_WSL_PLUGIN_ROOT
 
 # Prefer the WSL-tailored edited implementation split out under
-# impl-wsl/tailored-variants. Keep the legacy implementation in this file
-# as a fallback if tailored variant files are missing.
-typeset -g _ZES_WSL_TAILORED_PLUGIN="${0:A:h}/tailored-variants/impl-wayland-wsl/zsh-edit-select-wayland.plugin-wsl.zsh"
+# impl-wsl/tailored-variants. Keep the self-contained implementation in this
+# file as a fallback if tailored variant files are missing (e.g. a shallow
+# checkout of only this directory).
+typeset -g _ZES_WSL_TAILORED_PLUGIN="${${(%):-%x}:A:h}/tailored-variants/impl-wayland-wsl/zsh-edit-select-wayland.plugin-wsl.zsh"
 if [[ -r "$_ZES_WSL_TAILORED_PLUGIN" ]]; then
     source "$_ZES_WSL_TAILORED_PLUGIN"
     return $?
 fi
 
-# Load zsh/stat for zero-fork file stat via zstat, and zsh/datetime for
-# EPOCHSECONDS / EPOCHREALTIME used in liveness probes and timing.
-zmodload zsh/stat 2>/dev/null
-zmodload -F zsh/stat b:zstat 2>/dev/null
+# Load zsh/datetime for EPOCHSECONDS used in the liveness probe.
+# (zsh/stat was previously loaded for zstat-based mtime detection;
+# detection now uses the fork-free $(<seq) builtin instead.)
 zmodload zsh/datetime 2>/dev/null
 
 # Selection tracking state.
@@ -40,15 +44,16 @@ typeset -gi EDIT_SELECT_MOUSE_REPLACEMENT=1
 # Path to the user's persistent configuration file (sourced at startup).
 typeset -g _EDIT_SELECT_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-edit-select/config"
 # Absolute directory of this plugin file; used to locate backend scripts.
-typeset -g _EDIT_SELECT_PLUGIN_DIR="${0:A:h}"
-# Last-observed mtime of the seq file; compared on each ZLE callback to detect agent writes.
-typeset -gi _EDIT_SELECT_LAST_MTIME=0
+typeset -g _EDIT_SELECT_PLUGIN_DIR="${${(%):-%x}:A:h}"
+# Last-observed content of the seq file; compared (as an opaque string) on each
+# ZLE callback to detect agent writes.  Content comparison catches intra-second
+# events that integer-second mtime would alias, and is faster (no stat syscall).
+typeset -g _EDIT_SELECT_LAST_SEQ=""
 # Agent / detection state flags.
 typeset -gi _EDIT_SELECT_DAEMON_ACTIVE=0
 typeset -gi _EDIT_SELECT_NEW_SELECTION_EVENT=0
-typeset -gi _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0
+typeset -gi _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
 typeset -gi _ZES_LAST_PID_CHECK=0
-typeset -gF _ZES_SELECTION_SET_TIME=0
 # Cache directory and file paths written by the selection agent.
 typeset -g _EDIT_SELECT_CACHE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/zsh-edit-select-${UID}"
 typeset -g _EDIT_SELECT_SEQ_FILE="$_EDIT_SELECT_CACHE_DIR/seq"
@@ -87,7 +92,11 @@ function edit-select::apply-key-defaults() {
 }
 
 function edit-select::load-config() {
-    [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]] && source "$_EDIT_SELECT_CONFIG_FILE" 2>/dev/null
+    # || true: a failing config source (malformed hand-edit, transient read
+    # error) must not abort this function under inherited err_return/err_exit —
+    # the abort would skip apply-key-defaults and cascade out of the plugin
+    # load.  The rc is unobserved; behaviour is unchanged under normal options.
+    [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]] && source "$_EDIT_SELECT_CONFIG_FILE" 2>/dev/null || true
     edit-select::apply-key-defaults
 }
 
@@ -95,18 +104,31 @@ function edit-select::load-config() {
 # Clearing LAST_PRIMARY prevents the just-consumed selection from being
 # re-detected on the next ZLE callback.  After clearing, LAST_PRIMARY is
 # re-synced from the cache (daemon path) or re-read directly so that the
-# next mtime-change comparison has a current baseline; without this re-read
-# the agent's next write would not produce a detectable mtime difference.
+# next seq-content comparison has a current baseline; without this re-read
+# the agent's next write would not produce a detectable seq difference.
 function _zes_sync_after_paste() {
     _EDIT_SELECT_ACTIVE_SELECTION=""
     _EDIT_SELECT_PENDING_SELECTION=""
-    _ZES_SELECTION_SET_TIME=0
     _EDIT_SELECT_LAST_PRIMARY=""
     _zes_clear_primary
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
-        _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
-        local -a stat_info
-        zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null && _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
+        # Guards go INSIDE the brace groups.  A trailing `|| true` on a brace
+        # group stops suppressing an inherited err_return abort as soon as any
+        # enclosing frame's status is observed, and that is the case here:
+        # `_zes_delete_mouse_selection` calls this mid-body and is itself invoked
+        # as `if _zes_delete_mouse_selection; then`.  With the outside form a
+        # daemon that unlinked its cache made this function abort, so the delete
+        # helper returned FAILURE after having already mutated BUFFER — verified
+        # in a real ZLE widget: the region was removed but the caller took its
+        # failure branch, so `handle-char` skipped `zle self-insert` and the
+        # typed character was LOST (type-to-replace deleted without replacing);
+        # `paste-clipboard` and `bracketed-paste-replace` likewise `return`
+        # before inserting.  The keymap itself is fine — the callers that reset
+        # it do so on their own line — so this is a lost-keystroke bug, not a
+        # stuck-keymap one.  Both reads are best-effort re-baselining and their
+        # own status is never inspected.
+        { _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE") || true } 2>/dev/null
+        { _EDIT_SELECT_LAST_SEQ=$(<"$_EDIT_SELECT_SEQ_FILE") || true } 2>/dev/null
     fi
 }
 
@@ -114,18 +136,27 @@ function _zes_sync_after_paste() {
 function _zes_sync_selection_state() {
     ((!_EDIT_SELECT_DAEMON_ACTIVE)) && return
 
-    local -a stat_info
-    zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null || return
+    local current_seq
+    # Trailing `|| true`: the `[[ -r ]] &&` list only escapes err_return when the
+    # TEST fails.  When the test passes and the read then fails — the daemon
+    # unlinking seq between the two, the same TOCTOU the if-form read below
+    # guards — the failing right-hand side aborts this function under a user's
+    # inherited err_return, stranding LAST_SEQ and skipping the event handling.
+    # A simple command (not a brace group) keeps the trailing guard effective in
+    # every caller context, so this stays on the fd-cost-free guarded-bare form
+    # (no 2>/dev/null on the hot path).  Byte-identical in every file state.
+    [[ -r "$_EDIT_SELECT_SEQ_FILE" ]] && current_seq=$(<"$_EDIT_SELECT_SEQ_FILE") || true
+    [[ -z "$current_seq" ]] && return
 
-    if ((stat_info[1] != _EDIT_SELECT_LAST_MTIME)); then
-        _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=0
-        local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+    if [[ "$current_seq" != "$_EDIT_SELECT_LAST_SEQ" ]]; then
+        _EDIT_SELECT_LAST_SEQ="$current_seq"
+        _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=0
+        { local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE") } 2>/dev/null
 
         if [[ -n "$_ZES_SELF_WRITE_CONTENT" ]] && [[ "$new_primary" == "$_ZES_SELF_WRITE_CONTENT" ]]; then
             _ZES_SELF_WRITE_CONTENT=""
             _EDIT_SELECT_LAST_PRIMARY="$new_primary"
-            _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+            _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
             return
         fi
@@ -134,20 +165,18 @@ function _zes_sync_selection_state() {
 
         if [[ -n "$new_primary" ]]; then
             _EDIT_SELECT_NEW_SELECTION_EVENT=1
-            _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+            _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         else
             _EDIT_SELECT_ACTIVE_SELECTION=""
             _EDIT_SELECT_PENDING_SELECTION=""
-            _ZES_SELECTION_SET_TIME=0
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
         fi
     else
-        if ((_EDIT_SELECT_EVENT_FIRED_FOR_MTIME)); then
+        if ((_EDIT_SELECT_EVENT_FIRED_FOR_SEQ)); then
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
             if [[ -n "$_EDIT_SELECT_ACTIVE_SELECTION" ]]; then
                 _EDIT_SELECT_ACTIVE_SELECTION=""
                 _EDIT_SELECT_PENDING_SELECTION=""
-                _ZES_SELECTION_SET_TIME=0
             fi
         fi
     fi
@@ -178,16 +207,23 @@ function _zes_detect_mouse_selection() {
             _EDIT_SELECT_NEW_SELECTION_EVENT=0
             is_new_selection=1
             mouse_sel="$_EDIT_SELECT_LAST_PRIMARY"
+            [[ -z "$mouse_sel" ]] && return 1
         else
-            mouse_sel="$_EDIT_SELECT_LAST_PRIMARY"
+            # No new selection event: the matcher below runs only under
+            # is_new_selection=1, so mouse_sel is unused here.  Check the
+            # emptiness guard directly against the cached primary instead of
+            # copying it into mouse_sel first (avoids an O(selection-size)
+            # copy on every no-event keystroke — the hottest path).  The
+            # `:+x` form tests for emptiness without materialising the value,
+            # which matters because LAST_PRIMARY holds the raw clipboard text
+            # (up to the agent's 4 MB cap) whenever it did not match BUFFER.
+            [[ -z "${_EDIT_SELECT_LAST_PRIMARY:+x}" ]] && return 1
         fi
-        [[ -z "$mouse_sel" ]] && return 1
     else
         return 1
     fi
 
     if ((is_new_selection)); then
-        _EDIT_SELECT_LAST_PRIMARY="$mouse_sel"
         if [[ -n "$_EDIT_SELECT_PENDING_SELECTION" ]]; then
             zle -M ""
             zle -R
@@ -196,7 +232,6 @@ function _zes_detect_mouse_selection() {
         _EDIT_SELECT_ACTIVE_SELECTION=""
         if [[ -n "$mouse_sel" ]] && ((${#mouse_sel} <= ${#BUFFER})) && [[ "$BUFFER" == *"$mouse_sel"* ]]; then
             _EDIT_SELECT_ACTIVE_SELECTION="$mouse_sel"
-            _ZES_SELECTION_SET_TIME=$EPOCHREALTIME
             return 0
         fi
         return 1
@@ -217,6 +252,9 @@ function _zes_detect_mouse_selection() {
                     zle -R
                     return 0
                 fi
+                # Occurrences ascend, so once one starts past the cursor no
+                # later occurrence can contain it either — stop scanning.
+                ((idx > CURSOR)) && break
                 idx=$((idx + sel_len))
                 buf="${BUFFER:$idx}"
             done
@@ -239,31 +277,26 @@ function _zes_delete_mouse_selection() {
     ((sel_len > ${#BUFFER})) && { _EDIT_SELECT_ACTIVE_SELECTION=""; return 1; }
     [[ "$BUFFER" != *"$sel"* ]] && { _EDIT_SELECT_ACTIVE_SELECTION=""; return 1; }
 
-    local -a positions=()
+    # Occurrences are produced left to right, so the scan can stop as soon as
+    # the answer is fixed: either the cursor falls inside the occurrence just
+    # found, or a second occurrence already starts past the cursor (no later
+    # one can contain it either).  first_pos covers the single-occurrence case,
+    # which is deleted unconditionally.
     local buf="$BUFFER" idx=0
+    local -i num_occurrences=0 first_pos=-1 target_pos=-1
     while [[ "$buf" == *"$sel"* ]]; do
         local prefix="${buf%%"$sel"*}"
         idx=$((idx + ${#prefix}))
-        positions+=($idx)
+        (( ++num_occurrences == 1 )) && first_pos=$idx
+        if ((CURSOR >= idx && CURSOR <= idx + sel_len)); then
+            target_pos=$idx
+            break
+        fi
+        (( num_occurrences > 1 && idx > CURSOR )) && break
         idx=$((idx + sel_len))
         buf="${BUFFER:$idx}"
     done
-
-    local num_occurrences=${#positions[@]}
-    local target_pos=-1
-
-    if ((num_occurrences > 1)); then
-        local pos end_pos
-        for pos in "${positions[@]}"; do
-            end_pos=$((pos + sel_len))
-            if ((CURSOR >= pos && CURSOR <= end_pos)); then
-                target_pos=$pos
-                break
-            fi
-        done
-    else
-        target_pos=${positions[1]}
-    fi
+    (( target_pos < 0 && num_occurrences == 1 )) && target_pos=$first_pos
 
     if ((target_pos >= 0)); then
         BUFFER="${BUFFER:0:$target_pos}${BUFFER:$((target_pos + sel_len))}"
@@ -271,7 +304,7 @@ function _zes_delete_mouse_selection() {
         REGION_ACTIVE=0
         _zes_sync_after_paste
         _EDIT_SELECT_NEW_SELECTION_EVENT=0
-        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         zle deactivate-region -w 2>/dev/null
         zle -K main 2>/dev/null
         return 0
@@ -290,9 +323,15 @@ zle -N edit-select::select-all
 
 function _zes_clear_selection_state() {
     REGION_ACTIVE=0; _EDIT_SELECT_ACTIVE_SELECTION=""; _EDIT_SELECT_PENDING_SELECTION="";
-    _EDIT_SELECT_LAST_PRIMARY=""; _ZES_SELECTION_SET_TIME=0;
-    _EDIT_SELECT_NEW_SELECTION_EVENT=0; _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1;
-    _zes_clear_primary; zle deactivate-region -w 2>/dev/null; zle -K main 2>/dev/null;
+    _EDIT_SELECT_LAST_PRIMARY="";
+    _EDIT_SELECT_NEW_SELECTION_EVENT=0; _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1;
+    # `|| true` on both ZLE calls: outside ZLE they return 1 ("widgets can only
+    # be called when ZLE is active"), and `edit-select mode` reaches this from the
+    # command line.  No call site inspects this function's status, but under a
+    # user's inherited err_return the first failure aborted the function and
+    # propagated to the caller — skipping `_zes_refresh_wsl_mouse_mode` after the
+    # mode switch, so the reported mode and the live bindings disagreed.
+    _zes_clear_primary; zle deactivate-region -w 2>/dev/null || true; zle -K main 2>/dev/null || true;
 }
 
 # Cancel any in-flight pending-selection disambiguation so the user is
@@ -385,11 +424,11 @@ function edit-select::copy-region() {
     if ((REGION_ACTIVE)); then
         local start=$((MARK < CURSOR ? MARK : CURSOR))
         local length=$((MARK > CURSOR ? MARK - CURSOR : CURSOR - MARK))
-        _zes_copy_to_clipboard "${BUFFER:$start:$length}"
+        _zes_copy_to_clipboard "${BUFFER:$start:$length}" || true
         _zes_sync_after_paste; zle deactivate-region -w; zle -K main;
     else
         local primary_sel; primary_sel=$(_zes_get_primary) || return
-        _zes_copy_to_clipboard "$primary_sel"
+        _zes_copy_to_clipboard "$primary_sel" || true
         _zes_sync_after_paste
     fi
 }
@@ -399,7 +438,7 @@ function edit-select::cut-region() {
     if ((REGION_ACTIVE)); then
         local start=$((MARK < CURSOR ? MARK : CURSOR))
         local length=$((MARK > CURSOR ? MARK - CURSOR : CURSOR - MARK))
-        _zes_copy_to_clipboard "${BUFFER:$start:$length}"
+        _zes_copy_to_clipboard "${BUFFER:$start:$length}" || { _EDIT_SELECT_ACTIVE_SELECTION=""; _EDIT_SELECT_PENDING_SELECTION=""; _EDIT_SELECT_LAST_PRIMARY=""; zle -M "Cut failed: clipboard unavailable"; return; }
         _zes_sync_after_paste; zle kill-region -w; zle -K main;
     else
         ((!EDIT_SELECT_MOUSE_REPLACEMENT)) && return
@@ -471,15 +510,20 @@ function _zes_activate_region_and_dispatch() {
 }
 function _zes_terminal_focus_in() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
-        local -a stat_info
-        if zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null; then
-            _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-            _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        local current_seq
+        # || true: the read status is unobserved (the emptiness test below is
+        # the real gate), but a daemon that unlinked seq between the
+        # DAEMON_ACTIVE test and this read would abort the widget under an
+        # inherited err_return/err_exit — skipping the state clears that make
+        # this handler enforce cross-pane isolation.
+        { current_seq=$(<"$_EDIT_SELECT_SEQ_FILE") || true } 2>/dev/null
+        if [[ -n "$current_seq" ]]; then
+            _EDIT_SELECT_LAST_SEQ="$current_seq"
+            _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
         fi
     fi
     _EDIT_SELECT_NEW_SELECTION_EVENT=0
     _EDIT_SELECT_ACTIVE_SELECTION=""
-    _EDIT_SELECT_PENDING_SELECTION=""
 }
 zle -N _zes_terminal_focus_in
 function _zes_terminal_focus_out() { : }
@@ -490,16 +534,23 @@ function edit-select::zle-line-pre-redraw() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         if ((EPOCHSECONDS > _ZES_LAST_PID_CHECK + 30)); then
             _ZES_LAST_PID_CHECK=$EPOCHSECONDS; local pid
-            [[ -r "$_EDIT_SELECT_PID_FILE" ]] && pid=$(<"$_EDIT_SELECT_PID_FILE")
+            # `|| true`: the [[ -r ]] test and the read are not atomic, so a
+            # daemon that unlinks its pid file in between leaves a failing
+            # substitution whose rc escapes (`local` is on the line above).
+            # The abort would land BEFORE the DAEMON_ACTIVE=0 + restart below,
+            # so the flag would stay stale at 1 and the daemon never restart —
+            # this is not the "abort is equivalent to the return" case.
+            [[ -r "$_EDIT_SELECT_PID_FILE" ]] && pid=$(<"$_EDIT_SELECT_PID_FILE") || true
             if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
                 _EDIT_SELECT_DAEMON_ACTIVE=0; _zes_start_monitor; return
             fi
         fi
-        local -a stat_info
-        zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null || { _EDIT_SELECT_DAEMON_ACTIVE=0; return; }
-        if ((stat_info[1] != _EDIT_SELECT_LAST_MTIME)); then
-            _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-            local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+        local current_seq
+        if [[ -r "$_EDIT_SELECT_SEQ_FILE" ]]; then current_seq=$(<"$_EDIT_SELECT_SEQ_FILE") || true
+        else _EDIT_SELECT_DAEMON_ACTIVE=0; return; fi
+        if [[ "$current_seq" != "$_EDIT_SELECT_LAST_SEQ" ]]; then
+            _EDIT_SELECT_LAST_SEQ="$current_seq"
+            { local new_primary=$(<"$_EDIT_SELECT_PRIMARY_FILE") } 2>/dev/null
 
             if [[ -n "$_ZES_SELF_WRITE_CONTENT" ]] && [[ "$new_primary" == "$_ZES_SELF_WRITE_CONTENT" ]]; then
                 _ZES_SELF_WRITE_CONTENT=""
@@ -509,10 +560,18 @@ function edit-select::zle-line-pre-redraw() {
 
             _EDIT_SELECT_LAST_PRIMARY="$new_primary"
             if [[ -n "$new_primary" ]]; then
+                # Signal the event but leave EVENT_FIRED_FOR_SEQ alone.  Clearing the
+                # latch here re-arms an already-consumed selection: a click that clears
+                # the selection emits cursor-movement keys (one redraw each) but no agent
+                # event, so this branch cannot distinguish "still selected" from "cleared
+                # by that click" — the cache and every state flag are identical.  Leaving
+                # the latch set lets the widget sync suppress the stale event, which is
+                # what keeps a visually-cleared selection from being deleted or replaced
+                # on the next keypress (invariants 3, 4, 6, 7).
                 _EDIT_SELECT_NEW_SELECTION_EVENT=1
             else
                 _EDIT_SELECT_ACTIVE_SELECTION=""; _EDIT_SELECT_PENDING_SELECTION="";
-                _ZES_SELECTION_SET_TIME=0; _EDIT_SELECT_NEW_SELECTION_EVENT=0;
+                _EDIT_SELECT_NEW_SELECTION_EVENT=0;
             fi
         fi
     fi
@@ -522,7 +581,7 @@ function edit-select::zle-line-pre-redraw() {
 # by the bound ZLE widgets.  Persistent (not one-shot) because
 # _zes_disable_focus_reporting suppresses it before every command.
 function _zes_enable_focus_reporting() {
-    print -n '\e[?1004h' >$TTY
+    print -n '\e[?1004h' >$TTY || true
 }
 zle -N _zes_enable_focus_reporting
 
@@ -530,7 +589,31 @@ zle -N _zes_enable_focus_reporting
 # escape sequences (\e[I / \e[O) are not printed as raw text
 # while a foreground process is running.
 function _zes_disable_focus_reporting() {
-    print -n '\e[?1004l' >$TTY
+    print -n '\e[?1004l' >$TTY || true
+}
+
+# One-shot precmd that registers the deferred ZLE hooks, then removes itself.
+# Registration is deferred to the first precmd (which runs only after the whole
+# ~/.zshrc has finished sourcing) so these widgets are created AFTER other
+# plugins have done their one-time ZLE widget binding.  In particular
+# zsh-syntax-highlighting (on zsh < 5.9, or its legacy code path) wraps every
+# pre-existing user widget at load time; a wrapped zle-line-pre-redraw makes
+# _zsh_highlight run a full re-highlight on EVERY redraw (every cursor step of a
+# click-to-move burst — the visible mouse-repositioning slowdown), and a wrapped
+# zle-line-init adds redundant re-highlight passes on every prompt (proven to
+# produce byte-identical region_highlight, i.e. pure waste).  Deferring means
+# z-sy-h never sees either widget to wrap.  Both hooks still become active before
+# the first prompt is drawn (precmd precedes line-init and line-pre-redraw), so
+# selection detection and focus reporting are unchanged.
+function _zes_register_redraw_hook() {
+    autoload -Uz add-zle-hook-widget add-zsh-hook
+    add-zle-hook-widget line-pre-redraw edit-select::zle-line-pre-redraw
+    # Enable terminal focus reporting (DECSET 1004) and bind focus event
+    # handlers so cross-pane selection changes are suppressed.  Registered here
+    # (deferred) so the terminal's immediate CSI I reply is consumed by the
+    # already-bound widgets instead of printing as raw ^[[I on VTE terminals.
+    add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
+    add-zsh-hook -d precmd _zes_register_redraw_hook
 }
 
 function edit-select::apply-mouse-replacement-config() {
@@ -544,13 +627,12 @@ function edit-select::apply-mouse-replacement-config() {
             bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
             bindkey -M edit-select "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
         fi
-        _zes_start_monitor; add-zle-hook-widget line-pre-redraw edit-select::zle-line-pre-redraw
-        # Enable terminal focus reporting (DECSET 1004) and bind focus
-        # event handlers so cross-pane selection changes are suppressed.
-        # Deferred to the first ZLE prompt via zle-line-init so that the
-        # terminal's immediate CSI I reply is consumed by the already-bound
-        # widgets instead of printing as raw ^[[I on VTE-based terminals.
-        add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
+        _zes_start_monitor || true
+        # Register the pre-redraw + line-init (focus-reporting) hooks on the first
+        # precmd (see _zes_register_redraw_hook) so zsh-syntax-highlighting cannot
+        # wrap our dispatcher widgets and re-highlight redundantly.
+        autoload -Uz add-zsh-hook
+        add-zsh-hook precmd _zes_register_redraw_hook
         autoload -Uz add-zsh-hook
         add-zsh-hook preexec _zes_disable_focus_reporting
         bindkey -M emacs '\e[I' _zes_terminal_focus_in
@@ -565,15 +647,21 @@ function edit-select::apply-mouse-replacement-config() {
         bindkey -M emacs '^?' backward-delete-char
         bindkey -M emacs "${terminfo[kdch1]:-^[[3~}" delete-char
         bindkey -M emacs '^[[200~' bracketed-paste
+        # Ctrl-G was bound to edit-select::cancel-pending-or-escape in the
+        # enable branch; restore its zsh emacs default (send-break) so it is
+        # not left as an inert no-op after mouse-replacement is disabled.
+        bindkey -M emacs '^g' send-break
         if [[ -n "$EDIT_SELECT_KEY_PASTE" ]]; then
             bindkey -M emacs "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
             bindkey -M edit-select "$EDIT_SELECT_KEY_PASTE" edit-select::paste-clipboard
         fi
+        autoload -Uz add-zsh-hook
+        add-zsh-hook -d precmd _zes_register_redraw_hook 2>/dev/null
         add-zle-hook-widget -d line-pre-redraw edit-select::zle-line-pre-redraw 2>/dev/null
         add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
         autoload -Uz add-zsh-hook
         add-zsh-hook -d preexec _zes_disable_focus_reporting 2>/dev/null
-        print -n '\e[?1004l' >$TTY
+        print -n '\e[?1004l' >$TTY || true
         bindkey -M emacs -r '\e[I' 2>/dev/null
         bindkey -M emacs -r '\e[O' 2>/dev/null
         bindkey -r '\e[I' 2>/dev/null
@@ -629,6 +717,12 @@ function edit-select() {
     uninstall)
         edit-select::run-installer-mode uninstall
         ;;
+    setup-hooks)
+        edit-select::setup-hooks
+        ;;
+    remove-hooks)
+        edit-select::remove-hooks
+        ;;
     *)
         print "edit-select - Text selection and clipboard management for Zsh"
         print "\nUsage: edit-select <subcommand>"
@@ -639,44 +733,13 @@ function edit-select() {
         print "  update          Run installer update mode"
         print "  build           Run installer build-agents mode"
         print "  uninstall       Run installer uninstall mode"
+        print "  setup-hooks     Install git hooks for automatic update notifications"
+        print "  remove-hooks    Remove git hooks"
         ;;
     esac
 }
 
 source "$_EDIT_SELECT_PLUGIN_DIR/backends/wsl-backend.zsh"
-
-# Migrate config files written by 0.4.x and earlier that stored
-# EDIT_SELECT_MOUSE_REPLACEMENT as the strings "enabled"/"disabled".
-# Rewrite them to integers so subsequent sourcing reads cleanly.
-if [[ -r "$_EDIT_SELECT_CONFIG_FILE" ]]; then
-    local _zes_cfg=$(<"$_EDIT_SELECT_CONFIG_FILE")
-    local _zes_cfg_changed=0
-    local _zes_keys_changed=0
-
-    if [[ "$_zes_cfg" == *'EDIT_SELECT_MOUSE_REPLACEMENT="enabled"'* ]] || \
-       [[ "$_zes_cfg" == *'EDIT_SELECT_MOUSE_REPLACEMENT="disabled"'* ]]; then
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_MOUSE_REPLACEMENT=\"enabled\"/EDIT_SELECT_MOUSE_REPLACEMENT=1}"
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_MOUSE_REPLACEMENT=\"disabled\"/EDIT_SELECT_MOUSE_REPLACEMENT=0}"
-        _zes_cfg_changed=1
-    fi
-
-
-    if [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_SELECT_ALL="^[[65;5u"'* ]] || \
-       [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_PASTE="^[[86;5u"'* ]]   || \
-       [[ "$_zes_cfg" == *'EDIT_SELECT_KEY_CUT="^[[88;5u"'* ]]; then
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_KEY_SELECT_ALL=\"^[[65;5u\"/EDIT_SELECT_KEY_SELECT_ALL=\"^[[65;6u\"}"
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_KEY_PASTE=\"^[[86;5u\"/EDIT_SELECT_KEY_PASTE=\"^[[86;6u\"}"
-        _zes_cfg="${_zes_cfg//EDIT_SELECT_KEY_CUT=\"^[[88;5u\"/EDIT_SELECT_KEY_CUT=\"^[[88;6u\"}"
-        _zes_cfg_changed=1
-        _zes_keys_changed=1
-    fi
-    if ((_zes_cfg_changed)); then
-        print -r -- "$_zes_cfg" >"$_EDIT_SELECT_CONFIG_FILE"
-    fi
-    if ((_zes_keys_changed)); then
-        unset EDIT_SELECT_KEY_SELECT_ALL EDIT_SELECT_KEY_PASTE EDIT_SELECT_KEY_CUT
-    fi
-fi
 
 edit-select::load-config
 
@@ -732,18 +795,15 @@ function { emulate -L zsh
     bindkey -M edit-select '\e[O' _zes_terminal_focus_out
 }
 
-function edit-select::undo() { zle undo; }
-zle -N edit-select::undo
-function edit-select::redo() { zle redo; }
-zle -N edit-select::redo
-
+# Apply user-configured or default undo/redo keybindings in both
+# emacs and edit-select keymaps.
 if [[ -n "$EDIT_SELECT_KEY_UNDO" ]]; then
-    bindkey -M emacs "$EDIT_SELECT_KEY_UNDO" edit-select::undo
-    bindkey -M edit-select "$EDIT_SELECT_KEY_UNDO" edit-select::undo
+    bindkey -M emacs "$EDIT_SELECT_KEY_UNDO" undo
+    bindkey -M edit-select "$EDIT_SELECT_KEY_UNDO" undo
 fi
 if [[ -n "$EDIT_SELECT_KEY_REDO" ]]; then
-    bindkey -M emacs "$EDIT_SELECT_KEY_REDO" edit-select::redo
-    bindkey -M edit-select "$EDIT_SELECT_KEY_REDO" edit-select::redo
+    bindkey -M emacs "$EDIT_SELECT_KEY_REDO" redo
+    bindkey -M edit-select "$EDIT_SELECT_KEY_REDO" redo
 fi
 
 # ── macOS SSH key remapping ──────────────────────────────────────────
@@ -765,8 +825,8 @@ if ((_ZES_SSH_MODE)); then
     # Undo/Redo (Cmd+Z = modifier 9, Cmd+Shift+Z = modifier 10)
     bindkey -M emacs       '^[[122;9u'  undo                        # Cmd+Z
     bindkey                '^[[122;9u'  undo
-    bindkey -M emacs       '^[[122;10u' edit-select::redo            # Cmd+Shift+Z
-    bindkey -M edit-select '^[[122;10u' edit-select::redo
+    bindkey -M emacs       '^[[122;10u' redo                        # Cmd+Shift+Z
+    bindkey -M edit-select '^[[122;10u' redo
     # Line / buffer navigation (Cmd = modifier 9)
     bindkey -M emacs       '^[[1;9D' beginning-of-line              # Cmd+Left
     bindkey -M emacs       '^[[1;9C' end-of-line                    # Cmd+Right
@@ -798,12 +858,11 @@ disabled | 0) EDIT_SELECT_MOUSE_REPLACEMENT=0 ;;
 esac
 
 if ((EDIT_SELECT_MOUSE_REPLACEMENT)); then
-    _zes_start_monitor
+    _zes_start_monitor || true
     if ((_EDIT_SELECT_DAEMON_ACTIVE)) && [[ -f "$_EDIT_SELECT_SEQ_FILE" ]]; then
-        [[ -f "$_EDIT_SELECT_PRIMARY_FILE" ]] && _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
-        local -a stat_info
-        zstat -A stat_info +mtime "$_EDIT_SELECT_SEQ_FILE" 2>/dev/null && _EDIT_SELECT_LAST_MTIME=${stat_info[1]}
-        _EDIT_SELECT_EVENT_FIRED_FOR_MTIME=1
+        [[ -f "$_EDIT_SELECT_PRIMARY_FILE" ]] && { _EDIT_SELECT_LAST_PRIMARY=$(<"$_EDIT_SELECT_PRIMARY_FILE") } 2>/dev/null || true
+        { _EDIT_SELECT_LAST_SEQ=$(<"$_EDIT_SELECT_SEQ_FILE") } 2>/dev/null || true
+        _EDIT_SELECT_EVENT_FIRED_FOR_SEQ=1
     fi
 fi
 

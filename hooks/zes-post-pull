@@ -1,0 +1,226 @@
+#!/bin/zsh
+# zsh-edit-select post-pull checker
+#
+# Modes:
+#   (no flag)  Post-pull mode — invoked by hooks/post-merge and
+#              hooks/post-rewrite after a real git pull.  Performs
+#              binary provisioning, .zwc recompilation, and shows
+#              the interactive "Run edit-select update?" prompt.
+#
+#   --setup    Setup mode — invoked by manage-hooks.sh install during
+#              fresh installs and manual 'edit-select setup-hooks'.
+#              Performs the same binary provisioning and .zwc
+#              recompilation, but skips the interactive prompt entirely.
+#              Error/diagnostic messages (e.g. binary build failure) are
+#              still printed to stderr — only the prompt is suppressed.
+#
+# stdin is connected to /dev/tty by the hook stubs so read-from-tty works.
+# ZES_INTERNAL_PULL=1 is set by the installer's run_plugin_update to
+# prevent a loop (edit-select update does git pull internally).
+
+emulate -L zsh
+
+# Setup mode flag: when --setup is passed, skip the interactive prompt.
+typeset -g _zes_pp_setup=0
+[[ "${1:-}" == "--setup" ]] && _zes_pp_setup=1
+
+# Prevent loop: the installer's update mode does git pull --rebase
+# internally, which would fire the hook and prompt "run edit-select update?"
+# creating an infinite loop.  The installer sets this env var before pulling.
+# (This guard is only relevant in post-pull mode — setup mode is never
+# invoked from a hook, so ZES_INTERNAL_PULL can't be set.)
+[[ "${ZES_INTERNAL_PULL:-}" == "1" ]] && exit 0
+
+# Resolve plugin root: this script is at hooks/zes-post-pull, so parent's parent.
+typeset -g _zes_pp_dir="${0:A:h:h}"
+
+# Verify we're in the right repo.
+[[ -f "$_zes_pp_dir/zsh-edit-select.plugin.zsh" ]] || exit 0
+
+# --- Platform detection (same logic as the root loader) ---
+typeset -g _zes_pp_impl=""
+if [[ -n "${ZES_FORCE_IMPL:-}" ]]; then
+    case "$ZES_FORCE_IMPL" in
+        x11|wayland|wsl|macos) _zes_pp_impl="$ZES_FORCE_IMPL" ;;
+        *) _zes_pp_impl="x11" ;;
+    esac
+elif [[ "$OSTYPE" == darwin* ]]; then
+    _zes_pp_impl=macos
+elif [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
+    _zes_pp_impl=wsl
+elif [[ "${XDG_SESSION_TYPE:-}" == wayland ]]; then
+    _zes_pp_impl=wayland
+elif (( ${+WAYLAND_DISPLAY} )); then
+    _zes_pp_impl=wayland
+elif (( ${+DISPLAY} )); then
+    _zes_pp_impl=x11
+elif (( ${+commands[wl-paste]} )); then
+    _zes_pp_impl=wayland
+else
+    _zes_pp_impl=x11
+fi
+
+# --- Ensure agent binaries are present ---
+# Same download-first, make-fallback strategy as the root loader.
+# Default is to download pre-built binaries from GitHub Releases (matches README).
+# Build from source is a fallback that requires build dependencies.
+
+typeset -g _zes_pp_needs_fetch=0
+
+if [[ "$_zes_pp_impl" == "wayland" ]]; then
+    [[ ! -x "$_zes_pp_dir/impl-wayland/backends/wayland/zes-wl-selection-agent" ]] && _zes_pp_needs_fetch=1
+    [[ ! -x "$_zes_pp_dir/impl-wayland/backends/xwayland/zes-xwayland-agent" ]] && _zes_pp_needs_fetch=1
+elif [[ "$_zes_pp_impl" == "x11" ]]; then
+    [[ ! -x "$_zes_pp_dir/impl-x11/backends/x11/zes-x11-selection-agent" ]] && _zes_pp_needs_fetch=1
+elif [[ "$_zes_pp_impl" == "macos" ]]; then
+    [[ ! -x "$_zes_pp_dir/impl-macos/backends/macos/zes-macos-clipboard-agent" ]] && _zes_pp_needs_fetch=1
+elif [[ "$_zes_pp_impl" == "wsl" ]]; then
+    [[ ! -x "$_zes_pp_dir/impl-wsl/backends/wsl/zes-wsl-selection-agent" ]] && _zes_pp_needs_fetch=1
+    [[ ! -s "$_zes_pp_dir/impl-wsl/backends/wsl/zes-wsl-clipboard-helper.exe" ]] && _zes_pp_needs_fetch=1
+    # Source-newer-than-binary staleness — MUST mirror the root loader's WSL
+    # gate in the root loader's WSL provisioning block.  The WSL loader is the ONLY
+    # impl that self-heals a *present-but-stale* binary at startup via a `-nt`
+    # check; a pull that only touches zes-wsl-*.c leaves the binary in place,
+    # so an existence-only gate ($_zes_pp_needs_fetch via `! -x`/`! -s`) would
+    # silently skip the rebuild and — because the marker makes startup skip its
+    # own checks — the stale binary would run until the next `edit-select update`.
+    # (x11/wayland/macos loaders have no such `-nt` self-heal, so their
+    # existence-only gate above already matches current behavior; only WSL needs
+    # the extra staleness conditions.)
+    _zes_pp_agent_src="$_zes_pp_dir/impl-wsl/backends/wsl/zes-wsl-selection-agent.c"
+    _zes_pp_agent_bin="$_zes_pp_dir/impl-wsl/backends/wsl/zes-wsl-selection-agent"
+    _zes_pp_helper_src="$_zes_pp_dir/impl-wsl/backends/wsl/zes-wsl-clipboard-helper.c"
+    _zes_pp_helper_bin="$_zes_pp_dir/impl-wsl/backends/wsl/zes-wsl-clipboard-helper.exe"
+    [[ -f "$_zes_pp_agent_src"  && "$_zes_pp_agent_src"  -nt "$_zes_pp_agent_bin"  ]] && _zes_pp_needs_fetch=1
+    [[ -f "$_zes_pp_helper_src" && "$_zes_pp_helper_src" -nt "$_zes_pp_helper_bin" ]] && _zes_pp_needs_fetch=1
+    unset _zes_pp_agent_src _zes_pp_agent_bin _zes_pp_helper_src _zes_pp_helper_bin
+fi
+
+if (( _zes_pp_needs_fetch )); then
+    source "$_zes_pp_dir/assets/fetch-agents.zsh" 2>/dev/null
+    if (( ${+functions[_zes_fetch_binary]} )); then
+        if [[ "$_zes_pp_impl" == "wayland" ]]; then
+            _wl="$_zes_pp_dir/impl-wayland/backends/wayland/zes-wl-selection-agent"
+            _xwl="$_zes_pp_dir/impl-wayland/backends/xwayland/zes-xwayland-agent"
+            [[ ! -x "$_wl" ]] && { _zes_fetch_binary "$(_zes_asset_name wayland zes-wl-selection-agent)" "$_wl" \
+                || { [[ -f "${_wl:h}/Makefile" ]] && ( cd "${_wl:h}" && make >/dev/null 2>&1 ); } }
+            [[ ! -x "$_xwl" ]] && { _zes_fetch_binary "$(_zes_asset_name wayland zes-xwayland-agent)" "$_xwl" \
+                || { [[ -f "${_xwl:h}/Makefile" ]] && ( cd "${_xwl:h}" && make >/dev/null 2>&1 ); } }
+            [[ ! -x "$_wl" ]] && print -u2 "zsh-edit-select: Wayland agent unavailable. Run 'edit-select update' with a stable internet connection."
+            [[ ! -x "$_xwl" ]] && print -u2 "zsh-edit-select: XWayland agent unavailable. Run 'edit-select update' with a stable internet connection."
+        elif [[ "$_zes_pp_impl" == "x11" ]]; then
+            _x11="$_zes_pp_dir/impl-x11/backends/x11/zes-x11-selection-agent"
+            [[ ! -x "$_x11" ]] && { _zes_fetch_binary "$(_zes_asset_name x11 zes-x11-selection-agent)" "$_x11" \
+                || { [[ -f "${_x11:h}/Makefile" ]] && ( cd "${_x11:h}" && make >/dev/null 2>&1 ); } }
+            [[ ! -x "$_x11" ]] && print -u2 "zsh-edit-select: X11 agent unavailable. Run 'edit-select update' with a stable internet connection."
+        elif [[ "$_zes_pp_impl" == "macos" ]]; then
+            _macos="$_zes_pp_dir/impl-macos/backends/macos/zes-macos-clipboard-agent"
+            [[ ! -x "$_macos" ]] && { _zes_fetch_binary "$(_zes_asset_name macos zes-macos-clipboard-agent)" "$_macos" \
+                || { [[ -f "${_macos:h}/Makefile" ]] && ( cd "${_macos:h}" && make >/dev/null 2>&1 ); } }
+            [[ ! -x "$_macos" ]] && print -u2 "zsh-edit-select: macOS agent unavailable. Run 'edit-select update' with a stable internet connection."
+        elif [[ "$_zes_pp_impl" == "wsl" ]]; then
+            _wsl_root="$_zes_pp_dir/impl-wsl"
+            [[ -r "$_wsl_root/loader-build.wsl.zsh" ]] && {
+                source "$_wsl_root/loader-build.wsl.zsh" 2>/dev/null
+                (( ${+functions[_zes_loader_build_wsl_artifacts]} )) && {
+                    _zes_loader_build_wsl_artifacts "$_wsl_root"
+                    unfunction _zes_loader_build_wsl_artifacts _zes_loader_build_if_missing 2>/dev/null
+                }
+            }
+            [[ ! -x "$_wsl_root/backends/wsl/zes-wsl-selection-agent" ]] && print -u2 "zsh-edit-select: WSL agent unavailable. Run 'edit-select update' with a stable internet connection."
+        fi
+        unfunction _zes_fetch_binary _zes_asset_name 2>/dev/null
+    fi
+fi
+
+# --- Recompile .zwc for ALL implementations ---
+# We recompile all impls (not just the detected one) for platform-switch
+# robustness — the user might switch platforms later.
+#
+# Compile when the .zwc is MISSING or OLDER than its source.  The missing-test
+# is load-bearing and must come first: in zsh `[[ src -nt target ]]` is FALSE
+# when `target` does not exist (unlike bash/coreutils `test`, where a missing
+# target counts as older).  A bare `[[ src -nt src.zwc ]]` therefore NEVER
+# creates an absent .zwc — it only refreshes ones that already exist.  On a
+# fresh install the .zwc are gitignored and absent, and this checker (run via
+# `--setup` from manage-hooks.sh) is the ONLY thing that compiles them before
+# the fast-path marker is written, so a bare `-nt` here would leave a
+# hooks-installed user with NO bytecode at all, permanently — defeating the
+# whole optimization.  `[[ ! -f x.zwc || src -nt x.zwc ]]` matches the root
+# loader's own guard and is verified to create-then-refresh correctly.
+setopt nullglob
+
+# Guarded compile: missing-or-stale, errors silenced.  Factored into one place
+# so every call site uses the identical correct predicate (the bug above came
+# from the predicate being open-coded and one form drifting).
+#
+# `-U` matches the root loader: zcompile expands aliases at PARSE time and
+# freezes the result into the bytecode.  This checker runs as a plain `zsh
+# <script>` from post-merge/post-rewrite (and from manage-hooks.sh --setup), so
+# ~/.zshenv is sourced and any aliases defined there are live here.  With
+# `alias rm='rm -iv'` set, a backend's `rm -f … 2>/dev/null` would be cached as
+# `rm -iv -f … 2>/dev/null`, printing "removed '…'" to stdout at every shell
+# start (-v writes to stdout, which the 2>/dev/null does not suppress).  That
+# matters most on this path: on the hooks fast path the loader skips its own
+# compile block, so the bytecode written here is the bytecode users actually
+# run.  -U affects compilation only and leaves the emitted bytecode
+# byte-identical when no alias applies.
+_zes_pp_compile() {
+    [[ -f "$1" ]] || return 0
+    [[ ! -f "$1.zwc" || "$1" -nt "$1.zwc" ]] && zcompile -U "$1" 2>/dev/null
+    return 0
+}
+
+# Loader itself
+_zes_pp_compile "$_zes_pp_dir/zsh-edit-select.plugin.zsh"
+
+# All impl plugin files
+for _zes_pp_f in "$_zes_pp_dir"/impl-*/zsh-edit-select-*.plugin.zsh; do
+    _zes_pp_compile "$_zes_pp_f"
+done
+
+# All backend .zsh files
+for _zes_pp_f in "$_zes_pp_dir"/impl-*/backends/**/*.zsh; do
+    _zes_pp_compile "$_zes_pp_f"
+done
+
+# WSL tailored variants
+for _zes_pp_f in "$_zes_pp_dir"/impl-wsl/tailored-variants/**/*.zsh; do
+    _zes_pp_compile "$_zes_pp_f"
+done
+
+# WSL artifact builder — runtime-sourced by the root loader (WSL branch) and by
+# the impl-wsl dispatcher plugin, but it lives directly at impl-wsl/ (NOT under
+# impl-wsl/backends/ or impl-wsl/tailored-variants/), so none of the globs above
+# reach it.  A pull touching only this file would otherwise leave its .zwc
+# missing/stale on the hooks-installed fast path.  The -f guard inside makes it
+# a no-op on non-WSL layouts where the file is absent.
+_zes_pp_compile "$_zes_pp_dir/impl-wsl/loader-build.wsl.zsh"
+
+unset _zes_pp_f
+unfunction _zes_pp_compile 2>/dev/null
+
+# --- Prompt the user (post-pull mode only) ---
+# In setup mode (--setup), the provisioning above is the entire job —
+# no interactive prompt.  The setup process (fresh install via auto-installer
+# or manual 'edit-select setup-hooks') already accomplishes what
+# 'edit-select update' would do, so prompting would be redundant and
+# semantically wrong ("Plugin updated via git pull" is false on fresh install).
+# Error/diagnostic messages above (e.g. binary build failure) are still
+# printed to stderr in both modes — only the prompt is suppressed in setup mode.
+if (( ! _zes_pp_setup )); then
+    print ""
+    print "zsh-edit-select: Plugin updated via git pull."
+    print "It is recommended to run 'edit-select update'. Run it now? [y/N]"
+    read -r _zes_pp_answer
+    if [[ "$_zes_pp_answer" =~ ^[Yy] ]]; then
+        if (( ${+commands[bash]} )) && [[ -r "$_zes_pp_dir/assets/auto-install/install.sh" ]]; then
+            command bash "$_zes_pp_dir/assets/auto-install/install.sh" --local --mode update
+        else
+            print "Could not run edit-select update automatically (bash or installer not found)."
+            print "Please run 'edit-select update' manually."
+        fi
+    fi
+fi
+
+unset _zes_pp_dir _zes_pp_impl _zes_pp_needs_fetch _zes_pp_answer _zes_pp_setup

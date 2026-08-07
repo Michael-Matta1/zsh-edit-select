@@ -30,7 +30,7 @@ install_plugin() {
         # Check if it's a git repository
         if [[ -d "$PLUGIN_INSTALL_DIR/.git" ]]; then
             print_substep "Updating existing plugin..."
-            if (cd "$PLUGIN_INSTALL_DIR" && git pull --quiet 2>/dev/null); then
+            if (cd "$PLUGIN_INSTALL_DIR" && ZES_INTERNAL_PULL=1 git pull --quiet 2>/dev/null); then
                 print_success "Plugin updated" "plugin_install"
             else
                 print_warning "Could not update plugin, attempting to re-clone..."
@@ -86,6 +86,21 @@ install_plugin() {
         print_error "Plugin installation verification failed: main file not found"
         FAILED_STEPS["plugin_install"]="Plugin file missing after installation"
         return 1
+    fi
+
+    # Install git hooks for automatic update notifications.
+    # Output is captured (not discarded) so warnings (e.g. active hooks in
+    # .git/hooks/) are visible to the user.  Failure is non-fatal — hooks
+    # are an enhancement, not a requirement.
+    # The || hook_rc=$? pattern is safe under set -e (which the installer
+    # does not currently use, but this is defensive).
+    local hook_rc=0
+    local hook_output
+    hook_output=$(sh "$PLUGIN_INSTALL_DIR/hooks/manage-hooks.sh" install "$PLUGIN_INSTALL_DIR" 2>&1) || hook_rc=$?
+    echo "$hook_output"
+    if [[ $hook_rc -ne 0 ]]; then
+        print_warning "Git hooks not installed (exit code $hook_rc)."
+        print_info "You can install them later with: edit-select setup-hooks"
     fi
 
     # Configure .zshrc

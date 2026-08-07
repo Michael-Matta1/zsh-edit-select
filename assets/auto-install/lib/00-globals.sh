@@ -14,7 +14,7 @@ readonly _ZES_MOD_GLOBALS_LOADED=1
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.6.50"
+readonly SCRIPT_VERSION="0.7.00"
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -39,7 +39,7 @@ declare -i FAILED_TESTS=0
 declare -i WARNING_TESTS=0
 declare -i ZSH_INSTALLED_THIS_SESSION=0
 
-# New/modified globals added by the modular plan
+# New/modified globals
 ZES_INSTALL_TMPDIR="${ZES_INSTALL_TMPDIR:-}"       # Exported by install.sh
 CREATE_BACKUPS="y"                                 # User preference: whether to create backups
 WT_SETTINGS_PATH=""                                # Windows Terminal settings path (detected)

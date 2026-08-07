@@ -64,7 +64,8 @@ try:
     with open(config_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 except Exception:
-    # If JSON is invalid/unreadable, keep legacy behavior by not emitting parser noise.
+    # If settings.json is unreadable or invalid (e.g. JSONC with comments),
+    # exit silently rather than emit parser noise over the conflict report.
     sys.exit(0)
 
 actions_by_id = {}

@@ -44,21 +44,7 @@ function _zesw_init_colors() {
 	typeset -g _ZESW_CLR_BLUE='\033[38;2;100;150;255m'
 	typeset -g _ZESW_RESET='\033[0m'
 	typeset -g _ZESW_BOLD='\033[1m'
-
-	# Pre-cache gradient colors
-	typeset -g -A _ZESW_GRADIENT_CACHE
-	_ZESW_GRADIENT_CACHE[cyan]='\033[38;2;0;255;255m'
-	_ZESW_GRADIENT_CACHE[c1]='\033[38;2;14;245;255m'
-	_ZESW_GRADIENT_CACHE[c2]='\033[38;2;29;235;255m'
-	_ZESW_GRADIENT_CACHE[c3]='\033[38;2;43;225;255m'
-	_ZESW_GRADIENT_CACHE[c4]='\033[38;2;57;215;255m'
-	_ZESW_GRADIENT_CACHE[c5]='\033[38;2;71;195;255m'
-	_ZESW_GRADIENT_CACHE[c6]='\033[38;2;86;175;255m'
-	_ZESW_GRADIENT_CACHE[blue]='\033[38;2;100;150;255m'
 }
-
-# RGB color helper for gradients
-function _zesw_rgb() { printf "\033[38;2;${1};${2};${3}m"; }
 
 # Animated loading indicator
 function _zesw_loading() {
@@ -407,15 +393,9 @@ function _zesw_validate_choice() {
 # Configuration Management
 
 
-# Remove all lines matching a given key from the config file. Args: key.
-function edit-select::delete-config-key() {
-	[[ -f "$_EDIT_SELECT_CONFIG_FILE" ]] || return
-	local -a filtered=("${(@)${(@f)$(<$_EDIT_SELECT_CONFIG_FILE)}:#${1}=*}")
-	(( ${#filtered[@]} )) && printf '%s\n' "${filtered[@]}" > "$_EDIT_SELECT_CONFIG_FILE" || rm -f "$_EDIT_SELECT_CONFIG_FILE"
-}
-
 # Persist a key/value pair to the config file, creating it when needed.
-# Values are written as key="value" except for EDIT_SELECT_MOUSE_REPLACEMENT which is unquoted.
+# Values are single-quoted via ${(qq)} so they're stored literally and can't execute when the
+# config is sourced; EDIT_SELECT_MOUSE_REPLACEMENT is written unquoted (it's a typeset -gi integer).
 # Args: key, value.
 function edit-select::save-config() {
 	mkdir -p "${_EDIT_SELECT_CONFIG_FILE:h}" >/dev/null 2>&1
@@ -425,9 +405,19 @@ function edit-select::save-config() {
 	if [[ $1 == EDIT_SELECT_MOUSE_REPLACEMENT ]]; then
 		lines+=("${1}=${2}")
 	else
-		lines+=("${1}=\"${2}\"")
+		# Quote with (qq) so a manually-entered value containing $(...), backticks
+		# or quotes is stored literally — it can never execute or unbalance the
+		# quoting when the config is sourced at startup.
+		lines+=("${1}=${(qq)2}")
 	fi
-	printf '%s\n' "${lines[@]}" > "$_EDIT_SELECT_CONFIG_FILE"
+	# Temp file + atomic rename so an interrupted write can never truncate the
+	# live config and drop the user's existing keys.
+	local _tmp="${_EDIT_SELECT_CONFIG_FILE}.tmp.$$"
+	if printf '%s\n' "${lines[@]}" > "$_tmp" 2>/dev/null; then
+		mv -f "$_tmp" "$_EDIT_SELECT_CONFIG_FILE"
+	else
+		rm -f "$_tmp" 2>/dev/null
+	fi
 }
 
 # Initialize all EDIT_SELECT_KEY_* variables, falling back to _EDIT_SELECT_DEFAULT_KEY_* if unset.
@@ -483,15 +473,20 @@ function edit-select::apply-keybindings() {
 		bindkey -M emacs "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
 		bindkey -M edit-select "$EDIT_SELECT_KEY_COPY" edit-select::copy-region
 	fi
+	# Bind the builtin undo/redo widgets directly.  The tailored variant —
+	# the implementation actually loaded on WSL — never defines the
+	# edit-select::undo / edit-select::redo wrapper widgets (only the
+	# never-loaded fallback dispatcher does), so binding those names here
+	# left wizard-applied undo/redo keys dead until the next shell start.
 	if [[ -n $EDIT_SELECT_KEY_UNDO ]]; then
-		bindkey -M emacs "$EDIT_SELECT_KEY_UNDO" edit-select::undo
-		bindkey "$EDIT_SELECT_KEY_UNDO" edit-select::undo
-		bindkey -M edit-select "$EDIT_SELECT_KEY_UNDO" edit-select::undo
+		bindkey -M emacs "$EDIT_SELECT_KEY_UNDO" undo
+		bindkey "$EDIT_SELECT_KEY_UNDO" undo
+		bindkey -M edit-select "$EDIT_SELECT_KEY_UNDO" undo
 	fi
 	if [[ -n $EDIT_SELECT_KEY_REDO ]]; then
-		bindkey -M emacs "$EDIT_SELECT_KEY_REDO" edit-select::redo
-		bindkey "$EDIT_SELECT_KEY_REDO" edit-select::redo
-		bindkey -M edit-select "$EDIT_SELECT_KEY_REDO" edit-select::redo
+		bindkey -M emacs "$EDIT_SELECT_KEY_REDO" redo
+		bindkey "$EDIT_SELECT_KEY_REDO" redo
+		bindkey -M edit-select "$EDIT_SELECT_KEY_REDO" redo
 	fi
 	if [[ -n $EDIT_SELECT_KEY_WORD_LEFT ]]; then
 		bindkey -M emacs "$EDIT_SELECT_KEY_WORD_LEFT" backward-word

@@ -2,7 +2,7 @@
 # zsh-edit-select auto-installer — Module 03-kitty.sh
 # Kitty terminal installation and configuration functions
 #
-# Maintains: lib/03-kitty.sh from auto-install.sh extraction
+# Maintains: lib/03-kitty.sh from the modular auto-installer split
 # License: MIT
 # shellcheck shell=bash
 # shellcheck disable=SC2034
@@ -76,27 +76,33 @@ apply_kitty_downloaded_config() {
 
     print_step "Downloading recommended Kitty config..."
     local download_success=0
+    # Download to a temp file first so a failed or partial fetch can never
+    # truncate an existing kitty.conf; move it into place only on success.
+    local _kitty_tmp="${config_file}.download.$$"
 
     if command_exists curl; then
-        if curl -fsSL -o "$config_file" "$config_url"; then
+        if curl -fsSL -o "$_kitty_tmp" "$config_url"; then
             download_success=1
         fi
     elif command_exists wget; then
-        if wget -q -O "$config_file" "$config_url"; then
+        if wget -q -O "$_kitty_tmp" "$config_url"; then
             download_success=1
         fi
     else
+        rm -f "$_kitty_tmp" 2>/dev/null
         print_error "Cannot download config: neither curl nor wget is installed"
         print_info "Please install curl or wget using your package manager"
         return 1
     fi
 
-    if [[ $download_success -eq 0 ]] || [[ ! -f "$config_file" ]]; then
+    if [[ $download_success -eq 0 ]] || [[ ! -s "$_kitty_tmp" ]]; then
+        rm -f "$_kitty_tmp" 2>/dev/null
         print_error "Download failed: could not fetch $config_url"
         print_info "Please check your internet connection and try again"
         print_info "Or manually download from: $config_url"
         return 1
     fi
+    mv -f "$_kitty_tmp" "$config_file"
     print_success "Config downloaded" "kitty_dl"
 
     # Check for background_image configuration and warn user

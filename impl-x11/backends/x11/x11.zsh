@@ -24,41 +24,59 @@ function _zes_start_monitor() {
         return 1
     fi
 
-    # Ensure the cache directory exists.
-    [[ ! -d "$_EDIT_SELECT_CACHE_DIR" ]] && mkdir -p "$_EDIT_SELECT_CACHE_DIR" >/dev/null 2>&1
+    # Ensure the cache directory exists.  || true: this create and the two
+    # cleanups below are best-effort — their status is never read, and every
+    # check that follows re-derives state from the filesystem.  Under an
+    # inherited err_return an unwritable cache path would otherwise abort
+    # before the DAEMON_ACTIVE resolution at the bottom, leaving the flag at
+    # its previous value (a stale 1) while no daemon runs — the pre-redraw
+    # hook would then keep taking its daemon-active fast path against a cache
+    # nobody writes.  These are simple commands, so the guard is effective
+    # even when the caller observes this function's status.
+    [[ ! -d "$_EDIT_SELECT_CACHE_DIR" ]] && mkdir -p -m 0700 "$_EDIT_SELECT_CACHE_DIR" >/dev/null 2>&1 || true
 
     if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
         local pid
-        pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
+        { pid=$(<"$_EDIT_SELECT_PID_FILE") || true } 2>/dev/null
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             # Daemon already running; reuse it.
             _EDIT_SELECT_DAEMON_ACTIVE=1
             return
         fi
         # Stale PID file — previous daemon died without cleanup.
-        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
+        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null || true
     fi
 
     # Remove stale cache files so the post-launch wait loop cannot mistake
     # an old seq file from a previous session for the new daemon's readiness
     # signal.
-    rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
+    rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null || true
+
+    # The agent's very first statement is `if (!getenv("DISPLAY")) return 1`,
+    # so with no DISPLAY it exits before creating any cache file and the wait
+    # below can only ever run out its full 1 s budget.  Resolve that case here
+    # instead: identical end state (DAEMON_ACTIVE=0, no cache files, clipboard
+    # operations fall back to xclip) reached immediately.  A live daemon is
+    # still adopted first — the reuse path above returns before this point.
+    if [[ -z "${DISPLAY:-}" ]]; then
+        _EDIT_SELECT_DAEMON_ACTIVE=0
+        return 0
+    fi
 
     # Launch the agent in a disowned background subshell so it persists
     # beyond shell exit without job-control noise.
     (
         "$_EDIT_SELECT_MONITOR_BIN" "$_EDIT_SELECT_CACHE_DIR" &>/dev/null &
-        disown 2>/dev/null
+        disown 2>/dev/null || true
     )
 
-    # Wait up to 1 second (40 × 25 ms) for the agent to write its initial
-    # seq file.  The seq file is the only reliable readiness signal — it is
-    # written by the agent before it writes its PID file, so its presence
-    # means the agent is fully initialised and the cache directory is live.
+    # Wait up to 1 second (40 × 25 ms) for the agent's pre-daemon cache
+    # initialization to create the seq file.  This bounds startup waiting;
+    # daemonization, PID publication, and X event setup continue afterward.
     local wait_count=0
     while [[ ! -f "$_EDIT_SELECT_SEQ_FILE" ]] && ((wait_count < 40)); do
         sleep 0.025
-        ((wait_count++))
+        ((++wait_count))
     done
 
     # Mark daemon active if the seq file appeared; otherwise mark inactive.
@@ -69,26 +87,14 @@ function _zes_start_monitor() {
     fi
 }
 
-# Send SIGTERM to the running agent and mark the daemon inactive.
-# Called during plugin teardown and on detected daemon death.
-function _zes_stop_monitor() {
-    if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
-        local pid
-        pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
-        [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
-        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
-    fi
-    _EDIT_SELECT_DAEMON_ACTIVE=0
-}
-
 # Return the current PRIMARY selection text to stdout.
-# When the daemon is active, the file read avoids forking a subprocess on
-# every keypress — zsh reads the file using a built-in redirection.
+# When the daemon is active, the file read avoids forking a subprocess when
+# an operation requests PRIMARY — zsh reads the file using a built-in redirection.
 # Falls back to xclip only when the daemon is not running.
 function _zes_get_primary() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         local primary_data
-        primary_data=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+        { primary_data=$(<"$_EDIT_SELECT_PRIMARY_FILE") || true } 2>/dev/null
         [[ -n "$primary_data" ]] && printf '%s' "$primary_data" && return 0
         return 1
     fi
@@ -97,8 +103,9 @@ function _zes_get_primary() {
 }
 
 # Return the current clipboard (CLIPBOARD selection) text to stdout.
-# Uses the agent's --get-clipboard mode to avoid spawning wl-paste or xclip
-# and to keep clipboard access on the same Wayland/X11 connection.
+# Uses the agent's --get-clipboard mode instead of spawning a separate
+# xclip process.  (Like all short-lived agent modes, this is a fresh
+# process that opens its own X connection and exits after the read.)
 # In SSH mode (_ZES_SSH_MODE=1), returns 1 — paste via terminal native keybinding.
 function _zes_get_clipboard() {
     ((_ZES_SSH_MODE)) && return 1
@@ -116,10 +123,10 @@ function _zes_get_clipboard() {
 function _zes_copy_to_clipboard() {
     [[ -z "$1" ]] && return 1
     if ((_ZES_SSH_MODE)); then
-        local _zes_encoded
+        local _zes_encoded _zes_copy_rc
         # -w 0: suppress GNU base64 line-wrapping (default is 76 chars).
         # Embedded newlines in the encoded output would corrupt the OSC 52 sequence.
-        _zes_encoded=$(printf '%s' "$1" | base64 -w 0)
+        _zes_encoded=$(printf '%s' "$1" | base64 -w 0) || return $?
         if [[ -n "${TMUX:-}" ]]; then
             # tmux requires DCS passthrough wrapping with doubled inner ESC.
             printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded" > /dev/tty
@@ -129,7 +136,11 @@ function _zes_copy_to_clipboard() {
         else
             printf '\033]52;c;%s\a' "$_zes_encoded" > /dev/tty
         fi
-        return 0
+        # Propagate the tty-write status so a failed OSC 52 copy surfaces as a
+        # nonzero rc to the cut widget (which gates deletion on it) instead of
+        # deleting text that was never copied.  No change on the success path.
+        _zes_copy_rc=$?
+        return $_zes_copy_rc
     fi
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         printf '%s' "$1" | "$_EDIT_SELECT_MONITOR_BIN" --copy-clipboard 2>/dev/null
@@ -143,8 +154,8 @@ function _zes_copy_to_clipboard() {
 # old highlighted text on the next keypress.
 function _zes_clear_primary() {
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
-        "$_EDIT_SELECT_MONITOR_BIN" --clear-primary 2>/dev/null
+        "$_EDIT_SELECT_MONITOR_BIN" --clear-primary 2>/dev/null || true
     else
-        printf '' | xclip -selection primary -in 2>/dev/null
+        printf '' | xclip -selection primary -in 2>/dev/null || true
     fi
 }

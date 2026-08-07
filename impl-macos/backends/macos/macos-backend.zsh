@@ -2,18 +2,18 @@
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 #
 # macOS pasteboard backend for zsh-edit-select.
-# Provides the 6 required backend functions and _EDIT_SELECT_MONITOR_BIN.
+# Provides the 5 required backend functions and _EDIT_SELECT_MONITOR_BIN.
 #
 # Selection capture uses two paths:
-#   Path A (AX): read kAXSelectedTextAttribute in Terminal.app, iTerm2, and AppKit apps.
-#   Path B (Cmd+C): inject Cmd+C with a reactive changeCount watcher for Kitty, WezTerm,
-#                   Alacritty, Ghostty, and other GPU-accelerated terminals.
+#   Path A (AX): read kAXSelectedTextAttribute in Terminal.app, iTerm2, kitty, and AppKit apps.
+#   Path B (Cmd+C): inject Cmd+C with a reactive changeCount watcher when AX selection is
+#                   unavailable (for example, in WezTerm, Alacritty, and Ghostty).
 # This backend does not implement self-write suppression (_ZES_SELF_WRITE_CONTENT) because
 # the daemon watches only mouse button releases (CGEventTap) and never polls
 # NSPasteboard. Plugin copy/cut writes to NSPasteboard produce no daemon events.
 #
-# Sourced by zsh-edit-select-macos.plugin.zsh AFTER _EDIT_SELECT_PLUGIN_DIR
-# has been set (${0:A:h} of the plugin file = impl-macos/).
+# Sourced by zsh-edit-select-macos.plugin.zsh after that file has set
+# _EDIT_SELECT_PLUGIN_DIR to the impl-macos directory.
 
 # Absolute path to the compiled macOS clipboard agent binary.
 typeset -g _EDIT_SELECT_MONITOR_BIN="${_EDIT_SELECT_PLUGIN_DIR}/backends/macos/zes-macos-clipboard-agent"
@@ -28,30 +28,11 @@ typeset -gi _ZES_SSH_MODE=0
     _ZES_SSH_MODE=1
 
 # ─────────────────────────────────────────────────────────────────────
-# _zes_check_ax_permission
-# Returns 0 if Accessibility permission has been granted, 1 if not.
-# Used by the wizard to show current AX status.
-# ─────────────────────────────────────────────────────────────────────
-function _zes_check_ax_permission() {
-    [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]] && \
-        "$_EDIT_SELECT_MONITOR_BIN" --check-ax 2>/dev/null
-}
-
-# ─────────────────────────────────────────────────────────────────────
-# _zes_request_ax_permission
-# Triggers the macOS system Accessibility permission dialog.
-# Returns 0 if permission was granted, 1 if denied or still pending.
-# ─────────────────────────────────────────────────────────────────────
-function _zes_request_ax_permission() {
-    [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]] && \
-        "$_EDIT_SELECT_MONITOR_BIN" --request-ax 2>/dev/null
-}
-
-# ─────────────────────────────────────────────────────────────────────
 # _zes_start_monitor
 # Start the macOS clipboard daemon and wait for its readiness signal.
 #
-# READINESS SIGNAL: The daemon writes an empty seq file BEFORE posix_spawn().
+# READINESS SIGNAL: The launcher writes the child pid, then an empty seq file
+# after posix_spawn().
 # Poll for the seq file's existence (up to 40×25ms = 1s).
 #
 # TMUX BOOTSTRAP NAMESPACE FIX:
@@ -66,23 +47,33 @@ function _zes_start_monitor() {
         return 1
     fi
 
+    # || true: the directory create and the two cache cleanups below are
+    # best-effort — their status is never read, and the checks that follow
+    # re-derive state from the filesystem.  Under inherited err_return/err_exit
+    # an unwritable cache path would otherwise abort this function midway,
+    # leaving _EDIT_SELECT_DAEMON_ACTIVE at its previous value (stale 1) while
+    # no daemon is running.  Behaviour is unchanged under normal options.
     [[ ! -d "$_EDIT_SELECT_CACHE_DIR" ]] && \
-        mkdir -p "$_EDIT_SELECT_CACHE_DIR" >/dev/null 2>&1
+        mkdir -p -m 0700 "$_EDIT_SELECT_CACHE_DIR" >/dev/null 2>&1 || true
 
     # Reuse if a daemon is already alive.
     if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
         local pid
-        pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
+        { pid=$(<"$_EDIT_SELECT_PID_FILE") || true } 2>/dev/null
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             _EDIT_SELECT_DAEMON_ACTIVE=1
             return 0
         fi
-        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
+        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null || true
     fi
 
     # Remove stale cache files so the readiness poll cannot succeed
-    # on data from a previous daemon instance.
-    rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
+    # on data from a previous daemon instance.  Include the reactive-capture
+    # `pending` marker: this point is reached only when no daemon is alive (the
+    # reuse path above returns first), so any leftover `pending` is from a dead
+    # daemon whose capture can never complete -- leaving it would make
+    # _zes_wait_for_reactive_capture spin a full second on the next keypress.
+    rm -f "$_EDIT_SELECT_SEQ_FILE" "$_EDIT_SELECT_PRIMARY_FILE" "$_EDIT_SELECT_PENDING_FILE" 2>/dev/null || true
 
     # Build launch command with optional tmux namespace fix.
     local -a _zes_launch_cmd=("$_EDIT_SELECT_MONITOR_BIN" "$_EDIT_SELECT_CACHE_DIR")
@@ -95,14 +86,14 @@ function _zes_start_monitor() {
     # subshell + disown: no job-control noise, persists beyond shell exit.
     (
         "${_zes_launch_cmd[@]}" &>/dev/null &
-        disown 2>/dev/null
+        disown 2>/dev/null || true
     )
 
-    # Poll for readiness: seq file written by daemon BEFORE posix_spawn().
+    # Poll for readiness: seq file written by the launcher after posix_spawn().
     local wait_count=0
     while [[ ! -f "$_EDIT_SELECT_SEQ_FILE" ]] && ((wait_count < 40)); do
         sleep 0.025
-        ((wait_count++))
+        ((++wait_count))
     done
 
     if [[ -f "$_EDIT_SELECT_SEQ_FILE" ]]; then
@@ -112,20 +103,6 @@ function _zes_start_monitor() {
         _EDIT_SELECT_DAEMON_ACTIVE=0
         return 1
     fi
-}
-
-# ─────────────────────────────────────────────────────────────────────
-# _zes_stop_monitor
-# Send SIGTERM to the daemon and mark it inactive.
-# ─────────────────────────────────────────────────────────────────────
-function _zes_stop_monitor() {
-    if [[ -f "$_EDIT_SELECT_PID_FILE" ]]; then
-        local pid
-        pid=$(<"$_EDIT_SELECT_PID_FILE" 2>/dev/null)
-        [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
-        rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null
-    fi
-    _EDIT_SELECT_DAEMON_ACTIVE=0
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -140,7 +117,7 @@ function _zes_stop_monitor() {
 function _zes_get_primary() {
     if ((_EDIT_SELECT_DAEMON_ACTIVE)); then
         local primary_data
-        primary_data=$(<"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null)
+        { primary_data=$(<"$_EDIT_SELECT_PRIMARY_FILE") || true } 2>/dev/null
         [[ -n "$primary_data" ]] && printf '%s' "$primary_data" && return 0
         return 1
     fi
@@ -172,7 +149,7 @@ function _zes_get_clipboard() {
 # _zes_copy_to_clipboard
 # Write $1 to NSPasteboard generalPasteboard.
 #
-# The agent is called asynchronously via background job { ... & }.
+# The agent is called asynchronously via a disowned background pipeline (&!).
 # This offloads the write delay so that the terminal immediately
 # regains responsiveness at the Zsh prompt after a Ctrl+C/Ctrl+X command.
 # In SSH mode (_ZES_SSH_MODE=1), uses OSC 52 to tunnel the write to the local terminal.
@@ -180,10 +157,10 @@ function _zes_get_clipboard() {
 function _zes_copy_to_clipboard() {
     [[ -z "$1" ]] && return 1
     if ((_ZES_SSH_MODE)); then
-        local _zes_encoded
+        local _zes_encoded _zes_copy_rc
         # -b 0: suppress macOS base64 line-wrapping (macOS flag; Linux equivalent is -w 0).
         # Embedded newlines in the encoded output would corrupt the OSC 52 sequence.
-        _zes_encoded=$(printf '%s' "$1" | base64 -b 0)
+        _zes_encoded=$(printf '%s' "$1" | base64 -b 0) || return $?
         if [[ -n "${TMUX:-}" ]]; then
             # tmux requires DCS passthrough wrapping with doubled inner ESC.
             printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$_zes_encoded" > /dev/tty
@@ -193,7 +170,11 @@ function _zes_copy_to_clipboard() {
         else
             printf '\033]52;c;%s\a' "$_zes_encoded" > /dev/tty
         fi
-        return 0
+        # Propagate the tty-write status so a failed OSC 52 copy surfaces as a
+        # nonzero rc to the cut widget (which gates deletion on it) instead of
+        # deleting text that was never copied.  No change on the success path.
+        _zes_copy_rc=$?
+        return $_zes_copy_rc
     fi
     if [[ -x "$_EDIT_SELECT_MONITOR_BIN" ]]; then
         # &! = background + disown: no subshell fork, no job table entry,
@@ -206,16 +187,17 @@ function _zes_copy_to_clipboard() {
 
 # ─────────────────────────────────────────────────────────────────────
 # _zes_clear_primary
-# Clear local cache files so the shell does not see stale selected text.
+# Clear the local primary cache file so the shell does not see stale selected text.
 #
 # IMPORTANT: Does NOT call [NSPasteboard clearContents].
 # Clearing NSPasteboard would destroy content the user copied from
-# other apps. Only the local seq/primary files are cleared.
+# other apps. Only the local primary file is cleared; the seq counter is
+# left to the daemon (see the inline note below).
 # ─────────────────────────────────────────────────────────────────────
 function _zes_clear_primary() {
     # Do not touch the seq counter here.
     # The daemon owns sequence progression; local seq writes can desync
     # daemon g_seq from seq-file state and cause every-other-event misses.
     [[ -n "${_EDIT_SELECT_PRIMARY_FILE:-}" ]] && [[ -d "${_EDIT_SELECT_PRIMARY_FILE:h}" ]] && \
-        : >"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null
+        : >"$_EDIT_SELECT_PRIMARY_FILE" 2>/dev/null || true
 }

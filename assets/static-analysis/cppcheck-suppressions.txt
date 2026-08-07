@@ -1,0 +1,17 @@
+# cppcheck suppressions for the zsh-edit-select C agents.
+# NOTE: cppcheck 2.7 rejects a bare "#" line ("Failed to add suppression.
+# No id.") -- every comment line here must have text after the hash.
+# Baseline (cppcheck 2.7, Jul 2026 first-run pass): ZERO findings on all
+# Linux agent sources and the mingw helper. No functional suppressions are
+# currently required. This file exists so future findings triaged as
+# leave-as-is get recorded here instead of being re-litigated every pass.
+# Invocation used:
+#   cppcheck --enable=warning,performance,portability --std=c11 \
+#     --suppressions-list=assets/static-analysis/cppcheck-suppressions.txt <sources>
+#   Wayland agent needs -I impl-wayland/backends/wayland for the generated
+#   protocol headers.
+#   helper.exe needs: --platform=win64 -D_WIN32 -D_WIN32_WINNT=0x0600
+#   The macOS .m agent cannot be parsed by cppcheck (ObjC unsupported);
+#   Xcode's Product->Analyze on real hardware is the source of truth there.
+# System-include noise (no functional impact):
+missingIncludeSystem

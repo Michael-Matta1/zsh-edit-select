@@ -39,11 +39,10 @@ static char seq_path[560];
 static char pid_path[560];
 
 /* X11/XWayland connection state and interned selection atoms. */
-/* X11/XWayland connection handle and root window. */
 static Display *dpy = NULL;
 /* Persistent window reused by daemon-mode selection reads to avoid
    per-event XCreateSimpleWindow/XDestroyWindow round-trips.
-   Set once after daemon() in run_daemon(); NULL in short-lived modes. */
+   Set once after daemon() in run_daemon(); None in short-lived modes. */
 static Window daemon_win = None;
 static Window root;
 /* Standard X11 selection and conversion atoms.
@@ -56,12 +55,12 @@ static Atom xa_clipboard;
 static Atom xa_utf8_string;
 static Atom xa_targets;
 
-/* Forward declaration — defined further down; needed by
- * check_and_update_clipboard(). */
+/* Forward declaration — defined further down; needed by check_and_update_primary(),
+   check_and_update_clipboard(), and run_oneshot(), which are defined before get_selection(). */
 static char *get_selection(Atom selection, size_t *out_len);
 
-/* Monotonically increasing counter written to SEQ_FILE; the shell polls
-   its mtime to detect selection changes without reading content. */
+/* Monotonically increasing counter written to SEQ_FILE; the shell reads
+   its content to detect selection changes. */
 static unsigned long seq_counter = 0;
 
 /* When true, the daemon also subscribes to CLIPBOARD owner-change events
@@ -86,10 +85,14 @@ static void signal_handler(int sig) {
 }
 
 /* Resolve cache directory path (argument > XDG_RUNTIME_DIR > /dev/shm > HOME),
-   populate path globals, and create the directory.  Returns 0 on success. */
+   populate path globals, and create the directory.  Returns 0 on success.
+   Rejects truncated paths and non-directory targets so the shell and agent
+   never diverge onto different cache locations (which would silently break
+   the seq/primary IPC). */
 static int ensure_cache_dir(const char *dir) {
+  int n;
   if (dir && dir[0]) {
-    snprintf(cache_dir, sizeof(cache_dir), "%s", dir);
+    n = snprintf(cache_dir, sizeof(cache_dir), "%s", dir);
   } else {
     /* Cache location priority:
        1. XDG_RUNTIME_DIR/<uid> — tmpfs, cleaned by PAM on logout.
@@ -97,35 +100,61 @@ static int ensure_cache_dir(const char *dir) {
        3. HOME/.cache — persistent fallback for non-standard environments. */
     const char *runtime = getenv("XDG_RUNTIME_DIR");
     if (runtime) {
-      snprintf(cache_dir, sizeof(cache_dir), "%s/zsh-edit-select-%d", runtime,
-               (int)getuid());
+      n = snprintf(cache_dir, sizeof(cache_dir), "%s/zsh-edit-select-%d", runtime,
+                   (int)getuid());
     } else if (access("/dev/shm", W_OK | X_OK) == 0) {
-      snprintf(cache_dir, sizeof(cache_dir), "/dev/shm/zsh-edit-select-%d",
-               (int)getuid());
+      n = snprintf(cache_dir, sizeof(cache_dir), "/dev/shm/zsh-edit-select-%d",
+                   (int)getuid());
     } else {
       const char *home = getenv("HOME");
       if (!home)
         return -1;
-      snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/zsh-edit-select", home);
+      n = snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/zsh-edit-select", home);
     }
   }
-  snprintf(primary_path, sizeof(primary_path), "%s/%s", cache_dir,
-           PRIMARY_FILE);
-  snprintf(seq_path, sizeof(seq_path), "%s/%s", cache_dir, SEQ_FILE);
-  snprintf(pid_path, sizeof(pid_path), "%s/%s", cache_dir, PID_FILE);
+
+  /* The shell and agent must use byte-identical cache paths.  Never silently
+     truncate a user-supplied cache directory, or a very long XDG_RUNTIME_DIR
+     or HOME, into a second location that the shell cannot observe. */
+  if (n < 0 || (size_t)n >= sizeof(cache_dir)) return -1;
+  n = snprintf(primary_path, sizeof(primary_path), "%s/%s", cache_dir,
+               PRIMARY_FILE);
+  if (n < 0 || (size_t)n >= sizeof(primary_path)) return -1;
+  n = snprintf(seq_path, sizeof(seq_path), "%s/%s", cache_dir, SEQ_FILE);
+  if (n < 0 || (size_t)n >= sizeof(seq_path)) return -1;
+  n = snprintf(pid_path, sizeof(pid_path), "%s/%s", cache_dir, PID_FILE);
+  if (n < 0 || (size_t)n >= sizeof(pid_path)) return -1;
 
   struct stat st;
   if (stat(cache_dir, &st) == -1) {
     if (mkdir(cache_dir, 0700) == -1 && errno != EEXIST)
       return -1;
+    if (stat(cache_dir, &st) == -1)
+      return -1;
   }
+  if (!S_ISDIR(st.st_mode)) {
+    errno = ENOTDIR;
+    return -1;
+  }
+
+  /* The shell pre-creates this dir with `mkdir -p -m 0700`, so newly-created
+     dirs are already 0700; existing/legacy dirs may still be wider (e.g.
+     0755 from an older shell that did not pass -m).  primary and seq are
+     written 0644 and hold selected text; the directory's traverse+list
+     bits are what protect them from other users.  Tighten the dir to 0700
+     unless it is already exactly 0700 (skip the syscall — `st` is already
+     in scope from the stat/mkdir block above, so the guard is a free
+     bitmask compare).  Common case: XDG_RUNTIME_DIR is systemd-defaulted
+     to 0700 → the chmod is elided on every daemon start. */
+  if ((st.st_mode & 0777) != 0700 && chmod(cache_dir, 0700) != 0) return -1;
+
   return 0;
 }
 
 /* Write selection text to PRIMARY cache and the sequence number to SEQ.
    Uses persistent fds in daemon mode, open/write/close otherwise. */
 static void write_primary(const char *data, size_t len, unsigned long seq) {
-  if (fd_primary >= 0) {
+  if (fd_primary >= 0 && fd_seq >= 0) {
     /* Persistent-fd hot path: seek to start, write new content, then
        truncate to correct length.  ftruncate is mandatory — without it,
        content that shrinks between events (e.g. "hello world" → "hi")
@@ -135,22 +164,23 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
       ssize_t r = pwrite(fd_primary, data, len, 0);
       (void)r;
     }
-    (void)ftruncate(fd_primary, (off_t)len);
+    (void)!ftruncate(fd_primary, (off_t)len);
 
     /* primary must be fully committed before seq is touched —
-       seq's mtime is the shell's only per-keypress detection signal. */
+       seq's content is the shell's only per-keypress detection signal. */
     char buf[24];
     int n = snprintf(buf, sizeof(buf), "%lu\n", seq);
     ssize_t r = pwrite(fd_seq, buf, (size_t)n, 0);
     (void)r;
-    (void)ftruncate(fd_seq, (off_t)n);
+    (void)!ftruncate(fd_seq, (off_t)n);
     return;
   }
 
   /* Fallback path: used for the pre-daemon() initial write (fd_primary is
      still -1 at that point) and if open() failed after daemon().
-     All short-lived modes (--oneshot, --get-clipboard, --copy-clipboard,
-     --clear-primary) also use this path since they never open persistent fds.
+     The short-lived modes (--oneshot, --get-clipboard, --copy-clipboard,
+     --clear-primary) never call write_primary; they print/serve/clear
+     without touching the primary/seq cache files.
    */
   int fd = open(primary_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
   if (fd < 0)
@@ -171,85 +201,12 @@ static void write_primary(const char *data, size_t len, unsigned long seq) {
   }
 }
 
-/* Request PRIMARY selection text from the XWayland X11 server.
- * Uses xa_primary directly as the conversion property, which is safe
- * because XWayland has an isolated per-session X server with no risk
- * of clashing with properties written by unrelated clients.
- *
- * Returns a malloc'd buffer (caller must free) or NULL on failure/timeout. */
-static char *get_primary_selection(size_t *out_len) {
-  Window owner = XGetSelectionOwner(dpy, xa_primary);
-  if (owner == None) {
-    *out_len = 0;
-    return NULL;
-  }
-
-  /* Reuse the persistent daemon window when available; create a temp
-     window only in short-lived modes (--oneshot, --get-clipboard). */
-  bool ephemeral = (daemon_win == None);
-  Window w = ephemeral ? XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0)
-                       : daemon_win;
-  XConvertSelection(dpy, xa_primary, xa_utf8_string, xa_primary, w,
-                    CurrentTime);
-  XFlush(dpy);
-  XEvent ev;
-  bool got_notify = false;
-  {
-    int xfd = XConnectionNumber(dpy);
-    struct pollfd pfd = {.fd = xfd, .events = POLLIN};
-    int elapsed_ms = 0;
-    while (elapsed_ms < 500) {
-      if (XCheckTypedWindowEvent(dpy, w, SelectionNotify, &ev)) {
-        got_notify = true;
-        break;
-      }
-      /* Short initial polls catch the common 1-5 ms roundtrip without
-         overshooting; longer polls after 20 ms reduce syscall rate. */
-      int wait = (elapsed_ms < 20) ? 5 : 20;
-      int ret = poll(&pfd, 1, wait);
-      if (ret < 0 && errno != EINTR)
-        break;
-      elapsed_ms += wait;
-    }
-  }
-
-  char *data = NULL;
-  *out_len = 0;
-
-  if (got_notify && ev.xselection.property != None) {
-    Atom actual_type;
-    int actual_format;
-    unsigned long nitems, bytes_after;
-    unsigned char *prop = NULL;
-
-    if (XGetWindowProperty(dpy, w, xa_primary, 0, MAX_SELECTION_SIZE / 4, False,
-                           AnyPropertyType, &actual_type, &actual_format,
-                           &nitems, &bytes_after, &prop) == Success) {
-      if (prop && nitems > 0) {
-        *out_len = nitems;
-        data = malloc(nitems);
-        if (data)
-          memcpy(data, prop, nitems);
-      }
-      if (prop)
-        XFree(prop);
-    }
-    /* Delete the conversion property so it does not accumulate across
-       reuses of the persistent daemon window. */
-    XDeleteProperty(dpy, w, xa_primary);
-  }
-
-  if (ephemeral)
-    XDestroyWindow(dpy, w);
-  return data;
-}
-
 /* Re-read the current PRIMARY selection from the X server and
    unconditionally update cache, incrementing the sequence counter.
    Called on every XFixes owner-change notification. */
 static void check_and_update_primary(void) {
   size_t len = 0;
-  char *sel = get_primary_selection(&len);
+  char *sel = get_selection(xa_primary, &len);
 
   /* Always increment seq even when content is identical — a reselect
      of exactly the same text must still fire a new event in the shell. */
@@ -275,7 +232,7 @@ static void check_and_update_clipboard(void) {
  * Used when the daemon is not running and the shell needs a one-shot read. */
 static int run_oneshot(void) {
   size_t len = 0;
-  char *data = get_primary_selection(&len);
+  char *data = get_selection(xa_primary, &len);
   if (data && len > 0) {
     fwrite(data, 1, len, stdout);
     free(data);
@@ -454,8 +411,6 @@ static int run_copy_clipboard(void) {
     return 1;
   }
 
-  XFlush(dpy);
-
   /* Fork a background process to serve paste requests */
   pid_t pid = fork();
   if (pid < 0) {
@@ -464,6 +419,10 @@ static int run_copy_clipboard(void) {
     return 1;
   }
   if (pid > 0) {
+    /* Parent exits immediately; release its copy of the clipboard data
+       so leak checkers report the fork-server pattern clean.  The child
+       owns its own post-fork copy and frees it on exit. */
+    free(data);
     _exit(0);
   }
 
@@ -522,10 +481,7 @@ static int run_copy_clipboard(void) {
  * X11 interprets None owner as "no selection"; subsequent XGetSelectionOwner
  * calls from other clients will return None, indicating no text is selected. */
 static int run_clear_primary(void) {
-  Window w = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
   XSetSelectionOwner(dpy, xa_primary, None, CurrentTime);
-  XFlush(dpy);
-  XDestroyWindow(dpy, w);
   return 0;
 }
 
@@ -562,10 +518,15 @@ static int run_daemon(const char *cache_dir_arg) {
   /* Open persistent fds for write_primary() hot path */
   fd_primary = open(primary_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
   fd_seq = open(seq_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (fd_primary < 0 || fd_seq < 0) {
+    if (fd_primary >= 0) close(fd_primary);
+    if (fd_seq >= 0) close(fd_seq);
+    fd_primary = fd_seq = -1;
+  }
 
   /* Create a persistent window for selection conversion requests.
-     Reused by get_primary_selection() and get_selection() to avoid
-     per-event XCreateSimpleWindow/XDestroyWindow round-trips. */
+     Reused by get_selection() to avoid per-event
+     XCreateSimpleWindow/XDestroyWindow round-trips. */
   daemon_win = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 
   /* XFixes is required for owner-change notifications.  Failure here
@@ -574,6 +535,7 @@ static int run_daemon(const char *cache_dir_arg) {
   int xfixes_event_base, xfixes_error_base;
   if (!XFixesQueryExtension(dpy, &xfixes_event_base, &xfixes_error_base)) {
     fprintf(stderr, "XFixes extension not available (XWayland not running?)\n");
+    if (daemon_win != None) { XDestroyWindow(dpy, daemon_win); daemon_win = None; }
     if (fd_primary >= 0) {
       close(fd_primary);
       fd_primary = -1;
@@ -582,6 +544,9 @@ static int run_daemon(const char *cache_dir_arg) {
       close(fd_seq);
       fd_seq = -1;
     }
+    unlink(primary_path);
+    unlink(seq_path);
+    unlink(pid_path);
     return 1;
   }
 
@@ -652,13 +617,15 @@ static int run_daemon(const char *cache_dir_arg) {
 /* Entry point — parse argv, open X11 display (XWayland), intern atoms,
  * and dispatch to the appropriate sub-function.
  *
- * Modes (first matching flag wins):
+ * Modes (dispatch precedence follows the flag order below, then default):
  *   (default)          Daemon: monitor PRIMARY via XFixes owner-change events.
  *   --oneshot          Print current PRIMARY text and exit.
  *   --get-clipboard    Print clipboard (CLIPBOARD) text and exit.
  *   --copy-clipboard   Read stdin, take clipboard ownership, serve paste
  * requests.
  *   --clear-primary    Clear PRIMARY by setting its owner to None.
+ * Modifier: --monitor-clipboard also monitors CLIPBOARD owner changes in
+ * daemon mode (WSL2).
  *   --help / -h        Print usage to stderr and exit.
  *
  * A positional non-flag argument sets cache_dir (used by daemon mode). */
@@ -707,12 +674,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  /* Intern the standard X11 selection atoms for conversion requests. */
+  /* Intern the standard X11 selection atoms for conversion requests.
+     One batched request instead of four separate blocking round trips —
+     XInternAtom is synchronous, so each call flushes and waits for its own
+     reply.  XInternAtoms pipelines all four names and waits once, which
+     matters most for the short-lived modes the shell forks per clipboard
+     operation.  The array must be char *[] (not const): Xlib's prototype
+     takes char **. */
   root = DefaultRootWindow(dpy);
-  xa_primary = XInternAtom(dpy, "PRIMARY", False);
-  xa_clipboard = XInternAtom(dpy, "CLIPBOARD", False);
-  xa_utf8_string = XInternAtom(dpy, "UTF8_STRING", False);
-  xa_targets = XInternAtom(dpy, "TARGETS", False);
+  {
+    char *atom_names[] = {"PRIMARY", "CLIPBOARD", "UTF8_STRING", "TARGETS"};
+    Atom interned[4];
+    XInternAtoms(dpy, atom_names, 4, False, interned);
+    xa_primary = interned[0];
+    xa_clipboard = interned[1];
+    xa_utf8_string = interned[2];
+    xa_targets = interned[3];
+  }
 
   int ret = 0;
   if (oneshot)

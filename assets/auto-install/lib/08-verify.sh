@@ -112,7 +112,7 @@ verify_dependencies() {
     local prebuilt_expected=0
     local arch
     arch=$(uname -m 2>/dev/null)
-    if [[ "$DETECTED_OS" == "macos" || "$DETECTED_OS" == "wsl" || "$arch" == "x86_64" || "$arch" == "amd64" || "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+    if [[ "$DETECTED_OS" == "macos" || "$DETECTED_OS" == "wsl" || "$arch" == "x86_64" || "$arch" == "amd64" || "$arch" == "aarch64" || "$arch" == "arm64" || "$arch" == "armv7l" || "$arch" == "riscv64" ]]; then
         prebuilt_expected=1
     fi
 
