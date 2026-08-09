@@ -7,7 +7,7 @@ empirical data.
 
 ### Clipboard Operation Performance
 
-These benchmarks compare standard clipboard tools against the custom selection daemon across five
+These benchmarks compare standard clipboard tools against the plugin's custom agent across five
 comprehensive test scenarios:
 
 - **Small text copy** (50 chars) - 100 iterations
@@ -62,7 +62,7 @@ Results are saved to `results/` with both raw and sanitized output files.
 # Install dependencies
 sudo apt install build-essential xclip
 
-# Build daemon (if not already built)
+# Build agent (if not already built)
 cd ../../impl-x11/backends/x11
 make
 ```
@@ -85,7 +85,7 @@ make
 # Install dependencies
 sudo apt install build-essential wl-clipboard
 
-# Build daemon (if not already built)
+# Build agent (if not already built)
 cd ../../impl-wayland/backends/wayland
 make
 ```
@@ -154,7 +154,7 @@ Overall Performance: Custom agent is 44.6% FASTER
 
 #### Detailed Results by Test Category
 
-| Test Category           | xclip Avg | Daemon Avg | Improvement      |
+| Test Category           | xclip Avg | agent Avg | Improvement      |
 | ----------------------- | --------- | ---------- | ---------------- |
 | Small text (50 chars)   | 4.025 ms  | 2.258 ms   | **43.9% faster** |
 | Medium text (500 chars) | 4.307 ms  | 2.211 ms   | **48.7% faster** |
@@ -164,7 +164,7 @@ Overall Performance: Custom agent is 44.6% FASTER
 
 #### Latency Analysis (Best-case)
 
-| Test Category    | xclip Min | Daemon Min | Improvement      |
+| Test Category    | xclip Min | agent Min | Improvement      |
 | ---------------- | --------- | ---------- | ---------------- |
 | Small text       | 3.371 ms  | 2.005 ms   | **40.5% better** |
 | Medium text      | 3.625 ms  | 1.925 ms   | **46.9% better** |
@@ -195,7 +195,7 @@ Overall Performance: Custom agent is 96.4% FASTER
 
 #### Detailed Results by Test Category
 
-| Test Category           | wl-copy Avg | Daemon Avg | Improvement      |
+| Test Category           | wl-copy Avg | agent Avg | Improvement      |
 | ----------------------- | ----------- | ---------- | ---------------- |
 | Small text (50 chars)   | 57.073 ms   | 1.966 ms   | **96.6% faster** |
 | Medium text (500 chars) | 60.382 ms   | 2.441 ms   | **96.0% faster** |
@@ -205,7 +205,7 @@ Overall Performance: Custom agent is 96.4% FASTER
 
 #### Latency Analysis (Best-case)
 
-| Test Category    | wl-copy Min | Daemon Min | Improvement      |
+| Test Category    | wl-copy Min | agent Min | Improvement      |
 | ---------------- | ----------- | ---------- | ---------------- |
 | Small text       | 46.961 ms   | 1.452 ms   | **96.9% better** |
 | Medium text      | 36.947 ms   | 1.638 ms   | **95.6% better** |
@@ -325,9 +325,9 @@ make clean        # Clean all
 ## Troubleshooting
 
 <details>
-<summary><b>"daemon not found"</b></summary>
+<summary><b>"agent not found"</b></summary>
 
-Build the daemon first:
+Build the agent first:
 
 ```bash
 # For X11
@@ -342,7 +342,7 @@ cd ../../impl-wayland/backends/wayland && make
 <details>
 <summary><b>"xclip not found" or "wl-copy not found"</b></summary>
 
-The benchmarks will still run and measure the daemon, but won't have comparison data. Install the tools for
+The benchmarks will still run and measure the agent, but won't have comparison data. Install the tools for
 full comparison:
 
 ```bash
