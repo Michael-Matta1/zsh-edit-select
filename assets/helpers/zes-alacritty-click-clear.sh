@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (c) 2025 Michael Matta
+# Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 # Alacritty click-to-deselect helper for zsh-edit-select.
 #
 # Wired into ~/.config/alacritty/alacritty.toml as a `command:` on a

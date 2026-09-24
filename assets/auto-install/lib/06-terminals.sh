@@ -69,6 +69,16 @@ _zes_configure_terminal_for_os() {
         fi
         _zes_call_terminal_handler configure_foot
         ;;
+    konsole)
+        if [[ "$DETECTED_OS" != "linux" ]]; then
+            print_info "Konsole profile configuration is supported on native Linux only; skipping."
+            return 0
+        fi
+        if ! _zes_call_terminal_handler configure_konsole; then
+            FAILED_STEPS["konsole_config"]="Konsole profile, keytab, or shortcut configuration failed"
+            return 1
+        fi
+        ;;
     ghostty)
         if [[ "$DETECTED_OS" == "macos" ]]; then
             _zes_call_terminal_handler configure_ghostty_macos
@@ -109,14 +119,13 @@ configure_terminals() {
     local -a ignored_terminals=()
     local -a manual_terminals=()
     local terminal
-    local issue
 
     for terminal in "${DETECTED_TERMINALS[@]}"; do
         case "$terminal" in
-        kitty | alacritty | wezterm | foot | iterm2 | ghostty | vscode | windows-terminal)
+        kitty | alacritty | wezterm | foot | konsole | iterm2 | ghostty | vscode | windows-terminal)
             selectable_terminals+=("$terminal")
             ;;
-        konsole | gnome-terminal | xfce4-terminal | terminator | tilix)
+        gnome-terminal | xfce4-terminal | terminator | tilix)
             ignored_terminals+=("$terminal")
             ;;
         *)
@@ -142,61 +151,6 @@ configure_terminals() {
     if [[ ${#selectable_terminals[@]} -eq 0 ]]; then
         print_info "No configurable terminals were detected for this installer step."
         return
-    fi
-
-    # Pre-check write permissions for configurable terminal configs
-    print_substep "Checking configuration file permissions..."
-    local permission_issues=()
-
-    for terminal in "${selectable_terminals[@]}"; do
-        local config=""
-        case "$terminal" in
-        kitty) config="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf" ;;
-        alacritty)
-            if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml" ]]; then
-                config="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml"
-            else
-                config="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.yml"
-            fi
-            ;;
-        wezterm) config="${XDG_CONFIG_HOME:-$HOME/.config}/wezterm/wezterm.lua" ;;
-        ghostty) config="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config" ;;
-        foot) config="${XDG_CONFIG_HOME:-$HOME/.config}/foot/foot.ini" ;;
-        vscode)
-            if declare -f _zes_resolve_vscode_keybindings_path >/dev/null 2>&1; then
-                config="$(_zes_resolve_vscode_keybindings_path 2>/dev/null || true)"
-            else
-                config="${XDG_CONFIG_HOME:-$HOME/.config}/Code/User/keybindings.json"
-            fi
-            ;;
-        windows-terminal) config="${WT_SETTINGS_PATH:-}" ;;
-        esac
-
-        if [[ -n "$config" ]]; then
-            local config_dir
-            config_dir="$(dirname "$config")"
-
-            # Check directory write permission
-            if [[ ! -d "$config_dir" ]]; then
-                # Try to create it
-                if ! mkdir -p "$config_dir" 2>/dev/null; then
-                    permission_issues+=("$terminal: Cannot create config directory $config_dir")
-                fi
-            fi
-
-            # Check file write permission if it exists
-            if [[ -f "$config" ]] && [[ ! -w "$config" ]]; then
-                permission_issues+=("$terminal: Config file $config is not writable")
-            fi
-        fi
-    done
-
-    if [[ ${#permission_issues[@]} -gt 0 ]]; then
-        print_warning "Permission issues detected for some terminal configs:"
-        for issue in "${permission_issues[@]}"; do
-            print_warning "  • $issue"
-        done
-        print_info "Continuing with terminals that have writable configs..."
     fi
 
     # In non-interactive mode, configure every supported detected terminal.
@@ -226,6 +180,7 @@ configure_terminals() {
             alacritty) menu_options+=("Alacritty") ;;
             wezterm) menu_options+=("WezTerm") ;;
             foot) menu_options+=("Foot") ;;
+            konsole) menu_options+=("Konsole") ;;
             iterm2) menu_options+=("iTerm2") ;;
             ghostty) menu_options+=("Ghostty") ;;
             vscode) menu_options+=("VS Code (Integrated Terminal)") ;;

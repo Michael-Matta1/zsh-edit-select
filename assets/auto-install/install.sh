@@ -236,6 +236,7 @@ readonly _ZES_MODULES=(
     "05-agents"
     "06-terminals"
     "06-terminals-linux"
+    "06-terminals-konsole"
     "06-terminals-macos"
     "06-terminals-vscode"
     "07-conflicts"

@@ -65,6 +65,15 @@ run_plugin_update() {
         return
     fi
 
+    # Older installs may still be root-owned beneath a package-managed
+    # plugin-manager directory. Prepare only this plugin leaf before git,
+    # generated binaries, or bytecode need to write there.
+    if ! ensure_plugin_dir_writable plugin_update; then
+        _zes_print_mode_completion "Plugin update mode" "warning"
+        _zes_prompt_delete_mode_logs "update mode" "$mode_log_size_before"
+        return 1
+    fi
+
     # Stash any local changes to prevent merge conflicts
     local had_changes=0
     # git diff --quiet returns 0 (success) if there are NO changes
@@ -242,9 +251,80 @@ run_uninstall() {
                 if rm -rf "$target_dir" 2>/dev/null; then
                     print_success "Plugin directory removed" "uninstall_plugin_dir"
                     ((uninstall_success++))
+                elif [[ ! -e "$target_dir" ]]; then
+                    # rm -rf reported failure but the path is actually gone
+                    # (e.g. a benign race) -- treat as success.
+                    print_success "Plugin directory removed" "uninstall_plugin_dir"
+                    ((uninstall_success++))
+                elif [[ -d "$target_dir" ]] && [[ ! -L "$target_dir" ]] && [[ -r "$target_dir" ]] && [[ -x "$target_dir" ]] && ! _zes_directory_has_entries "$target_dir"; then
+                    # Contents were removed but the directory entry itself
+                    # survived -- this happens when the plugin was installed
+                    # under a read-only parent (e.g. a system-package
+                    # oh-my-zsh custom/plugins/), where install_plugin()
+                    # took ownership of only this one leaf directory and
+                    # deliberately left its parent root-owned. Removing the
+                    # now-empty leaf itself needs the same sudo escalation
+                    # used to create it.
+                    print_warning "Emptied $target_dir but could not remove the directory itself (read-only parent)"
+                    if [[ $NON_INTERACTIVE -eq 0 ]] && [[ -t 0 ]] &&
+                        ask_yes_no "Use sudo to remove the now-empty directory '$target_dir'?" "y"; then
+                        local rmdir_status=1
+                        if [[ $EUID -eq 0 ]]; then
+                            run_with_sudo rmdir "$target_dir" 2>/dev/null && rmdir_status=0
+                        else
+                            # Update/build modes initialize SUDO_AVAILABLE, but
+                            # uninstall mode intentionally does not prompt for
+                            # sudo up front. Acquire it only after the user has
+                            # approved removing this protected directory.
+                            if [[ $SUDO_AVAILABLE -ne 1 ]] && command_exists sudo && sudo -v 2>/dev/null; then
+                                SUDO_AVAILABLE=1
+                            fi
+                            if [[ $SUDO_AVAILABLE -eq 1 ]]; then
+                                run_with_sudo rmdir "$target_dir" 2>/dev/null && rmdir_status=0
+                            fi
+                        fi
+
+                        if [[ $rmdir_status -eq 0 ]]; then
+                            print_success "Plugin directory removed" "uninstall_plugin_dir"
+                            ((uninstall_success++))
+                        else
+                            print_error "Could not remove empty plugin directory: $target_dir"
+                            FAILED_STEPS["uninstall_plugin_dir"]="Could not remove empty directory $target_dir"
+                            MANUAL_STEPS+=("Remove the now-empty directory: sudo rmdir '$target_dir'")
+                        fi
+                    else
+                        FAILED_STEPS["uninstall_plugin_dir"]="Could not remove empty directory $target_dir"
+                        MANUAL_STEPS+=("Remove the now-empty directory: sudo rmdir '$target_dir'")
+                    fi
                 else
-                    print_error "Failed to remove plugin directory"
-                    FAILED_STEPS["uninstall_plugin_dir"]="Could not remove $target_dir"
+                    # Existing installations may predate the ownership repair
+                    # and still contain root-owned files. The user has already
+                    # confirmed this exact uninstall target, so offer a narrowly
+                    # scoped privileged removal rather than leaving a partial
+                    # uninstall behind. Never prompt/escalate in non-interactive
+                    # mode.
+                    local removed_with_sudo=0
+                    if [[ $NON_INTERACTIVE -eq 0 ]] && [[ -t 0 ]] &&
+                        ask_yes_no "Use sudo to remove the remaining plugin directory '$target_dir'?" "y"; then
+                        if [[ $EUID -eq 0 ]]; then
+                            SUDO_AVAILABLE=1
+                        elif [[ $SUDO_AVAILABLE -ne 1 ]] && command_exists sudo && sudo -v 2>/dev/null; then
+                            SUDO_AVAILABLE=1
+                        fi
+
+                        if [[ $SUDO_AVAILABLE -eq 1 ]] && run_with_sudo rm -rf "$target_dir" 2>/dev/null && [[ ! -e "$target_dir" ]]; then
+                            removed_with_sudo=1
+                        fi
+                    fi
+
+                    if [[ $removed_with_sudo -eq 1 ]]; then
+                        print_success "Plugin directory removed with sudo" "uninstall_plugin_dir"
+                        ((uninstall_success++))
+                    else
+                        print_error "Failed to remove plugin directory"
+                        FAILED_STEPS["uninstall_plugin_dir"]="Could not remove $target_dir"
+                        MANUAL_STEPS+=("Remove the plugin directory: sudo rm -rf '$target_dir'")
+                    fi
                 fi
             else
                 print_info "Skipped removing plugin directory: $target_dir"

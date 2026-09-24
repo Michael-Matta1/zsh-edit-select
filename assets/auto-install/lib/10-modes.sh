@@ -78,6 +78,12 @@ _zes_normalize_mode() {
     integrate | terminals | terminal | terminal-config)
         echo "integrate"
         ;;
+    setup-hooks)
+        echo "setup-hooks"
+        ;;
+    remove-hooks)
+        echo "remove-hooks"
+        ;;
     conflicts | conflict | conflict-check)
         echo "conflicts"
         ;;
@@ -105,6 +111,12 @@ _zes_run_selected_mode() {
     integrate)
         run_terminal_config_only
         ;;
+    setup-hooks)
+        run_plugin_hook_action install
+        ;;
+    remove-hooks)
+        run_plugin_hook_action remove
+        ;;
     conflicts)
         run_conflict_check_only
         ;;
@@ -121,6 +133,39 @@ _zes_run_selected_mode() {
         return 1
         ;;
     esac
+}
+
+run_plugin_hook_action() {
+    local action="$1"
+
+    check_essential_commands
+    acquire_lock
+
+    # --local sets this hint to the plugin tree containing this installer.
+    # It avoids rediscovering the user's plugin manager for explicit hook
+    # commands and ensures permissions are repaired on the actual repository.
+    if [[ -n "${ZES_PLUGIN_DIR_HINT:-}" ]] && [[ -f "$ZES_PLUGIN_DIR_HINT/zsh-edit-select.plugin.zsh" ]]; then
+        PLUGIN_INSTALL_DIR="$ZES_PLUGIN_DIR_HINT"
+    else
+        detect_plugin_manager "passive"
+    fi
+
+    if [[ -z "$PLUGIN_INSTALL_DIR" ]] || [[ ! -f "$PLUGIN_INSTALL_DIR/hooks/manage-hooks.sh" ]]; then
+        print_error "Could not locate the plugin's hook manager"
+        return 1
+    fi
+
+    if ! ensure_plugin_dir_writable hook_management; then
+        _zes_print_mode_completion "Git hook ${action} mode" "warning"
+        return 1
+    fi
+
+    if ! sh "$PLUGIN_INSTALL_DIR/hooks/manage-hooks.sh" "$action" "$PLUGIN_INSTALL_DIR"; then
+        _zes_print_mode_completion "Git hook ${action} mode" "warning"
+        return 1
+    fi
+
+    _zes_print_mode_completion "Git hook ${action} mode" "success"
 }
 
 _zes_print_mode_completion() {
@@ -201,7 +246,7 @@ parse_arguments() {
         --mode)
             if [[ $# -lt 2 ]] || [[ -z "$2" ]]; then
                 print_error "--mode requires a value"
-                echo "Valid values: full, integrate, conflicts, update, build-agents (or build), uninstall"
+                echo "Valid values: full, integrate, conflicts, update, build-agents (or build), setup-hooks, remove-hooks, uninstall"
                 exit 1
             fi
             RUN_MODE="$2"
@@ -211,7 +256,7 @@ parse_arguments() {
             RUN_MODE="${1#--mode=}"
             if [[ -z "$RUN_MODE" ]]; then
                 print_error "--mode requires a value"
-                echo "Valid values: full, integrate, conflicts, update, build-agents (or build), uninstall"
+                echo "Valid values: full, integrate, conflicts, update, build-agents (or build), setup-hooks, remove-hooks, uninstall"
                 exit 1
             fi
             shift
@@ -251,7 +296,7 @@ Examples:
       Build agents from source using Makefiles, then restart and warm up runtime
 
 Mode values for --mode:
-  full, integrate, conflicts, update, build-agents, build, uninstall
+  full, integrate, conflicts, update, build-agents, build, setup-hooks, remove-hooks, uninstall
 
 This script will:
     - Detect your system environment automatically
@@ -423,6 +468,12 @@ run_build_agents_only() {
         return
     fi
 
+    if ! ensure_plugin_dir_writable agent_runtime; then
+        _zes_print_mode_completion "Build agents mode" "warning"
+        _zes_prompt_delete_mode_logs "build mode" "$mode_log_size_before"
+        return 1
+    fi
+
     # Rebuild agents from source and refresh runtime so old binaries/processes are replaced safely.
     local mode_status="success"
     print_header "Phase 2: Source Build and Runtime Refresh"
@@ -484,7 +535,7 @@ main() {
         local normalized_mode
         if ! normalized_mode="$(_zes_normalize_mode "$RUN_MODE")"; then
             print_error "Unknown mode: $RUN_MODE"
-            echo "Valid values: full, integrate, conflicts, update, build-agents (or build), uninstall"
+            echo "Valid values: full, integrate, conflicts, update, build-agents (or build), setup-hooks, remove-hooks, uninstall"
             exit 1
         fi
         _zes_run_selected_mode "$normalized_mode" || {

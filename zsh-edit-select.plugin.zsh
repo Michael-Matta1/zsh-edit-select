@@ -401,10 +401,22 @@ fi
 # above does NOT use these — it inlines the minimal mechanical setup.
 # Uses ZES_IMPL_PATH (typeset -gr, survives the unset block below).
 function edit-select::setup-hooks() {
-    sh "${ZES_IMPL_PATH:h}/hooks/manage-hooks.sh" install "${ZES_IMPL_PATH:h}"
+    local installer="${ZES_IMPL_PATH:h}/assets/auto-install/install.sh"
+    if [[ -r "$installer" ]] && (( ${+commands[bash]} )) && (( EUID != 0 )) &&
+        command bash -c '(( BASH_VERSINFO[0] >= 4 ))' 2>/dev/null; then
+        command bash "$installer" --local --mode setup-hooks
+    else
+        sh "${ZES_IMPL_PATH:h}/hooks/manage-hooks.sh" install "${ZES_IMPL_PATH:h}"
+    fi
 }
 function edit-select::remove-hooks() {
-    sh "${ZES_IMPL_PATH:h}/hooks/manage-hooks.sh" remove "${ZES_IMPL_PATH:h}"
+    local installer="${ZES_IMPL_PATH:h}/assets/auto-install/install.sh"
+    if [[ -r "$installer" ]] && (( ${+commands[bash]} )) && (( EUID != 0 )) &&
+        command bash -c '(( BASH_VERSINFO[0] >= 4 ))' 2>/dev/null; then
+        command bash "$installer" --local --mode remove-hooks
+    else
+        sh "${ZES_IMPL_PATH:h}/hooks/manage-hooks.sh" remove "${ZES_IMPL_PATH:h}"
+    fi
 }
 
 # Clean up all loader-local variables so they do not leak into the shell

@@ -23,6 +23,18 @@ install_plugin() {
         return 1
     fi
 
+    # Make sure we can actually write to PLUGIN_INSTALL_DIR before doing
+    # anything else. This covers every plugin manager and every custom
+    # path uniformly, since they all resolve to this one variable --
+    # e.g. a system-package oh-my-zsh install under /usr/share/oh-my-zsh
+    # whose custom/ dir is root-owned.
+    if ! ensure_plugin_dir_writable; then
+        if [[ -z "${FAILED_STEPS[plugin_install]:-}" ]]; then
+            FAILED_STEPS["plugin_install"]="Plugin installation directory is not writable"
+        fi
+        return 1
+    fi
+
     # Clone or update the repository
     if [[ -d "$PLUGIN_INSTALL_DIR" ]]; then
         print_substep "Plugin directory already exists, checking status..."
@@ -73,7 +85,14 @@ install_plugin() {
                     FAILED_STEPS["plugin_install"]="Invalid plugin directory"
                     return 1
                 fi
-                rm -rf "$PLUGIN_INSTALL_DIR"
+                # If the directory is already empty (e.g. ensure_plugin_dir_writable()
+                # just created it under a read-only parent), there's nothing to
+                # remove -- and rm -rf would harmlessly fail trying to unlink the
+                # directory itself from that still-root-owned parent. Only rm -rf
+                # when there's actual stale content to clear.
+                if _zes_directory_has_entries "$PLUGIN_INSTALL_DIR"; then
+                    rm -rf "$PLUGIN_INSTALL_DIR"
+                fi
                 clone_plugin
             fi
         fi
@@ -108,6 +127,154 @@ install_plugin() {
 }
 
 
+_zes_directory_has_entries() {
+    local directory="$1"
+    local entry
+
+    # If the directory cannot be inspected, treat it as non-empty so callers
+    # never mistake an unreadable directory for a safe empty one.
+    if [[ ! -r "$directory" ]] || [[ ! -x "$directory" ]]; then
+        return 0
+    fi
+
+    # These POSIX shell globs include ordinary and hidden entries while
+    # excluding the special . and .. directory names. Avoid GNU-only find
+    # options so the check works with macOS/BSD find environments too.
+    for entry in "$directory"/* "$directory"/.[!.]* "$directory"/..?*; do
+        if [[ -e "$entry" ]] || [[ -L "$entry" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+
+ensure_plugin_dir_writable() {
+    local failure_category="${1:-plugin_install}"
+    local target="$PLUGIN_INSTALL_DIR"
+    local check_dir="$target"
+    local target_leaf="${target%/}"
+    target_leaf="${target_leaf##*/}"
+
+    if [[ -e "$target" ]] && [[ ! -d "$target" ]]; then
+        print_error "Plugin installation path is not a directory: $target" "$failure_category"
+        return 1
+    fi
+
+    # This helper can recursively chown its target. Keep that operation
+    # limited to a path that is recognizably this plugin's leaf directory.
+    if [[ -z "$target" ]] || [[ "$target" == "/" ]] || [[ "/$target/" == *"/../"* ]] || [[ "$target" == "$HOME" ]] ||
+        [[ "$target" == "$HOME/" ]] ||
+        {
+            [[ "$target_leaf" != "zsh-edit-select" ]] &&
+                [[ "$target_leaf" != "zsh-edit-select-master" ]] &&
+                [[ "$target_leaf" != *-zsh-edit-select ]] &&
+                [[ ! -f "$target/zsh-edit-select.plugin.zsh" ]]
+        }; then
+        print_error "Refusing to change permissions on an unsafe plugin directory: ${target:-<unset>}" "$failure_category"
+        return 1
+    fi
+
+    # Do not recursively change ownership through a symlink. An already
+    # writable symlink target needs no repair; otherwise leave it for manual
+    # review rather than risk changing a different tree.
+    if [[ -L "$target" ]]; then
+        if [[ -e "$target" ]] && [[ -w "$target" ]] && [[ -x "$target" ]]; then
+            return 0
+        fi
+        print_error "Refusing to change ownership through a symlinked plugin directory: $target" "$failure_category"
+        return 1
+    fi
+
+    # Walk up to the nearest existing ancestor. That's what actually
+    # governs whether we can create/write $target.
+    while [[ ! -e "$check_dir" ]]; do
+        local parent
+        parent="$(dirname "$check_dir")"
+        # Safety: stop if dirname stops making progress (e.g. reached "/").
+        [[ "$parent" == "$check_dir" ]] && break
+        check_dir="$parent"
+    done
+
+    # Already writable by us (existing dir we own, or a not-yet-created
+    # path whose nearest existing parent we can write into) -- nothing to do.
+    # Directories need search permission as well as write permission for
+    # creating entries or accessing their contents.
+    if [[ -w "$check_dir" ]] && [[ -x "$check_dir" ]]; then
+        return 0
+    fi
+
+    # An existing non-writable directory must be verified as this plugin
+    # before the recursive ownership repair below. A matching path name by
+    # itself is not enough to justify changing ownership of arbitrary files.
+    if [[ -d "$target" ]] && [[ ! -f "$target/zsh-edit-select.plugin.zsh" ]]; then
+        print_error "Refusing to change ownership of an existing directory without the plugin entrypoint: $target" "$failure_category"
+        return 1
+    fi
+
+    print_warning "Plugin directory is not writable by your user: $check_dir"
+    print_info "This usually happens when your plugin manager was installed system-wide as a distro package (e.g. oh-my-zsh under /usr/share)."
+
+    if [[ $NON_INTERACTIVE -eq 1 ]]; then
+        print_warning "Non-interactive mode: skipping automatic sudo elevation for safety"
+        MANUAL_STEPS+=("Make '$PLUGIN_INSTALL_DIR' writable by your user (e.g. sudo mkdir -p '$PLUGIN_INSTALL_DIR' && sudo chown -R \$(id -u):\$(id -g) '$PLUGIN_INSTALL_DIR'), or set ZSH_CUSTOM to a directory you own and re-run.")
+        return 1
+    fi
+
+    # Check whether elevation is possible without authenticating yet. Ask for
+    # consent before sudo can prompt or change ownership.
+    if [[ $EUID -ne 0 ]] && [[ $SUDO_AVAILABLE -ne 1 ]] && ! command_exists sudo; then
+        print_error "sudo is not available -- cannot fix permissions automatically" "$failure_category"
+        MANUAL_STEPS+=("Make '$PLUGIN_INSTALL_DIR' writable by your user (e.g. sudo mkdir -p '$PLUGIN_INSTALL_DIR' && sudo chown -R \$(id -u):\$(id -g) '$PLUGIN_INSTALL_DIR'), or set ZSH_CUSTOM to a directory you own and re-run.")
+        return 1
+    fi
+
+    if ! ask_yes_no "Use sudo to create '$PLUGIN_INSTALL_DIR' and hand ownership to your user ($(id -un)) so the installer can manage it normally afterwards?" "n"; then
+        print_info "Skipping. Set ZSH_CUSTOM to a writable path and re-run, or fix permissions manually."
+        MANUAL_STEPS+=("Make '$PLUGIN_INSTALL_DIR' writable by your user, or set ZSH_CUSTOM to a directory you own and re-run.")
+        return 1
+    fi
+
+    if [[ $EUID -eq 0 ]]; then
+        SUDO_AVAILABLE=1
+    fi
+
+    if [[ $EUID -ne 0 ]] && [[ $SUDO_AVAILABLE -ne 1 ]]; then
+        if ! sudo -v 2>/dev/null; then
+            print_error "sudo authentication failed -- cannot fix permissions automatically" "$failure_category"
+            MANUAL_STEPS+=("Make '$PLUGIN_INSTALL_DIR' writable by your user, or set ZSH_CUSTOM to a directory you own and re-run.")
+            return 1
+        fi
+        SUDO_AVAILABLE=1
+    fi
+
+    if ! run_with_sudo mkdir -p "$PLUGIN_INSTALL_DIR" 2>/dev/null; then
+        print_error "sudo mkdir -p failed for $PLUGIN_INSTALL_DIR" "$failure_category"
+        log_message "SUDO_MKDIR_FAILED: $PLUGIN_INSTALL_DIR"
+        return 1
+    fi
+
+    # Only take ownership of the plugin's own leaf directory, never its
+    # parents -- other plugins/content under a shared custom/ dir may be
+    # managed by the package manager or other users and must stay untouched.
+    if ! run_with_sudo chown -R "$(id -u):$(id -g)" "$PLUGIN_INSTALL_DIR" 2>/dev/null; then
+        print_error "sudo chown failed for $PLUGIN_INSTALL_DIR" "$failure_category"
+        log_message "SUDO_CHOWN_FAILED: $PLUGIN_INSTALL_DIR"
+        return 1
+    fi
+
+    if [[ ! -w "$PLUGIN_INSTALL_DIR" ]] || [[ ! -x "$PLUGIN_INSTALL_DIR" ]]; then
+        print_error "$PLUGIN_INSTALL_DIR is still not writable after chown" "$failure_category"
+        return 1
+    fi
+
+    print_success "Took ownership of $PLUGIN_INSTALL_DIR (now writable by $(id -un))" "$failure_category"
+    log_message "SUDO_CHOWN_OK: $PLUGIN_INSTALL_DIR now owned by $(id -un)"
+    return 0
+}
+
+
 clone_plugin() {
     # Verify git is installed before attempting clone
     if ! command_exists git; then
@@ -133,21 +300,34 @@ clone_plugin() {
         return 1
     fi
 
-    local parent_dir
-    parent_dir="$(dirname "$PLUGIN_INSTALL_DIR")"
+    # If PLUGIN_INSTALL_DIR itself already exists and is writable, git can
+    # clone straight into it (git supports cloning into an existing empty
+    # directory) -- so skip the parent-directory checks below entirely.
+    # This matters when ensure_plugin_dir_writable() already created and
+    # chown'd this exact leaf directory while deliberately leaving its
+    # parent untouched (e.g. a system-package oh-my-zsh install, where the
+    # parent custom/plugins/ stays root-owned on purpose so we don't grant
+    # broad write access to a directory shared with other plugins). In
+    # that case the parent will never pass the writability check below,
+    # but git doesn't need to create the directory itself here, only
+    # populate the one we already prepared.
+    if [[ ! -d "$PLUGIN_INSTALL_DIR" ]] || [[ ! -w "$PLUGIN_INSTALL_DIR" ]] || [[ ! -x "$PLUGIN_INSTALL_DIR" ]]; then
+        local parent_dir
+        parent_dir="$(dirname "$PLUGIN_INSTALL_DIR")"
 
-    if ! mkdir -p "$parent_dir" 2>/dev/null; then
-        print_error "Failed to create plugin directory: $parent_dir" "plugin_install"
-        print_error "Please check permissions and disk space"
-        log_message "MKDIR_FAILED: Cannot create $parent_dir"
-        return 1
-    fi
+        if ! mkdir -p "$parent_dir" 2>/dev/null; then
+            print_error "Failed to create plugin directory: $parent_dir" "plugin_install"
+            print_error "Please check permissions and disk space"
+            log_message "MKDIR_FAILED: Cannot create $parent_dir"
+            return 1
+        fi
 
-    # Verify directory was actually created and is writable
-    if [[ ! -d "$parent_dir" ]] || [[ ! -w "$parent_dir" ]]; then
-        print_error "Plugin directory exists but is not writable: $parent_dir" "plugin_install"
-        log_message "PERMISSION_ERROR: $parent_dir not writable"
-        return 1
+        # Verify directory was actually created and is writable
+        if [[ ! -d "$parent_dir" ]] || [[ ! -w "$parent_dir" ]]; then
+            print_error "Plugin directory exists but is not writable: $parent_dir" "plugin_install"
+            log_message "PERMISSION_ERROR: $parent_dir not writable"
+            return 1
+        fi
     fi
 
     if clone_with_retry "$REPO_URL" "$PLUGIN_INSTALL_DIR"; then
@@ -212,11 +392,18 @@ clone_with_retry() {
         fi
 
         print_warning "Clone attempt $i failed"
-        # Clean up failed clone attempt before retry (or on final failure)
+        # Clean up failed clone attempt before retry (or on final failure).
+        # If dest sits inside a read-only parent (see clone_plugin()'s
+        # pre-existing-writable-leaf case), rm -rf can still clear dest's
+        # contents -- it just can't unlink dest itself, since that requires
+        # write access to dest's parent, not dest. That partial failure is
+        # expected and harmless there, so its stderr is suppressed. If
+        # cleanup cannot remove all contents, the next clone attempt will
+        # fail normally and the final clone error will be reported.
         if [[ -n "$dest" ]] && [[ "$dest" != "/" ]] &&
             [[ "$dest" != "$HOME" ]] && [[ -e "$dest" ]]; then
             [[ $i -lt $retries ]] && sleep 5
-            rm -rf "$dest"
+            rm -rf "$dest" 2>/dev/null
         fi
     done
 
@@ -422,5 +609,4 @@ SHELDON
 }
 
 # Agent Build Functions
-
 

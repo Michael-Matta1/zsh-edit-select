@@ -276,7 +276,7 @@ check_terminal_conflicts() {
     fi
 
     if [[ ${#ignored_terminals[@]} -gt 0 ]]; then
-        print_info "Ignoring unsupported terminals for this conflict check step:"
+        print_info "Skipping automatic conflict checks for terminals without a supported config parser:"
         for terminal in "${ignored_terminals[@]}"; do
             print_substep "$terminal"
         done

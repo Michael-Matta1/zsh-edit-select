@@ -549,6 +549,24 @@ detect_terminals() {
         fi
     done
 
+    # Konsole profile/keytab configuration is supported on native Linux.
+    # Do not offer it inside WSL: the detected Konsole executable there can
+    # be a Windows-side command and its settings live outside the Linux home.
+    if [[ "$DETECTED_OS" == "linux" ]] && {
+        command_exists konsole || [[ -n "${KONSOLE_VERSION:-}" ]] || [[ -n "${KONSOLE_DBUS_SESSION:-}" ]]
+    }; then
+        if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " konsole " ]]; then
+            DETECTED_TERMINALS+=("konsole")
+            if command_exists konsole; then
+                print_substep "Found: Konsole ($(get_full_path konsole))"
+            elif [[ -n "${KONSOLE_VERSION:-}" ]]; then
+                print_substep "Found: Konsole (via KONSOLE_VERSION)"
+            else
+                print_substep "Found: Konsole (via KONSOLE_DBUS_SESSION)"
+            fi
+        fi
+    fi
+
     # Check via environment variables (terminal currently running in)
     if [[ -n "${KITTY_WINDOW_ID:-}" ]]; then
         if [[ ! " ${DETECTED_TERMINALS[*]:-} " =~ " kitty " ]]; then

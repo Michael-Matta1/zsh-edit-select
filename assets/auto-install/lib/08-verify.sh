@@ -334,6 +334,41 @@ verify_terminal_config() {
                 test_warning "Foot config not updated" "May need manual setup"
             fi
             ;;
+        konsole)
+            local profile="${XDG_DATA_HOME:-$HOME/.local/share}/konsole/zsh-edit-select.profile"
+            local keytab="${XDG_DATA_HOME:-$HOME/.local/share}/konsole/zsh-edit-select.keytab"
+            local config="${XDG_CONFIG_HOME:-$HOME/.config}/konsolerc"
+            local copy_binding_ok=0
+            if grep -qFx 'key C     +Control+Shift : "\E[67;6u"' "$keytab" 2>/dev/null ||
+                { grep -qFx 'key C     +Control-Shift : "\E[67;6u"' "$keytab" 2>/dev/null &&
+                    grep -qFx 'key C     +Control+Shift : "\x03"' "$keytab" 2>/dev/null; }; then
+                copy_binding_ok=1
+            fi
+            if [[ -f "$profile" ]] &&
+                awk '
+                    /^\[General\][[:space:]]*$/ { section = "General"; next }
+                    /^\[Keyboard\][[:space:]]*$/ { section = "Keyboard"; next }
+                    /^\[/ { section = "" }
+                    section == "General" && /^[[:space:]]*Name[[:space:]]*=[[:space:]]*zsh-edit-select[[:space:]]*$/ { name = 1 }
+                    section == "Keyboard" && /^[[:space:]]*KeyBindings[[:space:]]*=[[:space:]]*zsh-edit-select[[:space:]]*$/ { keybindings = 1 }
+                    END { exit !(name && keybindings) }
+                ' "$profile" 2>/dev/null &&
+                [[ -f "$keytab" ]] &&
+                grep -qFx 'keyboard "zsh-edit-select"' "$keytab" &&
+                grep -qFx 'key Z     +Control+Shift : "\E[90;6u"' "$keytab" &&
+                grep -qFx 'key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"' "$keytab" &&
+                [[ $copy_binding_ok -eq 1 ]] &&
+                awk '
+                    /^\[Desktop Entry\][[:space:]]*$/ { section = 1; next }
+                    /^\[/ { section = 0 }
+                    section && /^[[:space:]]*DefaultProfile[[:space:]]*=[[:space:]]*zsh-edit-select\.profile[[:space:]]*$/ { selected = 1 }
+                    END { exit !selected }
+                ' "$config" 2>/dev/null; then
+                test_pass "Konsole profile and keytab configured"
+            else
+                test_warning "Konsole config not fully updated" "May need manual setup"
+            fi
+            ;;
         ghostty)
             local config="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config"
             if [[ -f "$config" ]] && grep -qF "Zsh Edit-Select" "$config"; then
@@ -527,10 +562,10 @@ verify_terminal_capabilities() {
     # Fallback: check if any terminal we detected and configured is the one
     # we're likely running in.  This handles the case where we can't identify
     # the current terminal via env vars but we configured it anyway.
-    if [[ ${#DETECTED_TERMINALS[@]} -gt 0 ]]; then
-        for t in "${DETECTED_TERMINALS[@]}"; do
+    if [[ ${#TERMINALS_SELECTED_FOR_CONFIG[@]} -gt 0 ]]; then
+        for t in "${TERMINALS_SELECTED_FOR_CONFIG[@]}"; do
             if [[ -n "${supported_map[$t]:-}" ]]; then
-                test_pass "Terminal configuration applied (configured ${#DETECTED_TERMINALS[@]} terminal(s))"
+                test_pass "Terminal configuration applied (configured ${#TERMINALS_SELECTED_FOR_CONFIG[@]} terminal(s))"
                 return
             fi
         done
