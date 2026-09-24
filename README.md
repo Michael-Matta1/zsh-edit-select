@@ -307,7 +307,7 @@ or:
 - just immediately undo the edit with `Ctrl+Z` if it happens to be applied to a stale selection (which is already uncommon in most workflows).
 - You can also disable mouse replacement and use only keyboard selection for edits if you prefer.
 
-This is a design limitation of VS Code and Foot, not a plugin bug. VS Code's `keybindings.json` and `settings.json` expose no hook for a plain left-click, and its extension API has no terminal mousedown event to subscribe to.
+This is a design limitation of VS Code, Konsole and Foot, not a plugin bug. VS Code's `keybindings.json` and `settings.json` expose no hook for a plain left-click, and its extension API has no terminal mousedown event to subscribe to.
 
 
 ---
@@ -393,8 +393,8 @@ The script handles the end-to-end setup process:
 | :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Dependencies**   | - Installs system packages like (`git`, `zsh`), and interactively asks to optionally install build tools (`gcc`, `make`, `clang`) and dependencies for compiling the agents locally<br>- Detects your system (macOS, Debian, Fedora, Arch, etc.) and uses the correct package manager (`brew`, `port`, `apt`, `dnf`, `pacman`)                                                                                                                                          |
 | **Plugin Manager** | - **Detects** your existing manager (Oh My Zsh, Zinit, Antigen, Sheldon, etc.)<br>- **Offers to install Oh My Zsh** if you don't have a plugin manager. You can refuse if you prefer manual installation<br>- _Note: The installer detects and installs the plugin for other managers such as Zinit or Antigen, but it does not install those managers themselves. If you prefer using them instead of OMZ, make sure they are installed before running the installer._ |
-| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot** (Linux), **Ghostty**, **iTerm2** (macOS), **VS Code**, and **Windows Terminal** (WSL) to support keybindings<br>- Backs up existing config files before making changes                                                                                                                                                                                                                                     |
-| **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and terminal configuration files (Kitty, Alacritty, WezTerm, Foot, Ghostty, iTerm2, VS Code, Windows Terminal)<br>- Verifies the installation with a self-test suite                                                                                                                                                                                                                                              |
+| **Terminal Setup** | - Configures **Kitty**, **Alacritty**, **WezTerm**, **Foot** (Linux), **Konsole** (Linux), **Ghostty**, **iTerm2** (macOS), **VS Code**, and **Windows Terminal** (WSL) to support keybindings<br>- Konsole gets a dedicated profile and keytab, plus per-user shortcut overrides for Copy, Interrupt Task, and tab navigation<br>- Backs up existing config files before making changes                                                                                                                                 |
+| **Safeguards**     | - Checks for conflicting keybindings in your `.zshrc` and supported terminal configuration files (Kitty, Alacritty, WezTerm, Foot, Ghostty, iTerm2, VS Code, Windows Terminal); Konsole's per-application shortcut actions are not automatically scanned<br>- Verifies the installation with a self-test suite                                                                                                                                  |
 
 >
 
@@ -2102,7 +2102,6 @@ Menu (☰) → Settings → Configure Keyboard Shortcuts → search for each of 
 And search for each of the following and set them to **Custom** and assign any shortcuts you like that don't conflict with the plugin's shortcuts:
 - **Next Tab** / **Previous Tab** (Shift+Right / Shift+Left by default)
 
-Select the action → **Custom** → press **Clear (⌫)**.
 
 **Then Restart Konsole**
 
@@ -2563,6 +2562,8 @@ Navigate to **iTerm2 → Settings → General → Selection**, ensure **"Applica
 | `edit-select remove-hooks` | Remove the git hooks installed by `edit-select setup-hooks`.                                                                                                |
 
 **Note on Updates:** Use `edit-select update` command to update the plugin and agents, rather than running a simple `pull` manually or via the plugin manager. The `update` command re-initializes the agent runtime to ensure all agent binaries are refreshed from the latest releases.
+
+If an older install is not writable by your user (for example, a plugin directory created by a system package), `edit-select update` and `edit-select build` offer a sudo-assisted ownership repair of the plugin directory itself. These operations leave its parent directory untouched. Non-interactive runs do not elevate automatically; fix the permissions manually and rerun the command.
 
 **Automatic update notifications:** After you install, a lightweight git hook is set up for you automatically — the first time you open a shell after installing. After an interactive `git pull` (directly or through a plugin manager that executes Git hooks), the hook refreshes the agent binaries and bytecode cache, then prompts you to run `edit-select update` and offers to run it. A detached or automated pull without a controlling terminal cannot run that interactive refresh; it prints a reminder to run `edit-select update` instead. This reminder fires only on an actual pull, never during normal shell startup, so it adds zero cost to opening a terminal. You can manage it yourself with `edit-select setup-hooks` and `edit-select remove-hooks`. See the [Troubleshooting](#troubleshooting) section if you don't see the notification after a pull.
 
