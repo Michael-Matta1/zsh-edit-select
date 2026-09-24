@@ -292,7 +292,7 @@ What the plugin does for each terminal, and what you can do about it:
 
 - **WezTerm** — handled by a mouse-bindings snippet in the WezTerm config; see [Popular Terminals Configurations](#popular-terminals-configurations).
 - **Alacritty** — handled by a mouse-bindings snippet in the Alacritty config; see [Popular Terminals Configurations](#popular-terminals-configurations).
-- **Foot** — there is no way to hook a plain left-click without taking over the mouse binding that selection itself needs, so this cannot currently be solved from configuration. **What to do:** either disable mouse replacement and use keyboard selection for edits, or keep mouse replacement enabled and adopt whichever of the **common workarounds** below suits your workflow.
+- **Foot & Konsole** — there is no way to hook a plain left-click without taking over the mouse binding that selection itself needs, so this cannot currently be solved from configuration. **What to do:** either disable mouse replacement and use keyboard selection for edits, or keep mouse replacement enabled and adopt whichever of the **common workarounds** below suits your workflow.
 - **VS Code** — a click within the terminal pane to clear a selection is silently ignored by the integrated terminal.
     - **What already works:** clicking into a different VS Code pane, into any area of the VS Code window outside the terminal pane, or into another application window clears the selection automatically.
     - **Workaround for the remaining within-pane case:** to abandon a selection without acting on it, click once anywhere outside the terminal pane instead of clicking inside it.
@@ -811,7 +811,7 @@ Add to `keybindings.json` (usually at `~/.config/Code/User/`):
 
 ## Popular Terminals Configurations
 
-> The current documentation covers Kitty, WezTerm, Ghostty, Foot (Linux only), iTerm2 (macOS only), VS Code Terminal, and Windows Terminal (WSL only).
+> The current documentation covers Kitty, WezTerm, Ghostty, Foot (Linux only), Konsole (Linux only), iTerm2 (macOS only), VS Code Terminal, and Windows Terminal (WSL only).
 >
 > Instructions for **tmux** integration are also included.
 
@@ -1787,6 +1787,331 @@ Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcut
 </details>
 
 ---
+
+#### Konsole (Linux only)
+
+<details>
+<summary>Click to expand</summary>
+
+Konsole has no single config file — keyboard behavior lives in a **keytab** attached to a **profile**. The default **Built-in [Read-only]** profile can't be edited, so you need a new profile.
+
+**1. Create the keytab.** Choose **ONE** of the options below, click it to expand, and run the command.
+
+> **Option A** uses the traditional Linux terminal convention: `Ctrl+Shift+C` copies, while `Ctrl+C` sends an interrupt signal.
+
+
+<details>
+<summary><b>Option A: Ctrl+Shift+C = copy  ──  (Click to expand)</b></summary>
+
+```bash
+mkdir -p ~/.local/share/konsole
+cat > ~/.local/share/konsole/zsh-edit-select.keytab << 'EOF'
+keyboard "zsh-edit-select"
+
+key Escape : "\E"
+key Tab -Shift : "\t"
+key Tab +Shift+Ansi : "\E[Z"
+key Tab +Shift-Ansi : "\t"
+key Backtab +Ansi : "\E[Z"
+key Backtab -Ansi : "\t"
+key Tab +Control+Ansi : "\E[27;5;9~"
+key Backtab +Control+Ansi : "\E[27;6;9~"
+key Tab +Control-Ansi : "\t"
+key Backtab +Control-Ansi : "\t"
+key Return-Shift-NewLine : "\r"
+key Return-Shift+NewLine : "\r\n"
+key Return+Shift : "\EOM"
+key Backspace -Control : "\x7f"
+key Backspace +Control : "\b"
+
+key Up -Shift-Ansi : "\EA"
+key Down -Shift-Ansi : "\EB"
+key Right-Shift-Ansi : "\EC"
+key Left -Shift-Ansi : "\ED"
+
+key Up -Shift-AnyMod+Ansi+AppCuKeys : "\EOA"
+key Down -Shift-AnyMod+Ansi+AppCuKeys : "\EOB"
+key Right -Shift-AnyMod+Ansi+AppCuKeys : "\EOC"
+key Left -Shift-AnyMod+Ansi+AppCuKeys : "\EOD"
+key Up -Shift-AnyMod+Ansi-AppCuKeys : "\E[A"
+key Down -Shift-AnyMod+Ansi-AppCuKeys : "\E[B"
+key Right -Shift-AnyMod+Ansi-AppCuKeys : "\E[C"
+key Left -Shift-AnyMod+Ansi-AppCuKeys : "\E[D"
+key Up -Shift+AnyMod+Ansi : "\E[1;*A"
+key Down -Shift+AnyMod+Ansi : "\E[1;*B"
+key Right -Shift+AnyMod+Ansi : "\E[1;*C"
+key Left -Shift+AnyMod+Ansi : "\E[1;*D"
+key Up +Shift+AppScreen : "\E[1;*A"
+key Down +Shift+AppScreen : "\E[1;*B"
+key Left +Shift+AppScreen : "\E[1;*D"
+key Right +Shift+AppScreen : "\E[1;*C"
+key Up +Shift+Alt-AppScreen : "\E[1;*A"
+key Down +Shift+Alt-AppScreen : "\E[1;*B"
+key Left +Shift+Alt-AppScreen : "\E[1;*D"
+key Right +Shift+Alt-AppScreen : "\E[1;*C"
+key Up +Shift+Ctrl-AppScreen : "\E[1;*A"
+key Down +Shift+Ctrl-AppScreen : "\E[1;*B"
+key Left +Shift+Ctrl-AppScreen : "\E[1;*D"
+key Right +Shift+Ctrl-AppScreen : "\E[1;*C"
+
+key Up -Shift+Ansi+AppCuKeys+KeyPad : "\EOA"
+key Down -Shift+Ansi+AppCuKeys+KeyPad : "\EOB"
+key Right -Shift+Ansi+AppCuKeys+KeyPad : "\EOC"
+key Left -Shift+Ansi+AppCuKeys+KeyPad : "\EOD"
+key Up -Shift+Ansi-AppCuKeys+KeyPad : "\E[A"
+key Down -Shift+Ansi-AppCuKeys+KeyPad : "\E[B"
+key Right -Shift+Ansi-AppCuKeys+KeyPad : "\E[C"
+key Left -Shift+Ansi-AppCuKeys+KeyPad : "\E[D"
+key Home +AppCuKeys+KeyPad : "\EOH"
+key End +AppCuKeys+KeyPad : "\EOF"
+key Home -AppCuKeys+KeyPad : "\E[H"
+key End -AppCuKeys+KeyPad : "\E[F"
+key Insert +KeyPad : "\E[2~"
+key Delete +KeyPad : "\E[3~"
+key PgUp -Shift+KeyPad : "\E[5~"
+key PgDown -Shift+KeyPad : "\E[6~"
+key Clear +KeyPad : "\E[E"
+
+key Enter+NewLine : "\r\n"
+key Enter-NewLine : "\r"
+key Home -AnyMod-AppCuKeys : "\E[H"
+key End -AnyMod-AppCuKeys : "\E[F"
+key Home -AnyMod+AppCuKeys : "\EOH"
+key End -AnyMod+AppCuKeys : "\EOF"
+key Home +AnyMod : "\E[1;*H"
+key End +AnyMod : "\E[1;*F"
+key Insert -AnyMod : "\E[2~"
+key Delete -AnyMod : "\E[3~"
+key Insert +AnyMod : "\E[2;*~"
+key Delete +AnyMod : "\E[3;*~"
+key PgUp -Shift-AnyMod : "\E[5~"
+key PgDown -Shift-AnyMod : "\E[6~"
+key PgUp -Shift+AnyMod : "\E[5;*~"
+key PgDown -Shift+AnyMod : "\E[6;*~"
+key PgUp +Shift+AppScreen : "\E[5;*~"
+key PgDown +Shift+AppScreen : "\E[6;*~"
+
+key F1 -AnyMod : "\EOP"
+key F2 -AnyMod : "\EOQ"
+key F3 -AnyMod : "\EOR"
+key F4 -AnyMod : "\EOS"
+key F5 -AnyMod : "\E[15~"
+key F6 -AnyMod : "\E[17~"
+key F7 -AnyMod : "\E[18~"
+key F8 -AnyMod : "\E[19~"
+key F9 -AnyMod : "\E[20~"
+key F10 -AnyMod : "\E[21~"
+key F11 -AnyMod : "\E[23~"
+key F12 -AnyMod : "\E[24~"
+key F1 +AnyMod : "\EO*P"
+key F2 +AnyMod : "\EO*Q"
+key F3 +AnyMod : "\EO*R"
+key F4 +AnyMod : "\EO*S"
+key F5 +AnyMod : "\E[15;*~"
+key F6 +AnyMod : "\E[17;*~"
+key F7 +AnyMod : "\E[18;*~"
+key F8 +AnyMod : "\E[19;*~"
+key F9 +AnyMod : "\E[20;*~"
+key F10 +AnyMod : "\E[21;*~"
+key F11 +AnyMod : "\E[23;*~"
+key F12 +AnyMod : "\E[24;*~"
+
+key Space +Control : "\x00"
+
+# Konsole scroll actions (Shift+Up/Down/Home/End removed on purpose for zsh-edit-select)
+key PgUp -Ctrl+Shift-AppScreen : scrollPageUp
+key PgUp +Ctrl+Shift-AppScreen : scrollPromptUp
+key PgDown -Ctrl+Shift-AppScreen : scrollPageDown
+key PgDown +Ctrl+Shift-AppScreen : scrollPromptDown
+
+# ── zsh-edit-select ──
+key C     +Control+Shift : "\E[67;6u"
+key Z     +Control+Shift : "\E[90;6u"
+key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"
+key Down  +Shift-Alt-Ctrl-AppScreen : "\E[1;2B"
+key Right +Shift-Alt-Ctrl-AppScreen : "\E[1;2C"
+key Left  +Shift-Alt-Ctrl-AppScreen : "\E[1;2D"
+EOF
+```
+
+</details>
+
+> **Option B** uses GUI-style behavior: `Ctrl+C` copies, while `Ctrl+Shift+C` sends an interrupt signal.
+
+
+<details>
+<summary><b>Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt   ──  (Click to expand) </b></summary>
+
+```bash
+mkdir -p ~/.local/share/konsole
+cat > ~/.local/share/konsole/zsh-edit-select.keytab << 'EOF'
+keyboard "zsh-edit-select"
+
+key Escape : "\E"
+key Tab -Shift : "\t"
+key Tab +Shift+Ansi : "\E[Z"
+key Tab +Shift-Ansi : "\t"
+key Backtab +Ansi : "\E[Z"
+key Backtab -Ansi : "\t"
+key Tab +Control+Ansi : "\E[27;5;9~"
+key Backtab +Control+Ansi : "\E[27;6;9~"
+key Tab +Control-Ansi : "\t"
+key Backtab +Control-Ansi : "\t"
+key Return-Shift-NewLine : "\r"
+key Return-Shift+NewLine : "\r\n"
+key Return+Shift : "\EOM"
+key Backspace -Control : "\x7f"
+key Backspace +Control : "\b"
+
+key Up -Shift-Ansi : "\EA"
+key Down -Shift-Ansi : "\EB"
+key Right-Shift-Ansi : "\EC"
+key Left -Shift-Ansi : "\ED"
+
+key Up -Shift-AnyMod+Ansi+AppCuKeys : "\EOA"
+key Down -Shift-AnyMod+Ansi+AppCuKeys : "\EOB"
+key Right -Shift-AnyMod+Ansi+AppCuKeys : "\EOC"
+key Left -Shift-AnyMod+Ansi+AppCuKeys : "\EOD"
+key Up -Shift-AnyMod+Ansi-AppCuKeys : "\E[A"
+key Down -Shift-AnyMod+Ansi-AppCuKeys : "\E[B"
+key Right -Shift-AnyMod+Ansi-AppCuKeys : "\E[C"
+key Left -Shift-AnyMod+Ansi-AppCuKeys : "\E[D"
+key Up -Shift+AnyMod+Ansi : "\E[1;*A"
+key Down -Shift+AnyMod+Ansi : "\E[1;*B"
+key Right -Shift+AnyMod+Ansi : "\E[1;*C"
+key Left -Shift+AnyMod+Ansi : "\E[1;*D"
+key Up +Shift+AppScreen : "\E[1;*A"
+key Down +Shift+AppScreen : "\E[1;*B"
+key Left +Shift+AppScreen : "\E[1;*D"
+key Right +Shift+AppScreen : "\E[1;*C"
+key Up +Shift+Alt-AppScreen : "\E[1;*A"
+key Down +Shift+Alt-AppScreen : "\E[1;*B"
+key Left +Shift+Alt-AppScreen : "\E[1;*D"
+key Right +Shift+Alt-AppScreen : "\E[1;*C"
+key Up +Shift+Ctrl-AppScreen : "\E[1;*A"
+key Down +Shift+Ctrl-AppScreen : "\E[1;*B"
+key Left +Shift+Ctrl-AppScreen : "\E[1;*D"
+key Right +Shift+Ctrl-AppScreen : "\E[1;*C"
+
+key Up -Shift+Ansi+AppCuKeys+KeyPad : "\EOA"
+key Down -Shift+Ansi+AppCuKeys+KeyPad : "\EOB"
+key Right -Shift+Ansi+AppCuKeys+KeyPad : "\EOC"
+key Left -Shift+Ansi+AppCuKeys+KeyPad : "\EOD"
+key Up -Shift+Ansi-AppCuKeys+KeyPad : "\E[A"
+key Down -Shift+Ansi-AppCuKeys+KeyPad : "\E[B"
+key Right -Shift+Ansi-AppCuKeys+KeyPad : "\E[C"
+key Left -Shift+Ansi-AppCuKeys+KeyPad : "\E[D"
+key Home +AppCuKeys+KeyPad : "\EOH"
+key End +AppCuKeys+KeyPad : "\EOF"
+key Home -AppCuKeys+KeyPad : "\E[H"
+key End -AppCuKeys+KeyPad : "\E[F"
+key Insert +KeyPad : "\E[2~"
+key Delete +KeyPad : "\E[3~"
+key PgUp -Shift+KeyPad : "\E[5~"
+key PgDown -Shift+KeyPad : "\E[6~"
+key Clear +KeyPad : "\E[E"
+
+key Enter+NewLine : "\r\n"
+key Enter-NewLine : "\r"
+key Home -AnyMod-AppCuKeys : "\E[H"
+key End -AnyMod-AppCuKeys : "\E[F"
+key Home -AnyMod+AppCuKeys : "\EOH"
+key End -AnyMod+AppCuKeys : "\EOF"
+key Home +AnyMod : "\E[1;*H"
+key End +AnyMod : "\E[1;*F"
+key Insert -AnyMod : "\E[2~"
+key Delete -AnyMod : "\E[3~"
+key Insert +AnyMod : "\E[2;*~"
+key Delete +AnyMod : "\E[3;*~"
+key PgUp -Shift-AnyMod : "\E[5~"
+key PgDown -Shift-AnyMod : "\E[6~"
+key PgUp -Shift+AnyMod : "\E[5;*~"
+key PgDown -Shift+AnyMod : "\E[6;*~"
+key PgUp +Shift+AppScreen : "\E[5;*~"
+key PgDown +Shift+AppScreen : "\E[6;*~"
+
+key F1 -AnyMod : "\EOP"
+key F2 -AnyMod : "\EOQ"
+key F3 -AnyMod : "\EOR"
+key F4 -AnyMod : "\EOS"
+key F5 -AnyMod : "\E[15~"
+key F6 -AnyMod : "\E[17~"
+key F7 -AnyMod : "\E[18~"
+key F8 -AnyMod : "\E[19~"
+key F9 -AnyMod : "\E[20~"
+key F10 -AnyMod : "\E[21~"
+key F11 -AnyMod : "\E[23~"
+key F12 -AnyMod : "\E[24~"
+key F1 +AnyMod : "\EO*P"
+key F2 +AnyMod : "\EO*Q"
+key F3 +AnyMod : "\EO*R"
+key F4 +AnyMod : "\EO*S"
+key F5 +AnyMod : "\E[15;*~"
+key F6 +AnyMod : "\E[17;*~"
+key F7 +AnyMod : "\E[18;*~"
+key F8 +AnyMod : "\E[19;*~"
+key F9 +AnyMod : "\E[20;*~"
+key F10 +AnyMod : "\E[21;*~"
+key F11 +AnyMod : "\E[23;*~"
+key F12 +AnyMod : "\E[24;*~"
+
+key Space +Control : "\x00"
+
+# Konsole scroll actions (Shift+Up/Down/Home/End removed on purpose for zsh-edit-select)
+key PgUp -Ctrl+Shift-AppScreen : scrollPageUp
+key PgUp +Ctrl+Shift-AppScreen : scrollPromptUp
+key PgDown -Ctrl+Shift-AppScreen : scrollPageDown
+key PgDown +Ctrl+Shift-AppScreen : scrollPromptDown
+
+# ── zsh-edit-select ──
+# Ctrl+C = copy, Ctrl+Shift+C = interrupt
+key C     +Control-Shift : "\E[67;6u"
+key C     +Control+Shift : "\x03"
+key Z     +Control+Shift : "\E[90;6u"
+key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"
+key Down  +Shift-Alt-Ctrl-AppScreen : "\E[1;2B"
+key Right +Shift-Alt-Ctrl-AppScreen : "\E[1;2C"
+key Left  +Shift-Alt-Ctrl-AppScreen : "\E[1;2D"
+EOF
+```
+
+</details>
+
+<p align="center">
+  <strong>✦───────────✦</strong>
+</p>
+
+
+**2. Create a new profile** :
+- Menu (☰) → :More → Settings → Manage Profiles… → **+ New…**
+- Name it, e.g. `zsh-edit-select`
+- From the pages listed on the left, go to the **Keyboard** page → select **zsh-edit-select** → Apply → OK
+
+- The newly created profile `zsh-edit-select` will be listed in the profiles menu, Select it and click the "Set as Default" button on the right then click `OK`.
+  - If you missed it, go to Manage Profiles… → select your profile (`zsh-edit-select`) → **Set as Default** → OK
+
+<p align="center">
+  <strong>✦───────────✦</strong>
+</p>
+
+**3. Free the keys Konsole's own shortcuts grab:**
+Menu (☰) → Settings → Configure Keyboard Shortcuts → search for each of the following and clear them by setting their shortcut to **Custom** and pressing **Clear (⌫)**:
+- **Copy**
+- **Interrupt Task (INT)**
+
+And search for each of the following and set them to **Custom** and assign any shortcuts you like that don't conflict with the plugin's shortcuts:
+- **Next Tab** / **Previous Tab** (Shift+Right / Shift+Left by default)
+
+Select the action → **Custom** → press **Clear (⌫)**.
+
+**Then Restart Konsole**
+
+---
+
+</details>
+
+---
+
 
 #### Foot _(Linux only)_
 
