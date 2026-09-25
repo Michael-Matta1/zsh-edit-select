@@ -470,17 +470,20 @@ configure_zshrc() {
             fi
         else
             # Either no plugins array, or multi-line array - use plugins+=
-            # Insert BEFORE 'source $ZSH/oh-my-zsh.sh' so OMZ sees the plugin
+            # Insert before the configuration source that eventually loads OMZ
+            # so the plugin is present when OMZ reads the plugins array.
             local insert_block
             insert_block=$(printf '%s\n%s\n%s' "$marker" "# Zsh Edit-Select plugin" "plugins+=(zsh-edit-select)")
-            if grep -q 'source.*\$ZSH/oh-my-zsh\.sh' "$zshrc" 2>/dev/null; then
+            local source_pattern='source.*[$]ZSH/oh-my-zsh[.]sh|^[[:space:]]*source[[:space:]]+/usr/share/cachyos-zsh-config/cachyos-config[.]zsh[[:space:]]*$'
+
+            if grep -qE "$source_pattern" "$zshrc" 2>/dev/null; then
                 local tmp_zshrc
                 tmp_zshrc=$(mktemp) || {
                     print_error "Failed to create temporary file"
                     return 1
                 }
-                if awk -v block="$insert_block" '
-                    /source.*\$ZSH\/oh-my-zsh\.sh/ && !done {
+                if awk -v block="$insert_block" -v pattern="$source_pattern" '
+                    $0 ~ pattern && !done {
                         print ""
                         n = split(block, lines, "\n")
                         for (i = 1; i <= n; i++) print lines[i]
@@ -491,7 +494,7 @@ configure_zshrc() {
                     copy_file_permissions "$zshrc" "$tmp_zshrc" 2>/dev/null
                     mv "$tmp_zshrc" "$zshrc"
                 }; then
-                    print_success "Added plugins+=(zsh-edit-select) to .zshrc (before oh-my-zsh source)" "zshrc_config"
+                    print_success "Added plugins+=(zsh-edit-select) before the plugin-loading configuration source" "zshrc_config"
                 else
                     rm -f "$tmp_zshrc"
                     print_error "Failed to insert plugin config into .zshrc"
@@ -609,4 +612,3 @@ SHELDON
 }
 
 # Agent Build Functions
-
