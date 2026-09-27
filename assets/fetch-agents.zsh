@@ -42,7 +42,8 @@ function _zes_fetch_binary() {
 
   [[ -n "$_asset" ]] || return 1
 
-  local _base_url="https://github.com/Michael-Matta1/zsh-edit-select/releases/latest/download"
+  local _repo="Michael-Matta1/zsh-edit-select"
+  local _api_url="https://api.github.com/repos/${_repo}/releases"
   local _tmp="${_dest}.tmp.$$"
   local _dl_cmd=""
 
@@ -56,6 +57,36 @@ function _zes_fetch_binary() {
   else
     return 1
   fi
+
+  # ── Resolve the latest pre-release tag ─────────────────────────────────
+  # Query the GitHub API for the most recent pre-release whose tag starts
+  # with "pre-v".  This mirrors the release.yml convention where stable
+  # tags are "v*" and pre-release tags are "pre-v*".
+  local _tag=""
+  local _releases_json=""
+  if (( ${+commands[curl]} )); then
+    _releases_json=$(curl -fsSL --retry 2 --connect-timeout 10 "${_api_url}" 2>/dev/null) || _releases_json=""
+  elif (( ${+commands[wget]} )); then
+    _releases_json=$(wget -q --tries=2 --timeout=10 -O- "${_api_url}" 2>/dev/null) || _releases_json=""
+  fi
+
+  if [[ -n "$_releases_json" ]]; then
+    # Extract the tag_name of the first release where prerelease==true
+    # and the tag starts with "pre-v".  Uses only awk — no jq dependency.
+    _tag=$(printf '%s' "$_releases_json" | awk '
+      /"tag_name"/ { gsub(/[",]/, "", $2); tag=$2 }
+      /"prerelease": true/ {
+        if (tag ~ /^pre-v/) { print tag; exit }
+      }
+    ')
+  fi
+
+  if [[ -z "$_tag" ]]; then
+    # No pre-release found — cannot proceed.
+    return 1
+  fi
+
+  local _base_url="https://github.com/${_repo}/releases/download/${_tag}"
 
   # Fail fast if the destination directory is not writable — no point in
   # making a network round-trip we cannot finish.

@@ -1,4 +1,4 @@
-# Zsh Edit-Select
+# Zsh Edit-Select (Beta)
 
 Zsh plugin that lets you edit your command line like a text editor. Select text with Shift + Arrow keys or the
 mouse, type or paste to replace selections, use standard editing shortcuts (copy, cut, paste, undo, redo,
@@ -344,14 +344,17 @@ terminals in a single run.
 
 To use it, run:
 
+> [!CAUTION]
+> **Pre-release version:** You are viewing the `pre-release` branch. This version may contain experimental changes. For the stable version, switch to the [`main` branch](https://github.com/Michael-Matta1/zsh-edit-select/tree/main).
+
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/pre-release/assets/auto-install/install.sh)
 ```
 
 Or
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/pre-release/assets/auto-install/install.sh)
 ```
 
 <details>
@@ -416,7 +419,7 @@ pass them to bash:
 **Example: Non-interactive installation (CI/CD friendly)**
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh) --non-interactive
+bash <(curl -fsSL https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/pre-release/assets/auto-install/install.sh) --non-interactive
 ```
 
 </details>
@@ -438,6 +441,9 @@ The process consists of two main steps:
 >
 > In some cases, the **first** shell load may be delayed by temporary GitHub infrastructure issues that slow the agent download. This affects **only** the **first** post-installation load. If that **first** startup takes longer than expected, wait a few minutes and try again once GitHub services are fully operational.
 
+> [!CAUTION]
+> **Pre-release version:** You are viewing the `pre-release` branch. This version may contain experimental changes. For the stable version, switch to the [`main` branch](https://github.com/Michael-Matta1/zsh-edit-select/tree/main).
+
 ### 1. Install the Plugin
 
 Expand the section for your plugin manager:
@@ -446,7 +452,7 @@ Expand the section for your plugin manager:
 <summary><b>Oh My Zsh</b></summary>
 
 ```bash
-git clone --depth=1 https://github.com/Michael-Matta1/zsh-edit-select.git \
+git clone --depth=1 --branch pre-release https://github.com/Michael-Matta1/zsh-edit-select.git \
   ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-edit-select
 ```
 
@@ -462,7 +468,7 @@ plugins=(... zsh-edit-select)
 <summary><b>zgenom</b></summary>
 
 ```bash
-zgenom load Michael-Matta1/zsh-edit-select
+zgenom load Michael-Matta1/zsh-edit-select --branch pre-release
 ```
 
 </details>
@@ -473,13 +479,13 @@ zgenom load Michael-Matta1/zsh-edit-select
 **One-liner:**
 
 ```bash
-zinit depth"1" light-mode for Michael-Matta1/zsh-edit-select
+zinit depth"1" ver"pre-release" light-mode for Michael-Matta1/zsh-edit-select
 ```
 
 **Or with explicit `ice`:**
 
 ```bash
-zinit ice depth"1"; zinit light Michael-Matta1/zsh-edit-select
+zinit ice depth"1" ver"pre-release"; zinit light Michael-Matta1/zsh-edit-select
 ```
 
 </details>
@@ -488,7 +494,7 @@ zinit ice depth"1"; zinit light Michael-Matta1/zsh-edit-select
 <summary><b>zplug</b></summary>
 
 ```bash
-zplug "Michael-Matta1/zsh-edit-select", depth:1
+zplug "Michael-Matta1/zsh-edit-select", depth:1, at:pre-release
 ```
 
 </details>
@@ -497,7 +503,7 @@ zplug "Michael-Matta1/zsh-edit-select", depth:1
 <summary><b>antigen</b></summary>
 
 ```bash
-antigen bundle Michael-Matta1/zsh-edit-select
+antigen bundle Michael-Matta1/zsh-edit-select --branch=pre-release
 ```
 
 </details>
@@ -508,7 +514,7 @@ antigen bundle Michael-Matta1/zsh-edit-select
 **Via CLI:**
 
 ```bash
-sheldon add zsh-edit-select --github Michael-Matta1/zsh-edit-select
+sheldon add zsh-edit-select --github Michael-Matta1/zsh-edit-select --branch pre-release
 ```
 
 **Or manually in `~/.config/sheldon/plugins.toml`:**
@@ -516,6 +522,7 @@ sheldon add zsh-edit-select --github Michael-Matta1/zsh-edit-select
 ```toml
 [plugins.zsh-edit-select]
 github = "Michael-Matta1/zsh-edit-select"
+branch = "pre-release"
 ```
 
 </details>
@@ -526,7 +533,7 @@ Or:
 <summary><b>Without a Plugin Manager</b></summary>
 
 ```bash
-git clone --depth=1 https://github.com/Michael-Matta1/zsh-edit-select.git \
+git clone --depth=1 --branch pre-release https://github.com/Michael-Matta1/zsh-edit-select.git \
   ~/.local/share/zsh/plugins/zsh-edit-select
 
 # Add to ~/.zshrc:

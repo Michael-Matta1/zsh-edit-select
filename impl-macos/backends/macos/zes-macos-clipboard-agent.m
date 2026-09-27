@@ -346,6 +346,37 @@ static bool host_prefers_cmdc_fallback(void) {
     return false;
 }
 
+/* ── SCOPE GUARD: reactive Cmd+C must never leave the terminal ──────────
+   kAXErrorAttributeUnsupported means "this focused element has no text-
+   selection concept" -- true both for GPU/canvas-rendered terminals
+   (Ghostty, Alacritty, WezTerm; the intended case) AND for completely
+   unrelated AppKit surfaces (Finder icon/list views, bare NSWindows,
+   the desktop). AX cannot tell these apart by itself, so the invasive
+   Cmd+C inject must be additionally scoped to known terminal hosts here,
+   or it fires in any frontmost app that merely isn't a text field. */
+static bool frontmost_is_known_terminal(void) {
+    NSRunningApplication *app = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    NSString *bid = app.bundleIdentifier;
+    if (!bid) return host_prefers_cmdc_fallback();
+
+    static NSSet<NSString *> *terminals = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        terminals = [NSSet setWithArray:@[
+            @"com.mitchellh.ghostty",
+            @"com.apple.Terminal",
+            @"com.googlecode.iterm2",
+            @"net.kovidgoyal.kitty",
+            @"io.alacritty",
+            @"org.alacritty",
+            @"com.github.wez.wezterm",
+        ]];
+    });
+    if ([terminals containsObject:bid]) return true;
+
+    return host_prefers_cmdc_fallback(); /* Electron hosts: VS Code, Cursor */
+}
+
 /* ─────────────────────────────────────────────────────────────────────
    PATH A — Accessibility API
    Returns:
@@ -373,7 +404,8 @@ static int ax_try(void) {
         CFRelease(focused);
 
         if (e == kAXErrorAttributeUnsupported || e == kAXErrorActionUnsupported)
-            return -1;   /* AX unsupported: use reactive fallback */
+            return frontmost_is_known_terminal() ? -1  /* known terminal: reactive fallback */
+                                                  : -2; /* unrelated app: do nothing */
         if (e != kAXErrorSuccess || !val)
             return host_prefers_cmdc_fallback() ? -1 : -2;
 

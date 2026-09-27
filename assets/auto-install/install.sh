@@ -4,7 +4,7 @@
 # Homepage: https://github.com/Michael-Matta1/zsh-edit-select
 
 # ── Bootstrap URL ──────────────────────────────────────────────────────────
-readonly _ZES_BOOTSTRAP_MAIN_INSTALL_URL="https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/install.sh"
+readonly _ZES_BOOTSTRAP_MAIN_INSTALL_URL="https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/pre-release/assets/auto-install/install.sh"
 
 # ── Bash requirement checks ────────────────────────────────────────────────
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -219,7 +219,7 @@ if [[ -z "${BASH_VERSINFO[0]}" ]] || [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
 fi
 
 # ── Remote module URL ──────────────────────────────────────────────────────
-readonly _ZES_BASE_URL="https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/main/assets/auto-install/lib"
+readonly _ZES_BASE_URL="https://raw.githubusercontent.com/Michael-Matta1/zsh-edit-select/pre-release/assets/auto-install/lib"
 
 readonly _ZES_MODULES=(
     "00-globals"

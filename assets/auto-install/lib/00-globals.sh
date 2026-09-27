@@ -14,7 +14,7 @@ readonly _ZES_MOD_GLOBALS_LOADED=1
 
 # Global Configuration
 
-readonly SCRIPT_VERSION="0.7.00"
+readonly SCRIPT_VERSION="0.7.01"
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -76,6 +76,7 @@ KITTY_FRESHLY_INSTALLED=0
 
 # Repository URL
 readonly REPO_URL="https://github.com/Michael-Matta1/zsh-edit-select.git"
+readonly REPO_BRANCH="pre-release"
 
 # Sudo check flag
 SUDO_AVAILABLE=0

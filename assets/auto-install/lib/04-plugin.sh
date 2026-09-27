@@ -368,7 +368,7 @@ clone_with_retry() {
 
         # Use timeout if available
         if command_exists timeout; then
-            if timeout "$timeout" git clone --depth 1 "$url" "$dest" >>"$LOG_FILE" 2>&1; then
+            if timeout "$timeout" git clone --depth 1 --branch "${REPO_BRANCH:-main}" "$url" "$dest" >>"$LOG_FILE" 2>&1; then
                 # Verify .git directory exists
                 if [[ -d "$dest/.git" ]]; then
                     log_message "GIT_CLONE_SUCCESS: Cloned $url to $dest"
@@ -379,7 +379,7 @@ clone_with_retry() {
                 fi
             fi
         else
-            if git clone --depth 1 "$url" "$dest" >>"$LOG_FILE" 2>&1; then
+            if git clone --depth 1 --branch "${REPO_BRANCH:-main}" "$url" "$dest" >>"$LOG_FILE" 2>&1; then
                 # Verify .git directory exists
                 if [[ -d "$dest/.git" ]]; then
                     log_message "GIT_CLONE_SUCCESS: Cloned $url to $dest"
@@ -516,7 +516,7 @@ configure_zshrc() {
             ""
             "$marker"
             "# Zsh Edit-Select"
-            "zinit light Michael-Matta1/zsh-edit-select"
+            "zinit ice ver\"pre-release\"; zinit light Michael-Matta1/zsh-edit-select"
         )
         for line in "${lines[@]}"; do
             echo "$line" >>"$zshrc"
@@ -529,7 +529,7 @@ configure_zshrc() {
             ""
             "$marker"
             "# Zsh Edit-Select"
-            "zplug \"Michael-Matta1/zsh-edit-select\""
+            "zplug \"Michael-Matta1/zsh-edit-select\", at:pre-release"
         )
         for line in "${lines[@]}"; do
             echo "$line" >>"$zshrc"
@@ -542,7 +542,7 @@ configure_zshrc() {
             ""
             "$marker"
             "# Zsh Edit-Select"
-            "antigen bundle Michael-Matta1/zsh-edit-select"
+            "antigen bundle Michael-Matta1/zsh-edit-select --branch=pre-release"
         )
         for line in "${lines[@]}"; do
             echo "$line" >>"$zshrc"
@@ -555,7 +555,7 @@ configure_zshrc() {
             ""
             "$marker"
             "# Zsh Edit-Select"
-            "antibody bundle Michael-Matta1/zsh-edit-select"
+            "antibody bundle Michael-Matta1/zsh-edit-select branch:pre-release"
         )
         for line in "${lines[@]}"; do
             echo "$line" >>"$zshrc"
@@ -569,7 +569,7 @@ configure_zshrc() {
             ""
             "$marker"
             "# Zsh Edit-Select"
-            "$cmd load Michael-Matta1/zsh-edit-select"
+            "$cmd load Michael-Matta1/zsh-edit-select --branch pre-release"
         )
         for line in "${lines[@]}"; do
             echo "$line" >>"$zshrc"
@@ -585,6 +585,7 @@ configure_zshrc() {
 
 [plugins.zsh-edit-select]
 github = "Michael-Matta1/zsh-edit-select"
+branch = "pre-release"
 SHELDON
                 print_success "Added Sheldon plugin configuration" "zshrc_config"
             else

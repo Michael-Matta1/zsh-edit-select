@@ -126,7 +126,7 @@ run_plugin_update() {
         local fetch_output reset_output
         local default_branch
         default_branch=$(git -C "$PLUGIN_INSTALL_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-        default_branch="${default_branch:-main}"
+        default_branch="${default_branch:-pre-release}"
         if fetch_output=$(git -C "$PLUGIN_INSTALL_DIR" fetch origin 2>&1) &&
             reset_output=$(git -C "$PLUGIN_INSTALL_DIR" reset --hard "origin/$default_branch" 2>&1); then
             echo "$fetch_output" | tee -a "$LOG_FILE"
