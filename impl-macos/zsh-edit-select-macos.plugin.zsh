@@ -40,6 +40,10 @@ typeset -g _EDIT_SELECT_PRIMARY_FILE="$_EDIT_SELECT_CACHE_DIR/primary"
 typeset -g _EDIT_SELECT_PID_FILE="$_EDIT_SELECT_CACHE_DIR/agent.pid"
 # Path B (reactive Cmd+C) capture marker (daemon creates/deletes this file).
 typeset -g _EDIT_SELECT_PENDING_FILE="$_EDIT_SELECT_CACHE_DIR/pending"
+# Per-shell session registrations; the daemon resolves each live session's
+# process ancestry to its owning terminal and scopes reactive Cmd+C capture
+# to those apps only (see the agent's registered-terminals block).
+typeset -g _EDIT_SELECT_SESSIONS_DIR="$_EDIT_SELECT_CACHE_DIR/sessions"
 
 # ── Default key sequences (macOS-native) ─────────────────────────────
 # Clipboard: Cmd key via CSI-u / kitty keyboard protocol.

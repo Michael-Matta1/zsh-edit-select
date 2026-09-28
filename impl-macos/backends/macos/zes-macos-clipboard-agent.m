@@ -50,6 +50,7 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <dispatch/dispatch.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
@@ -61,6 +62,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -90,6 +93,7 @@ static char g_primary_path[560];
 static char g_seq_path[560];
 static char g_pid_path[560];
 static char g_pending_path[560];  /* exists while a reactive capture may be in flight */
+static char g_sessions_dir[576];  /* per-shell session registrations scoping reactive capture */
 static mode_t g_cache_mode = 0;   /* dir perms captured by ensure_cache_dir's stat */
 
 /* ── Persistent fds ──────────────────────────────────────────────────── */
@@ -130,6 +134,11 @@ static int           g_num_named_pb = 0;
 /* ── Watcher state ───────────────────────────────────────────────────── */
 static uint64_t          g_gen     = 0;
 static dispatch_source_t g_watcher = NULL;
+
+/* ── Registered terminals ────────────────────────────────────────────── */
+#define MAX_TERM_PIDS 128
+static pid_t g_term_pids[MAX_TERM_PIDS];  /* GUI apps hosting a live plugin shell */
+static int   g_n_term_pids = 0;
 
 /* ─────────────────────────────────────────────────────────────────────
    write_primary_content()
@@ -248,6 +257,8 @@ static int ensure_cache_dir(const char *dir) {
     if (n < 0 || (size_t)n >= sizeof(g_pid_path)) return -1;
     n = snprintf(g_pending_path, sizeof(g_pending_path), "%s/pending", g_cache_dir);
     if (n < 0 || (size_t)n >= sizeof(g_pending_path)) return -1;
+    n = snprintf(g_sessions_dir, sizeof(g_sessions_dir), "%s/sessions", g_cache_dir);
+    if (n < 0 || (size_t)n >= sizeof(g_sessions_dir)) return -1;
 
     struct stat st;
     if (stat(g_cache_dir, &st) == -1) {
@@ -346,37 +357,6 @@ static bool host_prefers_cmdc_fallback(void) {
     return false;
 }
 
-/* ── SCOPE GUARD: reactive Cmd+C must never leave the terminal ──────────
-   kAXErrorAttributeUnsupported means "this focused element has no text-
-   selection concept" -- true both for GPU/canvas-rendered terminals
-   (Ghostty, Alacritty, WezTerm; the intended case) AND for completely
-   unrelated AppKit surfaces (Finder icon/list views, bare NSWindows,
-   the desktop). AX cannot tell these apart by itself, so the invasive
-   Cmd+C inject must be additionally scoped to known terminal hosts here,
-   or it fires in any frontmost app that merely isn't a text field. */
-static bool frontmost_is_known_terminal(void) {
-    NSRunningApplication *app = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    NSString *bid = app.bundleIdentifier;
-    if (!bid) return host_prefers_cmdc_fallback();
-
-    static NSSet<NSString *> *terminals = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        terminals = [NSSet setWithArray:@[
-            @"com.mitchellh.ghostty",
-            @"com.apple.Terminal",
-            @"com.googlecode.iterm2",
-            @"net.kovidgoyal.kitty",
-            @"io.alacritty",
-            @"org.alacritty",
-            @"com.github.wez.wezterm",
-        ]];
-    });
-    if ([terminals containsObject:bid]) return true;
-
-    return host_prefers_cmdc_fallback(); /* Electron hosts: VS Code, Cursor */
-}
-
 /* ─────────────────────────────────────────────────────────────────────
    PATH A — Accessibility API
    Returns:
@@ -404,8 +384,7 @@ static int ax_try(void) {
         CFRelease(focused);
 
         if (e == kAXErrorAttributeUnsupported || e == kAXErrorActionUnsupported)
-            return frontmost_is_known_terminal() ? -1  /* known terminal: reactive fallback */
-                                                  : -2; /* unrelated app: do nothing */
+            return -1;   /* AX unsupported: use reactive fallback */
         if (e != kAXErrorSuccess || !val)
             return host_prefers_cmdc_fallback() ? -1 : -2;
 
@@ -468,6 +447,102 @@ static void named_pb_snapshot(void) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
+   REGISTERED TERMINALS
+   Each shell that loads the macOS plugin drops a session file named
+   after its own PID into <cache>/sessions/.  Every live session resolves
+   to the GUI application at or above it in the process tree — the
+   terminal hosting that shell — and the resulting process IDs form the
+   complete set of applications reactive Cmd+C capture is performed for.
+   The synthetic keystroke must never be sent anywhere else: in an
+   unrelated app it beeps (no Cmd+C responder) or copies that app's own
+   data onto the pasteboard, which the watcher would then publish as a
+   selection.  Refreshed at gesture time; registrations whose shell has
+   exited are dropped here.
+   ───────────────────────────────────────────────────────────────────── */
+static pid_t parent_pid_of(pid_t pid) {
+    /* sysctl KERN_PROC_PID (the ps(1) path) rather than libproc's
+       PROC_PIDTBSDINFO: Terminal.app, Alacritty and Ghostty spawn their
+       shells through a root-owned login(1), and PROC_PIDTBSDINFO is
+       denied to an unprivileged caller for other-uid processes — the
+       walk would die at the login step and never reach the terminal app. */
+    struct kinfo_proc kp;
+    size_t len = sizeof(kp);
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)pid };
+    memset(&kp, 0, sizeof(kp));
+    if (sysctl(mib, 4, &kp, &len, NULL, 0) != 0 || len < sizeof(kp))
+        return -1;
+    return kp.kp_eproc.e_ppid;
+}
+
+static pid_t ancestor_running_app(pid_t start, NSArray<NSRunningApplication *> *apps) {
+    /* Walk up from the session shell to the GUI app hosting it.  The depth
+       cap sits far above any real shell→terminal chain; a daemonized
+       ancestor (e.g. a detached tmux server) simply resolves no app, and
+       that session does not register. */
+    pid_t cur = start;
+    for (int depth = 0; depth < 24 && cur > 1; depth++) {
+        for (NSRunningApplication *app in apps)
+            if (app.processIdentifier == cur) return cur;
+        pid_t next = parent_pid_of(cur);
+        if (next <= 1) break;
+        cur = next;
+    }
+    return -1;
+}
+
+static void add_terminal_pid(pid_t pid) {
+    for (int i = 0; i < g_n_term_pids; i++)
+        if (g_term_pids[i] == pid) return;
+    if (g_n_term_pids < MAX_TERM_PIDS)
+        g_term_pids[g_n_term_pids++] = pid;
+}
+
+static void refresh_registered_terminals(void) {
+    g_n_term_pids = 0;
+    @autoreleasepool {
+        DIR *dir = opendir(g_sessions_dir);
+        if (!dir) return;
+        NSArray<NSRunningApplication *> *apps =
+            [[NSWorkspace sharedWorkspace] runningApplications];
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != NULL) {
+            char *end = NULL;
+            long v = strtol(ent->d_name, &end, 10);
+            if (end == ent->d_name || *end != '\0' || v <= 0) continue;
+            pid_t shell_pid = (pid_t)v;
+            char path[640];
+            if (kill(shell_pid, 0) != 0 && errno == ESRCH) {
+                /* Session shell has exited — drop its registration. */
+                if (snprintf(path, sizeof(path), "%s/%s",
+                             g_sessions_dir, ent->d_name) < (int)sizeof(path))
+                    unlink(path);
+                continue;
+            }
+            pid_t app_pid = ancestor_running_app(shell_pid, apps);
+            if (app_pid > 0) add_terminal_pid(app_pid);
+        }
+        closedir(dir);
+    }
+}
+
+/* The frontmost app at mouse-up is the app that received the mouse-down
+   (a click activates its window before the gesture continues), so it is
+   both where the selection gesture happened and where a session-level
+   CGEventPost would deliver a synthetic keystroke. */
+static pid_t frontmost_pid(void) {
+    @autoreleasepool {
+        NSRunningApplication *front = [[NSWorkspace sharedWorkspace] frontmostApplication];
+        return front ? front.processIdentifier : 0;
+    }
+}
+
+static bool pid_is_registered_terminal(pid_t pid) {
+    for (int i = 0; i < g_n_term_pids; i++)
+        if (g_term_pids[i] == pid) return true;
+    return false;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
    Cmd+C injection — used as escalation step in the unified watcher.
    ───────────────────────────────────────────────────────────────────── */
 static void inject_cmd_c(void) {
@@ -493,15 +568,17 @@ static void inject_cmd_c(void) {
        Ghostty copy-on-select=true) or copy-on-select straight to the
        clipboard (instant native catch, no Cmd+C inject).
      Phase 2 (tick == ESCALATION_TICK):
-       Inject Cmd+C.  Captures cc_inject_before for clipboard detection.
-     Phase 2+ (ticks > ESCALATION_TICK):
+       Inject Cmd+C, but only while the app the gesture happened in is
+       still frontmost (see the phase-2 block below).  Captures
+       cc_inject_before for clipboard detection.
+     Phase 2+ (ticks >= ESCALATION_TICK):
        Check BOTH named PBs AND clipboard changeCount.
        Covers all terminals that respond to Cmd+C.
         Commits only after the candidate selection is stable for SETTLE_TICKS,
         or on timeout with the latest captured candidate.
    ───────────────────────────────────────────────────────────────────── */
 static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre_cc,
-                                  NSArray *restore_snapshot) {
+                                   NSArray *restore_snapshot, pid_t gesture_pid) {
     __block int ticks = 0;
     __block NSInteger cc_inject_before = pre_injected ? pre_cc : -1;
     __block NSInteger cc_native_before = g_mousedown_cc;
@@ -562,7 +639,15 @@ static void start_unified_watcher(uint64_t gen, bool pre_injected, NSInteger pre
             if (!injected && ticks >= ESCALATION_TICK) {
                 injected = true;
                 cc_inject_before = [[NSPasteboard generalPasteboard] changeCount];
-                inject_cmd_c();
+                /* CGEventPost targets the session, so the keystroke lands in
+                   whatever app is frontmost right now.  Deliver it only if
+                   that is still the app the selection gesture happened in —
+                   a focus change during the escalation window must never
+                   redirect the synthetic Cmd+C into an unrelated app.  If
+                   focus already moved, keep the watcher running: a native
+                   copy-on-select still completes the capture, and without
+                   one it times out and clears (fail closed). */
+                if (frontmost_pid() == gesture_pid) inject_cmd_c();
             }
 
             /* ── Phase 2+: Check clipboard (after inject) ──────────── */
@@ -670,6 +755,21 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
         return;
     }
 
+    /* Reactive capture is performed only for terminals that host a live
+       zsh-edit-select session (see refresh_registered_terminals).  AX
+       cannot tell a GPU terminal from any other app without a
+       text-selection attribute, so scope the escalation here: for an
+       unregistered frontmost app, start no watcher and never post a
+       keystroke into it.  Drop a pending marker this committed click's
+       grace wait may have created — same marker ownership as the
+       AX-success path above. */
+    refresh_registered_terminals();
+    pid_t gesture_pid = frontmost_pid();
+    if (!pid_is_registered_terminal(gesture_pid)) {
+        delete_pending_marker();
+        return;
+    }
+
     uint64_t gen = g_gen;
     create_pending_marker();
 
@@ -700,12 +800,12 @@ static void handle_mouse_up(NSInteger click_count, CGFloat drag_pixels) {
            delayed Cmd+C copy pending, ultimately polluting the clipboard). */
         NSInteger baseline = [[NSPasteboard generalPasteboard] changeCount];
         inject_cmd_c();
-        start_unified_watcher(gen, true, baseline, restore_snapshot);
+        start_unified_watcher(gen, true, baseline, restore_snapshot, gesture_pid);
         return;
     }
 
     /* Unified escalation: named PBs/native clipboard → Cmd+C inject → settle. */
-    start_unified_watcher(gen, false, -1, restore_snapshot);
+    start_unified_watcher(gen, false, -1, restore_snapshot, gesture_pid);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -933,6 +1033,18 @@ static int run_status(const char *cache_dir_arg) {
         else if (n == sizeof(preview)-1) strcpy(preview+60, "...");
     }
     bool ax = AXIsProcessTrusted();
+    int live_sessions = 0;
+    { DIR *sd = opendir(g_sessions_dir);
+      if (sd) {
+          struct dirent *de;
+          while ((de = readdir(sd)) != NULL) {
+              char *end = NULL;
+              long v = strtol(de->d_name, &end, 10);
+              if (end != de->d_name && *end == '\0' && v > 0 &&
+                  kill((pid_t)v, 0) == 0) live_sessions++;
+          }
+          closedir(sd);
+      } }
     char pid_buf[32] = "";
     if (alive) snprintf(pid_buf, sizeof(pid_buf), "%d)", dpid);
     fprintf(stdout,
@@ -941,10 +1053,11 @@ static int run_status(const char *cache_dir_arg) {
         "  accessibility : %s\n"
         "  cache dir     : %s\n"
         "  primary now   : \"%s\"\n"
+        "  sessions      : %d live shell(s) registered\n"
         "  selection path: %s\n",
         alive ? "running (pid " : "NOT RUNNING", pid_buf,
         ax ? "granted" : "NOT GRANTED (run: edit-select setup-ax)",
-        g_cache_dir, preview,
+        g_cache_dir, preview, live_sessions,
         ax ? "AX (AppKit) + Named PB (Ghostty) + Cmd+C inject (others)"
            : "disabled (no Accessibility permission)");
     return alive ? 0 : 1;
@@ -1043,6 +1156,12 @@ static int run_daemon(const char *exe_path, const char *cache_dir_arg) {
         fprintf(stderr, "zes-macos-clipboard-agent: cannot secure cache dir\n");
         return 1;
     }
+
+    /* Create the sessions registration directory before the readiness seq
+       below, so a shell registering immediately after _zes_start_monitor
+       returns can never race its existence.  The shell mkdir -p's it too,
+       which covers a registration against an already-running daemon. */
+    (void)mkdir(g_sessions_dir, 0700);
 
     pid_t pid;
     const char *argv[] = { exe_path, "--_daemon-child", cache_dir_arg, NULL };

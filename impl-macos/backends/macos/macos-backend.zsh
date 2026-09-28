@@ -28,6 +28,22 @@ typeset -gi _ZES_SSH_MODE=0
     _ZES_SSH_MODE=1
 
 # ─────────────────────────────────────────────────────────────────────
+# _zes_register_session
+# Record this shell in <cache>/sessions/ so the daemon can tell which GUI
+# applications host a live zsh-edit-select shell.  The agent resolves each
+# recorded PID's process ancestry to its owning terminal application and
+# performs reactive Cmd+C capture only inside those apps — never in
+# unrelated applications.  The file name is the shell's PID; the agent
+# drops entries whose shell has exited.  Best-effort: with an unwritable
+# cache the reactive path simply stays unavailable for this terminal.
+# ─────────────────────────────────────────────────────────────────────
+function _zes_register_session() {
+    [[ -d "$_EDIT_SELECT_SESSIONS_DIR" ]] || \
+        mkdir -p -m 0700 "$_EDIT_SELECT_SESSIONS_DIR" >/dev/null 2>&1 || true
+    print -r -- "$$" >"$_EDIT_SELECT_SESSIONS_DIR/$$" 2>/dev/null || true
+}
+
+# ─────────────────────────────────────────────────────────────────────
 # _zes_start_monitor
 # Start the macOS clipboard daemon and wait for its readiness signal.
 #
@@ -62,6 +78,7 @@ function _zes_start_monitor() {
         { pid=$(<"$_EDIT_SELECT_PID_FILE") || true } 2>/dev/null
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             _EDIT_SELECT_DAEMON_ACTIVE=1
+            _zes_register_session
             return 0
         fi
         rm -f "$_EDIT_SELECT_PID_FILE" 2>/dev/null || true
@@ -98,6 +115,7 @@ function _zes_start_monitor() {
 
     if [[ -f "$_EDIT_SELECT_SEQ_FILE" ]]; then
         _EDIT_SELECT_DAEMON_ACTIVE=1
+        _zes_register_session
         return 0
     else
         _EDIT_SELECT_DAEMON_ACTIVE=0
