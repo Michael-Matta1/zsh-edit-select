@@ -2659,6 +2659,13 @@ If an older install is not writable by your user (for example, a plugin director
 
 If you encounter any issues, first run `edit-select update`. If the problem persists and none of the cases below apply, please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with a clear description of your setup and environment.
 
+> [!WARNING]
+> There is currently a known issue for users who use [Oh My Posh](https://ohmyposh.dev) (OMP) with a `transient_prompt` configured.
+>
+> Only users who use [Oh My Posh](https://ohmyposh.dev) (OMP) **with a `transient_prompt` configured** are affected. Users who don't use OMP, and OMP users without a `transient_prompt` are **Not affected**.
+>
+> I'm working on a fix. For more details, see [PR #7](https://github.com/Michael-Matta1/zsh-edit-select/pull/7).
+
 <details>
 <summary><b>No update notification after git pull</b></summary>
 
@@ -4097,11 +4104,31 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## References
 
-- [Michael-Matta1/dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) — Dotfiles showcasing the
-  plugin with Kitty, VS Code, and Zsh.
+References for the project links, supported terminals and their configuration guides, and plugin managers mentioned in this README.
 
-- [Zsh ZLE shift selection — StackOverflow](https://stackoverflow.com/questions/5407916/zsh-zle-shift-selection)
-  — Q&A on Shift-based selection in ZLE.
+### This Project and Related Links
 
-- [Zsh Line Editor Documentation](https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html) — Official ZLE
-  widgets and keybindings reference.
+- [Michael-Matta1/zsh-edit-select](https://github.com/Michael-Matta1/zsh-edit-select) — This plugin's repository
+- [Michael-Matta1/zsh-edit-select/tree/pre-release](https://github.com/Michael-Matta1/zsh-edit-select/tree/pre-release) — Beta version of the plugin.
+- [Michael-Matta1/dev-dotfiles](https://github.com/Michael-Matta1/dev-dotfiles) — Dotfiles showcasing the plugin with Kitty, VS Code, and Zsh.
+
+### Plugin Managers
+
+- [Oh My Zsh](https://ohmyz.sh/)
+- [zgenom](https://github.com/jandamm/zgenom)
+- [Zinit](https://github.com/zdharma-continuum/zinit)
+- [zplug](https://github.com/zplug/zplug)
+- [Antigen](https://github.com/zsh-users/antigen)
+- [Sheldon](https://github.com/rossmacarthur/sheldon)
+
+### Terminal Emulators
+
+- [Kitty](https://sw.kovidgoyal.net/kitty/) — [config](https://sw.kovidgoyal.net/kitty/conf/)
+- [WezTerm](https://wezterm.org/) — [config](https://wezterm.org/config/files.html)
+- [Alacritty](https://alacritty.org/) — [config](https://alacritty.org/config-alacritty.html)
+- [Ghostty](https://ghostty.org/) — [config](https://ghostty.org/docs/config/reference)
+- [Foot](https://codeberg.org/dnkl/foot) — [config](https://man.archlinux.org/man/foot.ini.5)
+- [Konsole](https://konsole.kde.org/) — [config](https://docs.kde.org/trunk_kf6/en/konsole/konsole/key-bindings.html)
+- [iTerm2](https://iterm2.com/) — [config](https://iterm2.com/documentation.html)
+- [VS Code integrated terminal](https://code.visualstudio.com/docs/terminal/basics) — [config](https://code.visualstudio.com/docs/terminal/advanced)
+- [Windows Terminal](https://learn.microsoft.com/en-us/windows/terminal/) — [config](https://learn.microsoft.com/en-us/windows/terminal/customize-settings/actions)
