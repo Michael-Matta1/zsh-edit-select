@@ -1028,19 +1028,246 @@ function edit-select::zle-line-pre-redraw() {
 # EDIT_SELECT_MOUSE_REPLACEMENT.  Called once at startup and again when the
 # configuration wizard changes the setting.  When the feature is disabled,
 # all custom bindings are reverted to their ZLE defaults.
-# Re-enable DECSET 1004 on every new prompt so focus events are captured
-# by the bound ZLE widgets.  Persistent (not one-shot) because
-# _zes_disable_focus_reporting suppresses it before every command.
+# Focus-reporting state.  The latch records the last mode write so neither
+# wrapper nor hook rewrites a mode the terminal already holds; the remaining
+# variables carry the transient accept-observer state (see
+# _zes_focus_lifecycle).  Re-sourcing must not re-zero any of them.
+(( $+_ZES_FOCUS_REPORTING_ON )) || typeset -gi _ZES_FOCUS_REPORTING_ON=0
+(( $+_ZES_ACCEPT_PENDING )) || typeset -gi _ZES_ACCEPT_PENDING=0
+(( $+_ZES_ACCEPT_AT_DEPTH )) || typeset -gi _ZES_ACCEPT_AT_DEPTH=0
+(( $+_ZES_TOP_SEEN )) || typeset -gi _ZES_TOP_SEEN=0
+(( $+_ZES_FOCUS_OBSERVER_ARMED )) || typeset -gi _ZES_FOCUS_OBSERVER_ARMED=0
+(( $+_ZES_LI_GEN )) || typeset -gi _ZES_LI_GEN=0
+(( $+_ZES_AC_MINTS )) || typeset -gi _ZES_AC_MINTS=0
+(( $+_ZES_AC_STANDING )) || typeset -g _ZES_AC_STANDING=''
+
+# The machinery classification: made exactly once per shell (at the first
+# precmd, when the deferred registration runs) and cached, so re-sources,
+# re-applies and later widget rebinds can never re-classify a plain shell
+# mid-life.  A feature toggle never resets it -- it describes the shell's
+# prompt stack, not the feature.
+(( $+_ZES_FOCUS_MACHINERY_DECIDED )) || typeset -gi _ZES_FOCUS_MACHINERY_DECIDED=0
+(( $+_ZES_FOCUS_MACHINERY_ON )) || typeset -gi _ZES_FOCUS_MACHINERY_ON=0
+
+# Enable DECSET 1004 while the line editor is live so focus-in/out
+# escape sequences (\e[I / \e[O) reach the bound ZLE widgets instead of
+# printing as raw text.  Gated on mouse replacement so a wrapper that
+# survives buried inside a third-party chain stays inert while the
+# feature is off.
 function _zes_enable_focus_reporting() {
+    if (( ! EDIT_SELECT_MOUSE_REPLACEMENT )); then
+        return 0
+    fi
+    if (( _ZES_FOCUS_REPORTING_ON )); then
+        return 0
+    fi
+    print -n '\e[?1004h' >$TTY || true
+    _ZES_FOCUS_REPORTING_ON=1
+}
+# The plain-shell twins: the shipped plugin's own enable/disable bodies,
+# byte for byte.  Shells with no line-init widget owner register THESE
+# (never the machinery's latched forms), so their focus lifecycle is
+# identical to the shipped plugin's in every observable: same writes, same
+# tests, same moments.  The machinery branch never registers them.
+function _zes_enable_focus_reporting_plain() {
     print -n '\e[?1004h' >$TTY || true
 }
-zle -N _zes_enable_focus_reporting
 
-# Disable DECSET 1004 before command execution so focus-in/out
-# escape sequences (\e[I / \e[O) are not printed as raw text
-# while a foreground process is running.
-function _zes_disable_focus_reporting() {
+function _zes_disable_focus_reporting_plain() {
     print -n '\e[?1004l' >$TTY || true
+}
+
+# Disable DECSET 1004 before command execution so focus events are not
+# printed as raw text while a foreground process is running.
+function _zes_disable_focus_reporting() {
+    if (( ! _ZES_FOCUS_REPORTING_ON )); then
+        return 0
+    fi
+    print -n '\e[?1004l' >$TTY || true
+    _ZES_FOCUS_REPORTING_ON=0
+}
+
+# Finish-site disable.  A session that ended without running a command - an
+# empty or whitespace-only accept, or a PS2 fragment whose editing continues
+# in the next zleread - leaves reporting on, exactly as today: no foreground
+# program follows such an accept, and the next session re-arms without a
+# write.  vared sessions are excluded: a successful vared return is followed
+# by script code that may exec, and the v2 assessment requires OFF there.
+function _zes_finish_disable() {
+    if [[ $CONTEXT == vared ]]; then
+        _zes_disable_focus_reporting
+        return
+    fi
+    if [[ -n "$PREBUFFER" ]] || [[ -z "$BUFFER" || $BUFFER =~ '^[[:space:]]*$' ]]; then
+        return
+    fi
+    _zes_disable_focus_reporting
+}
+
+# The transient pre-redraw observer.  Registered by the chain-scoped accept
+# wrapper for accepts dispatched inside a session-widget chain (an
+# OMP-transient-style line-init owner whose handoff can be preceded by
+# in-widget rendering work), and self-removed as soon as it is quiescent.
+# Ordinary editing therefore runs with no observer registered and the
+# selection pre-redraw hook's per-redraw work is untouched.  D: the
+# dispatch's own iteration-tail redraw (depth unchanged from the recorded
+# dispatch depth) drops reporting before any render the chain may perform.
+# E: a live editor's redraw restores it before any continuation keystroke;
+# the dead-session zleread-entry redraw after a session widget's final
+# accept fails both the zr and _ZES_TOP_SEEN gates (OMP's top-level zlecore
+# never iterates), so the observer stays silent there without depending on
+# LASTWIDGET, whose value earlier hooks can clobber on zsh 5.8.
+function _zes_focus_observer_arm() {
+    if (( ! _ZES_FOCUS_OBSERVER_ARMED )); then
+        _ZES_FOCUS_OBSERVER_ARMED=1
+        _ZES_TOP_SEEN=0
+        add-zle-hook-widget line-pre-redraw _zes_focus_lifecycle || true
+    fi
+}
+
+function _zes_focus_observer_disarm() {
+    if (( _ZES_FOCUS_OBSERVER_ARMED )); then
+        _ZES_FOCUS_OBSERVER_ARMED=0
+        add-zle-hook-widget -d line-pre-redraw _zes_focus_lifecycle 2>/dev/null || true
+    fi
+}
+
+function _zes_focus_lifecycle() {
+    if (( _ZES_ACCEPT_PENDING )); then
+        if (( ZLE_RECURSIVE && ZLE_RECURSIVE == _ZES_ACCEPT_AT_DEPTH )); then
+            _zes_disable_focus_reporting
+        fi
+        _ZES_ACCEPT_PENDING=0
+    elif (( ! _ZES_FOCUS_REPORTING_ON )); then
+        if (( ZLE_RECURSIVE || _ZES_TOP_SEEN )) && [[ $LASTWIDGET != zle-line-init ]]; then
+            _zes_enable_focus_reporting
+        fi
+    fi
+    (( ZLE_RECURSIVE )) || _ZES_TOP_SEEN=1
+    if (( ! _ZES_ACCEPT_PENDING )) && (( _ZES_FOCUS_REPORTING_ON )); then
+        _zes_focus_observer_disarm
+    fi
+}
+
+# The chain-scoped accept wrappers.  They are installed by the line-init
+# wrapper only for the duration of a preserved line-init chain call (i.e.
+# only while a session widget owns the session), so an accept handled by one
+# is by construction in-chain; the depth check still guards against a
+# preserved chain that opens a nested .recursive-edit whose entry redraw
+# would otherwise look like the dispatch's own tail redraw.
+#
+# Cycle safety: each mint's saved alias is written exactly once, at minting,
+# with the owner that existed before the mint itself existed, and a mint
+# wrapper only ever calls its own frozen alias.  A wrapper captured by a
+# third party therefore calls a snapshot that predates it, so call chains
+# through our wrappers strictly descend in mint order and cannot cycle -
+# unlike a shared alias rewritten per window, which a decorator holding an
+# older wrapper can turn into an infinite self-call.  Boundedness: an
+# unchanged owner rebinds the previous mint instead of growing one wrapper
+# per session.  The one shell-unobservable case: swapping accept-line
+# between two different builtin widgets keeps the same "builtin" spec, so
+# the reused mint calls the earlier builtin until the next configuration
+# apply re-mints from the live owner (all builtins report "builtin" in
+# $widgets - there is no identity comparison in shell).
+function _zes_ac_arm_window() {
+    local owner="${widgets[accept-line]:-}"
+    if (( _ZES_AC_MINTS )) && [[ "$owner" == "$_ZES_AC_STANDING" ]]; then
+        zle -N accept-line _zes_ac_wrap_win${_ZES_AC_MINTS}
+        return 0
+    fi
+    integer acn=$(( _ZES_AC_MINTS + 1 ))
+    zle -A accept-line ._zes_ac_win${acn}
+    eval "function _zes_ac_wrap_win${acn}() {
+        _ZES_ACCEPT_PENDING=1
+        _ZES_ACCEPT_AT_DEPTH=\$ZLE_RECURSIVE
+        _zes_focus_observer_arm
+        zle ._zes_ac_win${acn} -- \"\$@\"
+        return \$?
+    }"
+    zle -N accept-line _zes_ac_wrap_win${acn}
+    _ZES_AC_STANDING="$owner"
+    _ZES_AC_MINTS=$acn
+    return 0
+}
+
+function _zes_ac_restore_window() {
+    local kind="${widgets[accept-line]:-}"
+    if [[ $kind == user:_zes_ac_wrap_win* ]]; then
+        local acn=${kind#user:_zes_ac_wrap_win}
+        zle -A ._zes_ac_win${acn} accept-line
+    fi
+    return 0
+}
+
+# Install the line-init wrapper for a new generation: the wrapper enables
+# reporting at session start, then installs the accept wrapper ONLY around
+# the preserved line-init chain call.  Plain sessions never see an accept
+# wrapper at all: when no preserved chain exists the wrapper body reduces
+# to the enable, so the plain accept path is the builtin, byte-for-byte as
+# with main.  Alias names bake the per-generation snapshot chain so an
+# older generation surviving under a decorator keeps calling its own
+# snapshot; a generation whose snapshot equals the current top widget is
+# re-bound instead of minted, so plain off/on cycles do not grow retained
+# resources.
+function _zes_install_line_init_wrapper() {
+    local top="${widgets[zle-line-init]:-}"
+    integer g=${_ZES_LI_GEN}
+    while (( g > 0 )); do
+        if [[ "${widgets[._zes_li$g]:-}" == "$top" ]]; then
+            zle -N zle-line-init _zes_li_wrap_gen$g
+            return
+        fi
+        (( g-- ))
+    done
+    integer gen=$(( _ZES_LI_GEN + 1 ))
+    if [[ -n "$top" ]]; then
+        zle -A zle-line-init ._zes_li$gen
+    fi
+    eval "function _zes_li_wrap_gen${gen}() {
+        _zes_enable_focus_reporting
+        if [[ -n \"\${widgets[._zes_li${gen}]:-}\" ]]; then
+            integer -i armed_here=0
+            if (( EDIT_SELECT_MOUSE_REPLACEMENT )) && (( ! \${_ZES_AC_BORROWED:-0} )); then
+                _zes_ac_arm_window
+                armed_here=1
+                integer -i _ZES_AC_BORROWED=1
+            fi
+            integer -i rc
+            {
+                zle ._zes_li${gen} -- \"\$@\"
+                rc=\$?
+            } always {
+                if (( armed_here )); then
+                    _zes_ac_restore_window
+                fi
+            }
+            return rc
+        fi
+        return 0
+    }"
+    zle -N zle-line-init _zes_li_wrap_gen${gen}
+    _ZES_LI_GEN=$gen
+}
+
+# Session-owner detector.  A session-owner is a line-init WIDGET owner: it
+# rebinds zle-line-init directly (widgets[zle-line-init] is a user widget
+# other than azhw's dispatcher and other than our own generation wrapper),
+# or it sits snapshotted inside azhw's hook list as a `user:` entry -- the
+# form azhw gives a pre-existing widget when it takes the hook over.
+# azhw-managed hook functions, ours included, are ordinary hooks, not
+# owners.  Plain shells (no binding, or azhw with hook functions only)
+# install none of the machinery.
+function _zes_focus_machinery_needed() {
+    local w="${widgets[zle-line-init]:-}"
+    [[ -n "$w" ]] || return 1
+    [[ "$w" == user:_zes_li_wrap_gen* ]] && return 0
+    if [[ "$w" == user:azhw:zle-line-init ]]; then
+        local -a hook_list
+        zstyle -a zle-line-init widgets hook_list
+        (( ${#hook_list} )) && [[ -n "${(M)hook_list[@]:#<->:user:*}" ]] && return 0
+        return 1
+    fi
+    return 0
 }
 
 # One-shot precmd that registers the deferred ZLE hooks, then removes itself.
@@ -1059,11 +1286,46 @@ function _zes_disable_focus_reporting() {
 function _zes_register_redraw_hook() {
     autoload -Uz add-zle-hook-widget add-zsh-hook
     add-zle-hook-widget line-pre-redraw edit-select::zle-line-pre-redraw
-    # Enable terminal focus reporting (DECSET 1004) and bind focus event
-    # handlers so cross-pane selection changes are suppressed.  Registered here
-    # (deferred) so the terminal's immediate CSI I reply is consumed by the
-    # already-bound widgets instead of printing as raw ^[[I on VTE terminals.
-    add-zle-hook-widget zle-line-init _zes_enable_focus_reporting
+    # Focus reporting is enabled from the line-init wrapper and disabled from
+    # the transient pre-redraw observer plus line-finish/preexec fallbacks,
+    # all installed here (deferred, so zsh-syntax-highlighting cannot wrap
+    # them at load time).  The wrapper runs AHEAD of any pre-existing
+    # line-init owner in the dispatch chain in both source orders — even
+    # when a later decorator (a prompt that wraps widgets at its own first
+    # precmd, for example) sits outside ours, the chain it preserved runs
+    # through us first — so the terminal's immediate CSI I reply is still
+    # consumed by the already-bound widgets instead of printing as raw
+    # ^[[I on VTE terminals.  The accept wrapper is not a permanent
+    # binding: the line-init wrapper installs it solely around a
+    # session-widget chain call.
+    #
+    # The machinery decision is made exactly ONCE per shell, here at the
+    # first precmd, and cached: re-sources, re-applies and later widget
+    # rebinds (a syntax highlighter re-wrapping zle-line-init, for example)
+    # can never re-classify a plain shell mid-life.  With no line-init
+    # binding at all -- or only azhw-managed hook functions like this
+    # plugin's own -- a plain shell keeps the SHIPPED lifecycle: the
+    # shipped bodies (the _plain twins), the shipped azhw line-init hook,
+    # the shipped preexec handoff.  It carries none of this fix's machinery
+    # and no cost of any kind.
+    if (( ! _ZES_FOCUS_MACHINERY_DECIDED )); then
+        typeset -gi _ZES_FOCUS_MACHINERY_DECIDED=1
+        if _zes_focus_machinery_needed; then
+            typeset -gi _ZES_FOCUS_MACHINERY_ON=1
+        else
+            typeset -gi _ZES_FOCUS_MACHINERY_ON=0
+        fi
+    fi
+    if (( _ZES_FOCUS_MACHINERY_ON )); then
+        if [[ ${widgets[zle-line-init]:-} != user:_zes_li_wrap_gen* ]]; then
+            _zes_install_line_init_wrapper
+        fi
+        add-zle-hook-widget zle-line-finish _zes_finish_disable
+        add-zsh-hook preexec _zes_disable_focus_reporting
+    else
+        add-zle-hook-widget zle-line-init _zes_enable_focus_reporting_plain
+        add-zsh-hook preexec _zes_disable_focus_reporting_plain
+    fi
     add-zsh-hook -d precmd _zes_register_redraw_hook
 }
 
@@ -1088,7 +1350,11 @@ function edit-select::apply-mouse-replacement-config() {
         autoload -Uz add-zsh-hook
         add-zsh-hook precmd _zes_register_redraw_hook
         autoload -Uz add-zsh-hook
-        add-zsh-hook preexec _zes_disable_focus_reporting
+        # The preexec disable is registered by the deferred, branch-aware
+        # _zes_register_redraw_hook (once per shell, at the first precmd):
+        # plain shells get the shipped body under its _plain twin; machinery
+        # shells get the latched disable.  Registering it here would force
+        # the branch choice before the first precmd has evaluated it.
         bindkey -M emacs '\e[I' _zes_terminal_focus_in
         bindkey -M emacs '\e[O' _zes_terminal_focus_out
         bindkey '\e[I' _zes_terminal_focus_in
@@ -1106,8 +1372,29 @@ function edit-select::apply-mouse-replacement-config() {
         add-zsh-hook -d precmd _zes_register_redraw_hook 2>/dev/null
         add-zle-hook-widget -d line-pre-redraw edit-select::zle-line-pre-redraw 2>/dev/null
         add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting 2>/dev/null
+        add-zle-hook-widget -d zle-line-init _zes_enable_focus_reporting_plain 2>/dev/null
+        add-zle-hook-widget -d line-pre-redraw _zes_focus_lifecycle 2>/dev/null
+        add-zle-hook-widget -d zle-line-finish _zes_finish_disable 2>/dev/null
+        # Restore the generation that actually owns the outermost slot
+        # (parsed from the owned widget's own name), but only when ours is
+        # still outermost: a later decorator's chain must not be clobbered.
+        if [[ ${widgets[zle-line-init]:-} == user:_zes_li_wrap_gen* ]]; then
+            integer li_gen=${widgets[zle-line-init]#user:_zes_li_wrap_gen}
+            if [[ -n "${widgets[._zes_li${li_gen}]:-}" ]]; then
+                zle -A ._zes_li${li_gen} zle-line-init
+            else
+                zle -D zle-line-init
+            fi
+        fi
+        _zes_ac_restore_window
+        _ZES_AC_STANDING=''
+        _ZES_FOCUS_REPORTING_ON=0
+        _ZES_ACCEPT_PENDING=0
+        _ZES_TOP_SEEN=0
+        _ZES_FOCUS_OBSERVER_ARMED=0
         autoload -Uz add-zsh-hook
         add-zsh-hook -d preexec _zes_disable_focus_reporting 2>/dev/null
+        add-zsh-hook -d preexec _zes_disable_focus_reporting_plain 2>/dev/null
         print -n '\e[?1004l' >$TTY || true
         bindkey -M emacs -r '\e[I' 2>/dev/null
         bindkey -M emacs -r '\e[O' 2>/dev/null

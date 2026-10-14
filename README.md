@@ -98,9 +98,9 @@ The plugin integrates mouse selections, but you can disable it using the [Config
 - ✅ Copy mouse selections with Ctrl+C
 - ✅ Replacement/Deletion work with keyboard selections only.
 
-> **Note:** Configure mouse behavior with the command `edit-select config` → Option 1
->
 > On macOS, Cmd replaces Ctrl, and all keybindings can be customized to match your preferences.
+
+> On both Linux and macOS, the plugin never takes over or interferes with your terminal's native mouse selection; all native mouse features and behaviors continue to work unchanged. The plugin's mouse-integrated features operate as an opt-in shell-side companion alongside the terminal's native selection, adding shell-side capabilities without replacing or interfering with it. These features can be disabled at any time via `edit-select config` → Option 1.
 
 ### Type-to-Replace and Paste-to-Replace
 
@@ -153,6 +153,14 @@ in-memory cache, giving you instant clipboard response.
 
 ## Mouse Selection Integrated Features
 
+> On both Linux and macOS, the plugin does **not** take over the mouse or suspend the terminal's native selection. The plugin's mouse-integrated features operate as **opt-in shell-side features** alongside the terminal's existing selection behavior.
+>
+> Your terminal remains the sole owner of mouse selection and mouse behavior, and the plugin works under the terminal's native selection. All mouse features that your terminal offers continue to work exactly as your terminal implements them. The plugin does not intercept, replace, re-render, or affect any of them. Nothing modifies your terminal's selection, and its native mechanism remains entirely untouched.
+>
+> All mouse-integrated features provided by the plugin are therefore an opt-in companion that works alongside the terminal's native functionality, in cooperation with it, extending it without replacing or interfering with it.
+> You can disable these features at any time using `edit-select config` (Option 1). With them disabled, the plugin's mouse-integrated features have no effect, and mouse selection behaves as if the plugin were not installed.
+
+
 Beyond basic mouse selection, the plugin ships four mouse-selection-aware features:
 
 - **Mouse Replacement** — enables keyboard-style edit operations (cut, delete, type-over, paste-over) on text selected with the mouse, with an enable/disable toggle and two operating modes.
@@ -161,6 +169,8 @@ Beyond basic mouse selection, the plugin ships four mouse-selection-aware featur
 - **Clearing a Selection by Clicking** — how the plugin delivers the deselect signal to the shell in each terminal, and what happens when you clear a mouse selection by clicking elsewhere.
 
 These features are transparent to the user: they activate automatically whenever the mouse-selection path is active and require no per-terminal configuration. Keyboard selections bypass them entirely. Together, they keep mouse-driven edits correct and predictable.
+
+> WSL requires special handling due to its unique architecture. As a result, it offers some additional features, such as duplicate-text disambiguation (which resolves the exact selection without requiring the Mouse Replacement Safeguard), but also lacks certain features, such as Prompt-Aware Mouse Selection Matching. However, the core features, including Mouse Replacement, Selection Clearing, and the ability to opt out so that the terminal's mouse selection behaves as if the plugin were not installed, remain available. The keyboard selection path is unaffected and works the same way as on Linux and macOS.
 
 **Click any of the following sections to expand it for more details:**
 
@@ -2659,13 +2669,6 @@ If an older install is not writable by your user (for example, a plugin director
 
 If you encounter any issues, first run `edit-select update`. If the problem persists and none of the cases below apply, please [open an issue](https://github.com/Michael-Matta1/zsh-edit-select/issues) with a clear description of your setup and environment.
 
-> [!WARNING]
-> There is currently a known issue for users who use [Oh My Posh](https://ohmyposh.dev) (OMP) with a `transient_prompt` configured.
->
-> Only users who use [Oh My Posh](https://ohmyposh.dev) (OMP) **with a `transient_prompt` configured** are affected. Users who don't use OMP, and OMP users without a `transient_prompt` are **Not affected**.
->
-> I'm working on a fix. For more details, see [PR #7](https://github.com/Michael-Matta1/zsh-edit-select/pull/7).
-
 <details>
 <summary><b>No update notification after git pull</b></summary>
 
@@ -3679,8 +3682,10 @@ The `_zes_sync_selection_state()` function is called by every widget before acti
 
 **ZLE Pre-Redraw Hook**
 
-The `edit-select::zle-line-pre-redraw` hook and the `zle-line-init` focus-reporting hook are both registered
-via `add-zle-hook-widget`. Registration is **deferred to the first precmd** by a one-shot helper
+The `edit-select::zle-line-pre-redraw` hook and the plain-shell focus-reporting hooks are both registered
+via `add-zle-hook-widget`; when a `zle-line-init` widget owner is present, the focus
+lifecycle is owned by the generation wrapper installed at the same deferred point
+(see *DECSET 1004 Focus Tracking* above). Registration is **deferred to the first precmd** by a one-shot helper
 (`_zes_register_redraw_hook`) rather than performed at plugin load time. This avoids interacting with
 user-widget wrappers that other plugins (notably `zsh-syntax-highlighting`) install at their own load time:
 registering at load would make `zle-line-pre-redraw` a user widget that gets wrapped, forcing a redundant
@@ -3743,15 +3748,32 @@ does not own (an unrelated completion prompt, for instance), and costs nothing o
 
 **DECSET 1004 Focus Tracking**
 
-Focus tracking is not a one-shot startup write. It is re-enabled on **every new prompt** by
-`_zes_enable_focus_reporting` (registered as a `zle-line-init` hook) and disabled again by
-`_zes_disable_focus_reporting` on `preexec`, before any foreground command runs — otherwise a program running
-while the pane gains or loses focus would receive the raw `CSI I` / `CSI O` sequences as stray input. Each
-write is `print -n '\e[?1004h' >$TTY || true` (`\e[?1004l` to disable): the sequence goes to `$TTY` rather
-than stdout so it cannot trigger Powerlevel10k instant-prompt console-output warnings, and the trailing guard
-keeps a failed write — a closed or redirected tty — from aborting the widget under a user's inherited
-`err_return`. Terminals that do not support DECSET 1004 silently ignore the request; the plugin's behavior is
-unchanged.
+Focus tracking is not a one-shot startup write. On shells without a `zle-line-init`
+widget owner it is re-enabled on **every new prompt** by `_zes_enable_focus_reporting`
+(registered as a `zle-line-init` hook) and disabled again by
+`_zes_disable_focus_reporting` on `preexec`, before any foreground command runs —
+otherwise a program running while the pane gains or loses focus would receive the raw
+`CSI I` / `CSI O` sequences as stray input. When a `zle-line-init` widget owner is
+present (a prompt that takes over the init slot — Oh My Posh with a transient prompt,
+for example), a lightweight wrapper owns the lifecycle instead: it enables reporting
+before the owner runs, drops it at the accept that ends an in-widget editing session
+(before any rendering the owner performs afterwards), restores it before any continued
+editing, and disables at the `preexec` handoff — so focus events are captured for every
+keystroke of such a session and never leak into a foreground program. Each write is
+`print -n '\e[?1004h' >$TTY || true` (`\e[?1004l` to disable): the sequence goes to
+`$TTY` rather than stdout so it cannot trigger Powerlevel10k instant-prompt
+console-output warnings, and the trailing guard keeps a failed write — a closed or
+redirected tty — from aborting the widget under a user's inherited `err_return`.
+Terminals that do not support DECSET 1004 silently ignore the request; the plugin's
+behavior is unchanged.
+
+Known limitation: a third-party widget that rebinds `accept-line` to *refuse* accepts
+(a widget that returns without accepting, for Enter-macro plugins) under such a
+prompt can keep reporting off until the next keystroke; if focus switches panes in
+that window, a selection made elsewhere may be applied to this pane. The same
+holds, at each of a shell's prompt-to-prompt transitions, under a prompt whose
+init widget runs an editor and then returns (no known prompt does this). No known
+mainstream plugin triggers either shape.
 
 **Focus-In Handler**
 
