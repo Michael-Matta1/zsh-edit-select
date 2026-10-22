@@ -168,7 +168,7 @@ Beyond basic mouse selection, the plugin ships four mouse-selection-aware featur
 - **Prompt-Aware Mouse Selection Matching** — automatically trims prompt prefix and status-suffix noise from mouse drags that include it, so edit actions target the command you actually typed.
 - **Clearing a Selection by Clicking** — how the plugin delivers the deselect signal to the shell in each terminal, and what happens when you clear a mouse selection by clicking elsewhere.
 
-These features are transparent to the user: they activate automatically whenever the mouse-selection path is active and require no per-terminal configuration. Keyboard selections bypass them entirely. Together, they keep mouse-driven edits correct and predictable.
+These features are transparent to the user: they activate automatically whenever the mouse-selection path is active and require no additional setup/steps beyond the initial installation instructions. Keyboard selections bypass them entirely. Together, they keep mouse-driven edits correct and predictable.
 
 > WSL requires special handling due to its unique architecture. As a result, it offers some additional features, such as duplicate-text disambiguation (which resolves the exact selection without requiring the Mouse Replacement Safeguard), but also lacks certain features, such as Prompt-Aware Mouse Selection Matching. However, the core features, including Mouse Replacement, Selection Clearing, and the ability to opt out so that the terminal's mouse selection behaves as if the plugin were not installed, remain available. The keyboard selection path is unaffected and works the same way as on Linux and macOS.
 
@@ -861,120 +861,15 @@ This section provides complete, ready-to-paste configurations for each supported
 
 ### Terminals Configurations:
 
-#### Windows Terminal (WSL only)
-
-<details> <summary> <b> Click to expand </b></summary>
-
-To use the reversed mode (copy with Ctrl+C and interrupt Ctrl+Shift+C) in Windows Terminal, you will need to edit the Windows Terminal settings. Expand the following guide to learn how to access the settings file:
+Expand the section that matches your **operating system** below by clicking on it, then expand the section that matches your **terminal** to see its configuration.
 
 <details>
-<summary><b>How to Open Windows Terminal settings.json </b></summary>
+<summary><h3 id="linux-configuration">Linux</h3></summary>
 
-Use one of the following methods:
-
-- With Windows Terminal open, press `Ctrl+Shift+,`
-- In the UI: click the dropdown arrow next to the `+` tab button, select **Settings**, then click
-  **Open JSON file** at the bottom-left
-- Open directly from File Explorer:
-
-```text
-%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
-```
-
-</details>
+Expand the section that matches your **terminal**:
 
 <details>
-<summary><b>Disable copyOnSelect for optimal mouse integration</b></summary>
-
-By default, `"copyOnSelect"` is set to `false`. If you previously enabled `"copyOnSelect"`, it is recommended that you disable it for the best mouse integration experience. To verify this setting, search for the following entry in your terminal settings:
-
-```json
-"copyOnSelect": false
-```
-
-</details>
-
-<details>
-<summary><b>Reversed Copy Mode (Ctrl+C copy, Ctrl+Shift+C interrupt)</b></summary>
-
-To use `Ctrl+Shift+C` for interrupt (SIGINT), add one entry to `"actions"` and one to `"keybindings"` in the Windows Terminal settings.json:
-
-```json
-"actions": [
-  ...existing actions...,
-  {
-    "command": {
-      "action": "sendInput",
-      "input": "\u001d"
-    },
-    "id": "User.sendIntr"
-  }
-],
-```
-
-```json
-"keybindings": [
-  ...existing keybindings...,
-  {
-    "id": "User.sendIntr",
-    "keys": "ctrl+shift+c"
-  }
-],
-```
-
-Then add the following to your `~/.zshrc` file on the Linux side:
-
-```zsh
-stty intr ^]
-```
-
-Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shift+C` will now send `0x1D` (`Ctrl+]`), which `stty` will treat as an interrupt signal.
-
-</details>
-
-<details>
-<summary><b> How to Verify Ctrl+C is set to Copy </b></summary>
-
-Windows Terminal defaults to `Ctrl+C` for copy. If you have ever changed it, add (or update) the
-following entries.
-
-Into `"actions"`:
-
-```json
-{
-  "command": {
-    "action": "copy",
-    "singleLine": false
-  },
-  "id": "User.copy.644BA8F2"
-},
-```
-
-Into `"keybindings"`:
-
-```json
-{
-  "id": "User.copy.644BA8F2",
-  "keys": "ctrl+c"
-},
-```
-
-If these entries already exist, update their current values to match the above.
-
-</details>
-
-**Note:** Mouse integration is currently most compatible with Windows Terminal and the VS Code terminal. If you use another terminal or encounter issues, you can **disable mouse integration and restore your terminal's default behavior** by turning off mouse replacement through the configuration wizard (`edit-select config`), then choosing the first option to configure mouse behavior.
-
-> Known Limitation in VS Code: With Mouse integration enabled, **Extremely** fast VS Code scrollback drags may still show a very small startup offset due to the currently unavoidable shell/helper handoff latency (planned to be optimized in future releases).
-
-</details>
-
----
-
-#### Kitty
-
-<details>
-<summary><b>Linux configuration</b></summary>
+<summary><h4 id="linux-kitty">Kitty</h4></summary>
 
 Add the following to `kitty.conf`:
 
@@ -1012,30 +907,16 @@ map ctrl+shift+home   no_op
 map ctrl+shift+end    no_op
 ```
 
-</details>
 
-<details>
-<summary><b>macOS configuration</b></summary>
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
 
-Add all of the following to `kitty.conf`:
-
-```conf
-# ── zsh-edit-select Cmd editing shortcuts ───
-# Override Kitty's built-in clipboard actions so the plugin receives them.
-map cmd+a send_text all \x1b[97;9u
-map cmd+c send_text all \x1b[99;9u
-map cmd+x send_text all \x1b[120;9u
-map cmd+shift+z send_text all \x1b[122;10u
-```
 
 </details>
 
 ---
 
-#### WezTerm
-
 <details>
-<summary><b>Linux configuration</b></summary>
+<summary><h4 id="linux-wezterm">WezTerm</h4></summary>
 
 Add the following to `wezterm.lua`:
 
@@ -1135,111 +1016,16 @@ return {
 }
 ```
 
-</details>
 
-<details>
-<summary><b>macOS configuration</b></summary>
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
 
-Add all of the following to `wezterm.lua`. All entries go inside the `keys` table of your returned config:
-
-```lua
-local wezterm = require 'wezterm'
-local act     = wezterm.action
-local config  = wezterm.config_builder()
-
--- ── Prevent copy-on-select to system clipboard ──────────────────
-config.mouse_bindings = {
-
-  -- On left-click Down: send deselect signal to ZLE if something was selected.
-  -- This prevents phantom replacement of the old selection on the next keypress.
-  {
-    event = { Down = { streak = 1, button = "Left" } },
-    mods  = "NONE",
-    action = wezterm.action_callback(function(window, pane)
-      local sel = window:get_selection_text_for_pane(pane)
-      -- Skip the signal while a full-screen application (vim, nano, less)
-      -- owns the alternate screen; it would arrive there as raw input.
-      if sel ~= "" and not pane:is_alt_screen_active() then
-        pane:send_text("\x1b[>62300u")
-      end
-      window:perform_action(act.ClearSelection, pane)
-      window:perform_action(act.SelectTextAtMouseCursor("Cell"), pane)
-    end),
-  },
-
-  -- streak=1: open links on bare click, do NOT copy to clipboard on drag.
-  {
-    event  = { Up = { streak = 1, button = "Left" } },
-    mods   = "NONE",
-    action = wezterm.action_callback(function(window, pane)
-      local sel = window:get_selection_text_for_pane(pane)
-      if sel == "" then
-        window:perform_action(act.OpenLinkAtMouseCursor, pane)
-      end
-      -- If selection exists: do nothing (don't copy). Agent handles capture.
-    end),
-  },
-
-  -- streak=2: double-click word select. No clipboard copy.
-  {
-    event  = { Up = { streak = 2, button = "Left" } },
-    mods   = "NONE",
-    action = act.Nop,
-  },
-
-  -- streak=3: triple-click line select. No clipboard copy.
-  {
-    event  = { Up = { streak = 3, button = "Left" } },
-    mods   = "NONE",
-    action = act.Nop,
-  },
-}
-
--- ── zsh-edit-select Cmd editing shortcuts ───
-config.keys = {
-  { key = 'a', mods = 'CMD',       action = act.SendString '\x1b[97;9u'  },
-  { key = 'v', mods = 'CMD',       action = act.SendString '\x1b[118;9u' },
-  { key = 'x', mods = 'CMD',       action = act.SendString '\x1b[120;9u' },
-  { key = 'z', mods = 'CMD',       action = act.SendString '\x1b[122;9u' },
-  { key = 'z', mods = 'CMD|SHIFT', action = act.SendString '\x1b[122;10u'},
-
-  -- Cmd+C: if there is an active WezTerm selection, copy it to clipboard.
-  -- Otherwise send the plugin's escape sequence (Cmd+C CSI-u) to ZLE.
-  {
-    key  = 'c',
-    mods = 'CMD',
-    action = wezterm.action_callback(function(window, pane)
-      local sel = window:get_selection_text_for_pane(pane)
-      if sel ~= "" then
-        window:perform_action(act.CopyTo "Clipboard", pane)
-      else
-        window:perform_action(act.SendString '\x1b[99;9u', pane)
-      end
-    end),
-  },
-
-  -- ── zsh-edit-select navigation (non-selecting) ───────────────────────────────────
-  { key = 'LeftArrow',  mods = 'CMD',       action = act.SendString '\x1b[1;9D'  },
-  { key = 'RightArrow', mods = 'CMD',       action = act.SendString '\x1b[1;9C'  },
-
-  -- ── zsh-edit-select Shift selection keys ───
-  { key = 'LeftArrow',  mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10D' },
-  { key = 'RightArrow', mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10C' },
-  { key = 'UpArrow',    mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10A' },
-  { key = 'DownArrow',  mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10B' },
-}
-
-return config
-```
 
 </details>
 
 ---
 
-#### Alacritty
-
 <details>
-<summary><b>Linux configuration</b></summary>
+<summary><h4 id="linux-alacritty">Alacritty</h4></summary>
 
 <details>
 <summary><b>Resolving the two placeholder paths in the config (Click to expand)</b></summary>
@@ -1286,7 +1072,9 @@ printf '%s/zsh-edit-select-%s\n' "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" "$(id -u)
 
 > **Tip — automatic configuration:** `edit-select integrate` can write the mouse-binding block into your `alacritty.toml` / `alacritty.yml` for you, with the correct absolute paths already resolved — it detects your plugin root the same way, so it works with any plugin manager. This is convenient for a fresh install, but **not yet recommended if you already have a complex config file** — review the diff afterward. For manual setup, use the commands above.
 
----
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
 
 </details>
 
@@ -1353,6 +1141,10 @@ mode = "~Alt"
 command = { program = "<plugin-root>/assets/helpers/zes-alacritty-click-clear.sh", args = ["<cache-dir>"] }
 ```
 
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
 </details>
 
 <details>
@@ -1406,61 +1198,22 @@ mouse_bindings:
 > instead of adding a second key with the same name — a duplicate top-level key
 > makes Alacritty reject the entire file and fall back to its built-in defaults.
 
-</details>
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
 
 </details>
 
-<details>
-<summary><b>macOS configuration</b></summary>
 
-Add all of the following to `alacritty.toml`:
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
 
-```toml
-# ── zsh-edit-select Cmd editing shortcuts ───
-# Override Alacritty's default macOS shortcuts so the plugin receives them.
-[[keyboard.bindings]]
-key = "A"
-mods = "Command"
-chars = "\u001b[97;9u"
-
-[[keyboard.bindings]]
-key = "C"
-mods = "Command"
-chars = "\u001b[99;9u"
-
-[[keyboard.bindings]]
-key = "V"
-mods = "Command"
-chars = "\u001b[118;9u"
-
-[[keyboard.bindings]]
-key = "X"
-mods = "Command"
-chars = "\u001b[120;9u"
-
-[[keyboard.bindings]]
-key = "Z"
-mods = "Command"
-chars = "\u001b[122;9u"
-
-[[keyboard.bindings]]
-key = "Z"
-mods = "Command|Shift"
-chars = "\u001b[122;10u"
-
-# Needed for mouse integration
-[selection]
-save_to_clipboard = true
-```
 
 </details>
 
 ---
 
-#### Ghostty
-
 <details>
-<summary><b>Linux configuration</b></summary>
+<summary><h4 id="linux-ghostty">Ghostty</h4></summary>
 
 Ghostty passes Shift+Arrow keys through to the terminal natively — **no additional configuration is needed for basic Shift selection.**
 
@@ -1489,43 +1242,16 @@ keybind = ctrl+shift+home=unbind
 keybind = ctrl+shift+end=unbind
 ```
 
-</details>
 
-<details>
-<summary><b>macOS configuration</b></summary>
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
 
-Add all of the following to `~/.config/ghostty/config`:
-
-```
-# ── zsh-edit-select bindings ──
-# Overrides Ghostty's built-in clipboard actions (cmd+c, cmd+v, cmd+a) so the
-# plugin receives them instead.
-keybind = cmd+a=csi:97;9u
-keybind = cmd+c=csi:99;9u
-keybind = cmd+x=csi:120;9u
-keybind = cmd+z=csi:122;9u
-keybind = cmd+shift+z=csi:122;10u
-
-# Shift+Up/Down
-keybind = shift+up=csi:1;2A
-keybind = shift+down=csi:1;2B
-
-# Cmd+Shift+Up/Down: select to buffer start/end
-keybind = cmd+shift+up=csi:1;10A
-keybind = cmd+shift+down=csi:1;10B
-
-# Needed for mouse integration
-copy-on-select = clipboard
-```
 
 </details>
 
 ---
 
-#### VS Code Terminal
-
 <details>
-<summary><b>Linux configuration</b></summary>
+<summary><h4 id="linux-vs-code-terminal">VS Code Terminal</h4></summary>
 
 Add the following to `keybindings.json` (usually located at `~/.config/Code/User/keybindings.json`):
 
@@ -1640,10 +1366,613 @@ Add the following to `keybindings.json` (usually located at `~/.config/Code/User
 ]
 ```
 
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
 </details>
 
+---
+
 <details>
-<summary><b>macOS configuration</b></summary>
+<summary><h4 id="linux-konsole">Konsole</h4></summary>
+
+Konsole has no single config file — keyboard behavior lives in a **keytab** attached to a **profile**. The default **Built-in [Read-only]** profile can't be edited, so you need a new profile.
+
+**1. Create the keytab.** Choose **ONE** of the options below, click it to expand, and run the command.
+
+> **Option A** uses the traditional Linux terminal convention: `Ctrl+Shift+C` copies, while `Ctrl+C` sends an interrupt signal.
+
+
+<details>
+<summary><b>Option A: Ctrl+Shift+C = copy  ──  (Click to expand)</b></summary>
+
+```bash
+mkdir -p ~/.local/share/konsole
+cat > ~/.local/share/konsole/zsh-edit-select.keytab << 'EOF'
+keyboard "zsh-edit-select"
+
+key Escape : "\E"
+key Tab -Shift : "\t"
+key Tab +Shift+Ansi : "\E[Z"
+key Tab +Shift-Ansi : "\t"
+key Backtab +Ansi : "\E[Z"
+key Backtab -Ansi : "\t"
+key Tab +Control+Ansi : "\E[27;5;9~"
+key Backtab +Control+Ansi : "\E[27;6;9~"
+key Tab +Control-Ansi : "\t"
+key Backtab +Control-Ansi : "\t"
+key Return-Shift-NewLine : "\r"
+key Return-Shift+NewLine : "\r\n"
+key Return+Shift : "\EOM"
+key Backspace -Control : "\x7f"
+key Backspace +Control : "\b"
+
+key Up -Shift-Ansi : "\EA"
+key Down -Shift-Ansi : "\EB"
+key Right-Shift-Ansi : "\EC"
+key Left -Shift-Ansi : "\ED"
+
+key Up -Shift-AnyMod+Ansi+AppCuKeys : "\EOA"
+key Down -Shift-AnyMod+Ansi+AppCuKeys : "\EOB"
+key Right -Shift-AnyMod+Ansi+AppCuKeys : "\EOC"
+key Left -Shift-AnyMod+Ansi+AppCuKeys : "\EOD"
+key Up -Shift-AnyMod+Ansi-AppCuKeys : "\E[A"
+key Down -Shift-AnyMod+Ansi-AppCuKeys : "\E[B"
+key Right -Shift-AnyMod+Ansi-AppCuKeys : "\E[C"
+key Left -Shift-AnyMod+Ansi-AppCuKeys : "\E[D"
+key Up -Shift+AnyMod+Ansi : "\E[1;*A"
+key Down -Shift+AnyMod+Ansi : "\E[1;*B"
+key Right -Shift+AnyMod+Ansi : "\E[1;*C"
+key Left -Shift+AnyMod+Ansi : "\E[1;*D"
+key Up +Shift+AppScreen : "\E[1;*A"
+key Down +Shift+AppScreen : "\E[1;*B"
+key Left +Shift+AppScreen : "\E[1;*D"
+key Right +Shift+AppScreen : "\E[1;*C"
+key Up +Shift+Alt-AppScreen : "\E[1;*A"
+key Down +Shift+Alt-AppScreen : "\E[1;*B"
+key Left +Shift+Alt-AppScreen : "\E[1;*D"
+key Right +Shift+Alt-AppScreen : "\E[1;*C"
+key Up +Shift+Ctrl-AppScreen : "\E[1;*A"
+key Down +Shift+Ctrl-AppScreen : "\E[1;*B"
+key Left +Shift+Ctrl-AppScreen : "\E[1;*D"
+key Right +Shift+Ctrl-AppScreen : "\E[1;*C"
+
+key Up -Shift+Ansi+AppCuKeys+KeyPad : "\EOA"
+key Down -Shift+Ansi+AppCuKeys+KeyPad : "\EOB"
+key Right -Shift+Ansi+AppCuKeys+KeyPad : "\EOC"
+key Left -Shift+Ansi+AppCuKeys+KeyPad : "\EOD"
+key Up -Shift+Ansi-AppCuKeys+KeyPad : "\E[A"
+key Down -Shift+Ansi-AppCuKeys+KeyPad : "\E[B"
+key Right -Shift+Ansi-AppCuKeys+KeyPad : "\E[C"
+key Left -Shift+Ansi-AppCuKeys+KeyPad : "\E[D"
+key Home +AppCuKeys+KeyPad : "\EOH"
+key End +AppCuKeys+KeyPad : "\EOF"
+key Home -AppCuKeys+KeyPad : "\E[H"
+key End -AppCuKeys+KeyPad : "\E[F"
+key Insert +KeyPad : "\E[2~"
+key Delete +KeyPad : "\E[3~"
+key PgUp -Shift+KeyPad : "\E[5~"
+key PgDown -Shift+KeyPad : "\E[6~"
+key Clear +KeyPad : "\E[E"
+
+key Enter+NewLine : "\r\n"
+key Enter-NewLine : "\r"
+key Home -AnyMod-AppCuKeys : "\E[H"
+key End -AnyMod-AppCuKeys : "\E[F"
+key Home -AnyMod+AppCuKeys : "\EOH"
+key End -AnyMod+AppCuKeys : "\EOF"
+key Home +AnyMod : "\E[1;*H"
+key End +AnyMod : "\E[1;*F"
+key Insert -AnyMod : "\E[2~"
+key Delete -AnyMod : "\E[3~"
+key Insert +AnyMod : "\E[2;*~"
+key Delete +AnyMod : "\E[3;*~"
+key PgUp -Shift-AnyMod : "\E[5~"
+key PgDown -Shift-AnyMod : "\E[6~"
+key PgUp -Shift+AnyMod : "\E[5;*~"
+key PgDown -Shift+AnyMod : "\E[6;*~"
+key PgUp +Shift+AppScreen : "\E[5;*~"
+key PgDown +Shift+AppScreen : "\E[6;*~"
+
+key F1 -AnyMod : "\EOP"
+key F2 -AnyMod : "\EOQ"
+key F3 -AnyMod : "\EOR"
+key F4 -AnyMod : "\EOS"
+key F5 -AnyMod : "\E[15~"
+key F6 -AnyMod : "\E[17~"
+key F7 -AnyMod : "\E[18~"
+key F8 -AnyMod : "\E[19~"
+key F9 -AnyMod : "\E[20~"
+key F10 -AnyMod : "\E[21~"
+key F11 -AnyMod : "\E[23~"
+key F12 -AnyMod : "\E[24~"
+key F1 +AnyMod : "\EO*P"
+key F2 +AnyMod : "\EO*Q"
+key F3 +AnyMod : "\EO*R"
+key F4 +AnyMod : "\EO*S"
+key F5 +AnyMod : "\E[15;*~"
+key F6 +AnyMod : "\E[17;*~"
+key F7 +AnyMod : "\E[18;*~"
+key F8 +AnyMod : "\E[19;*~"
+key F9 +AnyMod : "\E[20;*~"
+key F10 +AnyMod : "\E[21;*~"
+key F11 +AnyMod : "\E[23;*~"
+key F12 +AnyMod : "\E[24;*~"
+
+key Space +Control : "\x00"
+
+# Konsole scroll actions (Shift+Up/Down/Home/End removed on purpose for zsh-edit-select)
+key PgUp -Ctrl+Shift-AppScreen : scrollPageUp
+key PgUp +Ctrl+Shift-AppScreen : scrollPromptUp
+key PgDown -Ctrl+Shift-AppScreen : scrollPageDown
+key PgDown +Ctrl+Shift-AppScreen : scrollPromptDown
+
+# ── zsh-edit-select ──
+key C     +Control+Shift : "\E[67;6u"
+key Z     +Control+Shift : "\E[90;6u"
+key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"
+key Down  +Shift-Alt-Ctrl-AppScreen : "\E[1;2B"
+key Right +Shift-Alt-Ctrl-AppScreen : "\E[1;2C"
+key Left  +Shift-Alt-Ctrl-AppScreen : "\E[1;2D"
+EOF
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+> **Option B** uses GUI-style behavior: `Ctrl+C` copies, while `Ctrl+Shift+C` sends an interrupt signal.
+
+
+<details>
+<summary><b>Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt   ──  (Click to expand) </b></summary>
+
+```bash
+mkdir -p ~/.local/share/konsole
+cat > ~/.local/share/konsole/zsh-edit-select.keytab << 'EOF'
+keyboard "zsh-edit-select"
+
+key Escape : "\E"
+key Tab -Shift : "\t"
+key Tab +Shift+Ansi : "\E[Z"
+key Tab +Shift-Ansi : "\t"
+key Backtab +Ansi : "\E[Z"
+key Backtab -Ansi : "\t"
+key Tab +Control+Ansi : "\E[27;5;9~"
+key Backtab +Control+Ansi : "\E[27;6;9~"
+key Tab +Control-Ansi : "\t"
+key Backtab +Control-Ansi : "\t"
+key Return-Shift-NewLine : "\r"
+key Return-Shift+NewLine : "\r\n"
+key Return+Shift : "\EOM"
+key Backspace -Control : "\x7f"
+key Backspace +Control : "\b"
+
+key Up -Shift-Ansi : "\EA"
+key Down -Shift-Ansi : "\EB"
+key Right-Shift-Ansi : "\EC"
+key Left -Shift-Ansi : "\ED"
+
+key Up -Shift-AnyMod+Ansi+AppCuKeys : "\EOA"
+key Down -Shift-AnyMod+Ansi+AppCuKeys : "\EOB"
+key Right -Shift-AnyMod+Ansi+AppCuKeys : "\EOC"
+key Left -Shift-AnyMod+Ansi+AppCuKeys : "\EOD"
+key Up -Shift-AnyMod+Ansi-AppCuKeys : "\E[A"
+key Down -Shift-AnyMod+Ansi-AppCuKeys : "\E[B"
+key Right -Shift-AnyMod+Ansi-AppCuKeys : "\E[C"
+key Left -Shift-AnyMod+Ansi-AppCuKeys : "\E[D"
+key Up -Shift+AnyMod+Ansi : "\E[1;*A"
+key Down -Shift+AnyMod+Ansi : "\E[1;*B"
+key Right -Shift+AnyMod+Ansi : "\E[1;*C"
+key Left -Shift+AnyMod+Ansi : "\E[1;*D"
+key Up +Shift+AppScreen : "\E[1;*A"
+key Down +Shift+AppScreen : "\E[1;*B"
+key Left +Shift+AppScreen : "\E[1;*D"
+key Right +Shift+AppScreen : "\E[1;*C"
+key Up +Shift+Alt-AppScreen : "\E[1;*A"
+key Down +Shift+Alt-AppScreen : "\E[1;*B"
+key Left +Shift+Alt-AppScreen : "\E[1;*D"
+key Right +Shift+Alt-AppScreen : "\E[1;*C"
+key Up +Shift+Ctrl-AppScreen : "\E[1;*A"
+key Down +Shift+Ctrl-AppScreen : "\E[1;*B"
+key Left +Shift+Ctrl-AppScreen : "\E[1;*D"
+key Right +Shift+Ctrl-AppScreen : "\E[1;*C"
+
+key Up -Shift+Ansi+AppCuKeys+KeyPad : "\EOA"
+key Down -Shift+Ansi+AppCuKeys+KeyPad : "\EOB"
+key Right -Shift+Ansi+AppCuKeys+KeyPad : "\EOC"
+key Left -Shift+Ansi+AppCuKeys+KeyPad : "\EOD"
+key Up -Shift+Ansi-AppCuKeys+KeyPad : "\E[A"
+key Down -Shift+Ansi-AppCuKeys+KeyPad : "\E[B"
+key Right -Shift+Ansi-AppCuKeys+KeyPad : "\E[C"
+key Left -Shift+Ansi-AppCuKeys+KeyPad : "\E[D"
+key Home +AppCuKeys+KeyPad : "\EOH"
+key End +AppCuKeys+KeyPad : "\EOF"
+key Home -AppCuKeys+KeyPad : "\E[H"
+key End -AppCuKeys+KeyPad : "\E[F"
+key Insert +KeyPad : "\E[2~"
+key Delete +KeyPad : "\E[3~"
+key PgUp -Shift+KeyPad : "\E[5~"
+key PgDown -Shift+KeyPad : "\E[6~"
+key Clear +KeyPad : "\E[E"
+
+key Enter+NewLine : "\r\n"
+key Enter-NewLine : "\r"
+key Home -AnyMod-AppCuKeys : "\E[H"
+key End -AnyMod-AppCuKeys : "\E[F"
+key Home -AnyMod+AppCuKeys : "\EOH"
+key End -AnyMod+AppCuKeys : "\EOF"
+key Home +AnyMod : "\E[1;*H"
+key End +AnyMod : "\E[1;*F"
+key Insert -AnyMod : "\E[2~"
+key Delete -AnyMod : "\E[3~"
+key Insert +AnyMod : "\E[2;*~"
+key Delete +AnyMod : "\E[3;*~"
+key PgUp -Shift-AnyMod : "\E[5~"
+key PgDown -Shift-AnyMod : "\E[6~"
+key PgUp -Shift+AnyMod : "\E[5;*~"
+key PgDown -Shift+AnyMod : "\E[6;*~"
+key PgUp +Shift+AppScreen : "\E[5;*~"
+key PgDown +Shift+AppScreen : "\E[6;*~"
+
+key F1 -AnyMod : "\EOP"
+key F2 -AnyMod : "\EOQ"
+key F3 -AnyMod : "\EOR"
+key F4 -AnyMod : "\EOS"
+key F5 -AnyMod : "\E[15~"
+key F6 -AnyMod : "\E[17~"
+key F7 -AnyMod : "\E[18~"
+key F8 -AnyMod : "\E[19~"
+key F9 -AnyMod : "\E[20~"
+key F10 -AnyMod : "\E[21~"
+key F11 -AnyMod : "\E[23~"
+key F12 -AnyMod : "\E[24~"
+key F1 +AnyMod : "\EO*P"
+key F2 +AnyMod : "\EO*Q"
+key F3 +AnyMod : "\EO*R"
+key F4 +AnyMod : "\EO*S"
+key F5 +AnyMod : "\E[15;*~"
+key F6 +AnyMod : "\E[17;*~"
+key F7 +AnyMod : "\E[18;*~"
+key F8 +AnyMod : "\E[19;*~"
+key F9 +AnyMod : "\E[20;*~"
+key F10 +AnyMod : "\E[21;*~"
+key F11 +AnyMod : "\E[23;*~"
+key F12 +AnyMod : "\E[24;*~"
+
+key Space +Control : "\x00"
+
+# Konsole scroll actions (Shift+Up/Down/Home/End removed on purpose for zsh-edit-select)
+key PgUp -Ctrl+Shift-AppScreen : scrollPageUp
+key PgUp +Ctrl+Shift-AppScreen : scrollPromptUp
+key PgDown -Ctrl+Shift-AppScreen : scrollPageDown
+key PgDown +Ctrl+Shift-AppScreen : scrollPromptDown
+
+# ── zsh-edit-select ──
+# Ctrl+C = copy, Ctrl+Shift+C = interrupt
+key C     +Control-Shift : "\E[67;6u"
+key C     +Control+Shift : "\x03"
+key Z     +Control+Shift : "\E[90;6u"
+key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"
+key Down  +Shift-Alt-Ctrl-AppScreen : "\E[1;2B"
+key Right +Shift-Alt-Ctrl-AppScreen : "\E[1;2C"
+key Left  +Shift-Alt-Ctrl-AppScreen : "\E[1;2D"
+EOF
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+<p align="center">
+  <strong>✦───────────✦</strong>
+</p>
+
+
+**2. Create a new profile** :
+- Menu (☰) → :More → Settings → Manage Profiles… → **+ New…**
+- Name it, e.g. `zsh-edit-select`
+- From the pages listed on the left, go to the **Keyboard** page → select **zsh-edit-select** → Apply → OK
+
+- The newly created profile `zsh-edit-select` will be listed in the profiles menu, Select it and click the "Set as Default" button on the right then click `OK`.
+  - If you missed it, go to Manage Profiles… → select your profile (`zsh-edit-select`) → **Set as Default** → OK
+
+<p align="center">
+  <strong>✦───────────✦</strong>
+</p>
+
+**3. Free the keys Konsole's own shortcuts grab:**
+Menu (☰) → Settings → Configure Keyboard Shortcuts → search for each of the following and clear them by setting their shortcut to **Custom** and pressing **Clear (⌫)**:
+- **Copy**
+- **Interrupt Task (INT)**
+
+And search for each of the following and set them to **Custom** and assign any shortcuts you like that don't conflict with the plugin's shortcuts:
+- **Next Tab** / **Previous Tab** (Shift+Right / Shift+Left by default)
+
+
+**Then Restart Konsole**
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+---
+
+<details>
+<summary><h4 id="linux-foot">Foot</h4></summary>
+
+Foot uses `[key-bindings]` to disable built-in actions and `[text-bindings]` to send custom escape sequences to the shell. Two built-in bindings must be unbound before adding the plugin's sequences:
+
+- `clipboard-copy` (defaults to `Control+Shift+c`) — must be unbound so the copy escape sequence reaches the shell instead of triggering Foot's clipboard action.
+- `prompt-prev` (defaults to `Control+Shift+z`) — must be unbound so the undo escape sequence reaches the shell instead of triggering Foot's prompt navigation.
+
+Foot passes Shift+Arrow keys through to the terminal natively — **no additional configuration is needed for Shift selection.**
+
+Add the following to `foot.ini`, merging into any existing `[key-bindings]` and `[text-bindings]` sections (do not create duplicate section headers):
+
+```ini
+[key-bindings]
+# Unbind Foot's built-in clipboard-copy so the escape sequence reaches the shell
+clipboard-copy=none
+# Unbind Foot's built-in prompt-prev so the undo escape sequence reaches the shell
+prompt-prev=none
+
+[text-bindings]
+# ── zsh-edit-select copying shortcut ───────────────────────
+# Option A (Default): Ctrl+Shift+C = copy
+\x1b[67;6u = Control+Shift+c
+
+# Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt
+# Use this if you prefer GUI-style copy behavior (like in regular desktop apps).
+# To use this option: replace the Option A line above with both lines below.
+# \x1b[67;6u = Control+c
+# \x03 = Control+Shift+c
+
+# ── zsh-edit-select undo / redo ─────────────────────────
+\x1b[90;6u = Control+Shift+z
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+
+---
+
+
+</details>
+
+<p align="center">
+  <strong>────────── ✦ ──────────</strong>
+</p>
+
+<details>
+<summary><h3 id="macos-configuration">macOS</h3></summary>
+
+Expand the section that matches your **terminal**:
+
+<details>
+<summary><h4 id="macos-kitty">Kitty</h4></summary>
+
+Add all of the following to `kitty.conf`:
+
+```conf
+# ── zsh-edit-select Cmd editing shortcuts ───
+# Override Kitty's built-in clipboard actions so the plugin receives them.
+map cmd+a send_text all \x1b[97;9u
+map cmd+c send_text all \x1b[99;9u
+map cmd+x send_text all \x1b[120;9u
+map cmd+shift+z send_text all \x1b[122;10u
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+---
+
+<details>
+<summary><h4 id="macos-wezterm">WezTerm</h4></summary>
+
+Add all of the following to `wezterm.lua`. All entries go inside the `keys` table of your returned config:
+
+```lua
+local wezterm = require 'wezterm'
+local act     = wezterm.action
+local config  = wezterm.config_builder()
+
+-- ── Prevent copy-on-select to system clipboard ──────────────────
+config.mouse_bindings = {
+
+  -- On left-click Down: send deselect signal to ZLE if something was selected.
+  -- This prevents phantom replacement of the old selection on the next keypress.
+  {
+    event = { Down = { streak = 1, button = "Left" } },
+    mods  = "NONE",
+    action = wezterm.action_callback(function(window, pane)
+      local sel = window:get_selection_text_for_pane(pane)
+      -- Skip the signal while a full-screen application (vim, nano, less)
+      -- owns the alternate screen; it would arrive there as raw input.
+      if sel ~= "" and not pane:is_alt_screen_active() then
+        pane:send_text("\x1b[>62300u")
+      end
+      window:perform_action(act.ClearSelection, pane)
+      window:perform_action(act.SelectTextAtMouseCursor("Cell"), pane)
+    end),
+  },
+
+  -- streak=1: open links on bare click, do NOT copy to clipboard on drag.
+  {
+    event  = { Up = { streak = 1, button = "Left" } },
+    mods   = "NONE",
+    action = wezterm.action_callback(function(window, pane)
+      local sel = window:get_selection_text_for_pane(pane)
+      if sel == "" then
+        window:perform_action(act.OpenLinkAtMouseCursor, pane)
+      end
+      -- If selection exists: do nothing (don't copy). Agent handles capture.
+    end),
+  },
+
+  -- streak=2: double-click word select. No clipboard copy.
+  {
+    event  = { Up = { streak = 2, button = "Left" } },
+    mods   = "NONE",
+    action = act.Nop,
+  },
+
+  -- streak=3: triple-click line select. No clipboard copy.
+  {
+    event  = { Up = { streak = 3, button = "Left" } },
+    mods   = "NONE",
+    action = act.Nop,
+  },
+}
+
+-- ── zsh-edit-select Cmd editing shortcuts ───
+config.keys = {
+  { key = 'a', mods = 'CMD',       action = act.SendString '\x1b[97;9u'  },
+  { key = 'v', mods = 'CMD',       action = act.SendString '\x1b[118;9u' },
+  { key = 'x', mods = 'CMD',       action = act.SendString '\x1b[120;9u' },
+  { key = 'z', mods = 'CMD',       action = act.SendString '\x1b[122;9u' },
+  { key = 'z', mods = 'CMD|SHIFT', action = act.SendString '\x1b[122;10u'},
+
+  -- Cmd+C: if there is an active WezTerm selection, copy it to clipboard.
+  -- Otherwise send the plugin's escape sequence (Cmd+C CSI-u) to ZLE.
+  {
+    key  = 'c',
+    mods = 'CMD',
+    action = wezterm.action_callback(function(window, pane)
+      local sel = window:get_selection_text_for_pane(pane)
+      if sel ~= "" then
+        window:perform_action(act.CopyTo "Clipboard", pane)
+      else
+        window:perform_action(act.SendString '\x1b[99;9u', pane)
+      end
+    end),
+  },
+
+  -- ── zsh-edit-select navigation (non-selecting) ───────────────────────────────────
+  { key = 'LeftArrow',  mods = 'CMD',       action = act.SendString '\x1b[1;9D'  },
+  { key = 'RightArrow', mods = 'CMD',       action = act.SendString '\x1b[1;9C'  },
+
+  -- ── zsh-edit-select Shift selection keys ───
+  { key = 'LeftArrow',  mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10D' },
+  { key = 'RightArrow', mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10C' },
+  { key = 'UpArrow',    mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10A' },
+  { key = 'DownArrow',  mods = 'CMD|SHIFT', action = act.SendString '\x1b[1;10B' },
+}
+
+return config
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+---
+
+<details>
+<summary><h4 id="macos-alacritty">Alacritty</h4></summary>
+
+Add all of the following to `alacritty.toml`:
+
+```toml
+# ── zsh-edit-select Cmd editing shortcuts ───
+# Override Alacritty's default macOS shortcuts so the plugin receives them.
+[[keyboard.bindings]]
+key = "A"
+mods = "Command"
+chars = "\u001b[97;9u"
+
+[[keyboard.bindings]]
+key = "C"
+mods = "Command"
+chars = "\u001b[99;9u"
+
+[[keyboard.bindings]]
+key = "V"
+mods = "Command"
+chars = "\u001b[118;9u"
+
+[[keyboard.bindings]]
+key = "X"
+mods = "Command"
+chars = "\u001b[120;9u"
+
+[[keyboard.bindings]]
+key = "Z"
+mods = "Command"
+chars = "\u001b[122;9u"
+
+[[keyboard.bindings]]
+key = "Z"
+mods = "Command|Shift"
+chars = "\u001b[122;10u"
+
+# Needed for mouse integration
+[selection]
+save_to_clipboard = true
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+---
+
+<details>
+<summary><h4 id="macos-ghostty">Ghostty</h4></summary>
+
+Add all of the following to `~/.config/ghostty/config`:
+
+```
+# ── zsh-edit-select bindings ──
+# Overrides Ghostty's built-in clipboard actions (cmd+c, cmd+v, cmd+a) so the
+# plugin receives them instead.
+keybind = cmd+a=csi:97;9u
+keybind = cmd+c=csi:99;9u
+keybind = cmd+x=csi:120;9u
+keybind = cmd+z=csi:122;9u
+keybind = cmd+shift+z=csi:122;10u
+
+# Shift+Up/Down
+keybind = shift+up=csi:1;2A
+keybind = shift+down=csi:1;2B
+
+# Cmd+Shift+Up/Down: select to buffer start/end
+keybind = cmd+shift+up=csi:1;10A
+keybind = cmd+shift+down=csi:1;10B
+
+# Needed for mouse integration
+copy-on-select = clipboard
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+---
+
+<details>
+<summary><h4 id="macos-vs-code-terminal">VS Code Terminal</h4></summary>
 
 VS Code intercepts `Cmd+C` and `Cmd+A` for its own editor actions. The bindings below are scoped to `terminalFocus` so they only apply when the integrated terminal is active.
 
@@ -1794,378 +2123,16 @@ Open `keybindings.json` via `⇧⌘P` → **"Preferences: Open Keyboard Shortcut
 ]
 ```
 
-</details>
 
----
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
 
-#### Konsole (Linux only)
-
-<details>
-<summary>Click to expand</summary>
-
-Konsole has no single config file — keyboard behavior lives in a **keytab** attached to a **profile**. The default **Built-in [Read-only]** profile can't be edited, so you need a new profile.
-
-**1. Create the keytab.** Choose **ONE** of the options below, click it to expand, and run the command.
-
-> **Option A** uses the traditional Linux terminal convention: `Ctrl+Shift+C` copies, while `Ctrl+C` sends an interrupt signal.
-
-
-<details>
-<summary><b>Option A: Ctrl+Shift+C = copy  ──  (Click to expand)</b></summary>
-
-```bash
-mkdir -p ~/.local/share/konsole
-cat > ~/.local/share/konsole/zsh-edit-select.keytab << 'EOF'
-keyboard "zsh-edit-select"
-
-key Escape : "\E"
-key Tab -Shift : "\t"
-key Tab +Shift+Ansi : "\E[Z"
-key Tab +Shift-Ansi : "\t"
-key Backtab +Ansi : "\E[Z"
-key Backtab -Ansi : "\t"
-key Tab +Control+Ansi : "\E[27;5;9~"
-key Backtab +Control+Ansi : "\E[27;6;9~"
-key Tab +Control-Ansi : "\t"
-key Backtab +Control-Ansi : "\t"
-key Return-Shift-NewLine : "\r"
-key Return-Shift+NewLine : "\r\n"
-key Return+Shift : "\EOM"
-key Backspace -Control : "\x7f"
-key Backspace +Control : "\b"
-
-key Up -Shift-Ansi : "\EA"
-key Down -Shift-Ansi : "\EB"
-key Right-Shift-Ansi : "\EC"
-key Left -Shift-Ansi : "\ED"
-
-key Up -Shift-AnyMod+Ansi+AppCuKeys : "\EOA"
-key Down -Shift-AnyMod+Ansi+AppCuKeys : "\EOB"
-key Right -Shift-AnyMod+Ansi+AppCuKeys : "\EOC"
-key Left -Shift-AnyMod+Ansi+AppCuKeys : "\EOD"
-key Up -Shift-AnyMod+Ansi-AppCuKeys : "\E[A"
-key Down -Shift-AnyMod+Ansi-AppCuKeys : "\E[B"
-key Right -Shift-AnyMod+Ansi-AppCuKeys : "\E[C"
-key Left -Shift-AnyMod+Ansi-AppCuKeys : "\E[D"
-key Up -Shift+AnyMod+Ansi : "\E[1;*A"
-key Down -Shift+AnyMod+Ansi : "\E[1;*B"
-key Right -Shift+AnyMod+Ansi : "\E[1;*C"
-key Left -Shift+AnyMod+Ansi : "\E[1;*D"
-key Up +Shift+AppScreen : "\E[1;*A"
-key Down +Shift+AppScreen : "\E[1;*B"
-key Left +Shift+AppScreen : "\E[1;*D"
-key Right +Shift+AppScreen : "\E[1;*C"
-key Up +Shift+Alt-AppScreen : "\E[1;*A"
-key Down +Shift+Alt-AppScreen : "\E[1;*B"
-key Left +Shift+Alt-AppScreen : "\E[1;*D"
-key Right +Shift+Alt-AppScreen : "\E[1;*C"
-key Up +Shift+Ctrl-AppScreen : "\E[1;*A"
-key Down +Shift+Ctrl-AppScreen : "\E[1;*B"
-key Left +Shift+Ctrl-AppScreen : "\E[1;*D"
-key Right +Shift+Ctrl-AppScreen : "\E[1;*C"
-
-key Up -Shift+Ansi+AppCuKeys+KeyPad : "\EOA"
-key Down -Shift+Ansi+AppCuKeys+KeyPad : "\EOB"
-key Right -Shift+Ansi+AppCuKeys+KeyPad : "\EOC"
-key Left -Shift+Ansi+AppCuKeys+KeyPad : "\EOD"
-key Up -Shift+Ansi-AppCuKeys+KeyPad : "\E[A"
-key Down -Shift+Ansi-AppCuKeys+KeyPad : "\E[B"
-key Right -Shift+Ansi-AppCuKeys+KeyPad : "\E[C"
-key Left -Shift+Ansi-AppCuKeys+KeyPad : "\E[D"
-key Home +AppCuKeys+KeyPad : "\EOH"
-key End +AppCuKeys+KeyPad : "\EOF"
-key Home -AppCuKeys+KeyPad : "\E[H"
-key End -AppCuKeys+KeyPad : "\E[F"
-key Insert +KeyPad : "\E[2~"
-key Delete +KeyPad : "\E[3~"
-key PgUp -Shift+KeyPad : "\E[5~"
-key PgDown -Shift+KeyPad : "\E[6~"
-key Clear +KeyPad : "\E[E"
-
-key Enter+NewLine : "\r\n"
-key Enter-NewLine : "\r"
-key Home -AnyMod-AppCuKeys : "\E[H"
-key End -AnyMod-AppCuKeys : "\E[F"
-key Home -AnyMod+AppCuKeys : "\EOH"
-key End -AnyMod+AppCuKeys : "\EOF"
-key Home +AnyMod : "\E[1;*H"
-key End +AnyMod : "\E[1;*F"
-key Insert -AnyMod : "\E[2~"
-key Delete -AnyMod : "\E[3~"
-key Insert +AnyMod : "\E[2;*~"
-key Delete +AnyMod : "\E[3;*~"
-key PgUp -Shift-AnyMod : "\E[5~"
-key PgDown -Shift-AnyMod : "\E[6~"
-key PgUp -Shift+AnyMod : "\E[5;*~"
-key PgDown -Shift+AnyMod : "\E[6;*~"
-key PgUp +Shift+AppScreen : "\E[5;*~"
-key PgDown +Shift+AppScreen : "\E[6;*~"
-
-key F1 -AnyMod : "\EOP"
-key F2 -AnyMod : "\EOQ"
-key F3 -AnyMod : "\EOR"
-key F4 -AnyMod : "\EOS"
-key F5 -AnyMod : "\E[15~"
-key F6 -AnyMod : "\E[17~"
-key F7 -AnyMod : "\E[18~"
-key F8 -AnyMod : "\E[19~"
-key F9 -AnyMod : "\E[20~"
-key F10 -AnyMod : "\E[21~"
-key F11 -AnyMod : "\E[23~"
-key F12 -AnyMod : "\E[24~"
-key F1 +AnyMod : "\EO*P"
-key F2 +AnyMod : "\EO*Q"
-key F3 +AnyMod : "\EO*R"
-key F4 +AnyMod : "\EO*S"
-key F5 +AnyMod : "\E[15;*~"
-key F6 +AnyMod : "\E[17;*~"
-key F7 +AnyMod : "\E[18;*~"
-key F8 +AnyMod : "\E[19;*~"
-key F9 +AnyMod : "\E[20;*~"
-key F10 +AnyMod : "\E[21;*~"
-key F11 +AnyMod : "\E[23;*~"
-key F12 +AnyMod : "\E[24;*~"
-
-key Space +Control : "\x00"
-
-# Konsole scroll actions (Shift+Up/Down/Home/End removed on purpose for zsh-edit-select)
-key PgUp -Ctrl+Shift-AppScreen : scrollPageUp
-key PgUp +Ctrl+Shift-AppScreen : scrollPromptUp
-key PgDown -Ctrl+Shift-AppScreen : scrollPageDown
-key PgDown +Ctrl+Shift-AppScreen : scrollPromptDown
-
-# ── zsh-edit-select ──
-key C     +Control+Shift : "\E[67;6u"
-key Z     +Control+Shift : "\E[90;6u"
-key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"
-key Down  +Shift-Alt-Ctrl-AppScreen : "\E[1;2B"
-key Right +Shift-Alt-Ctrl-AppScreen : "\E[1;2C"
-key Left  +Shift-Alt-Ctrl-AppScreen : "\E[1;2D"
-EOF
-```
-
-</details>
-
-> **Option B** uses GUI-style behavior: `Ctrl+C` copies, while `Ctrl+Shift+C` sends an interrupt signal.
-
-
-<details>
-<summary><b>Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt   ──  (Click to expand) </b></summary>
-
-```bash
-mkdir -p ~/.local/share/konsole
-cat > ~/.local/share/konsole/zsh-edit-select.keytab << 'EOF'
-keyboard "zsh-edit-select"
-
-key Escape : "\E"
-key Tab -Shift : "\t"
-key Tab +Shift+Ansi : "\E[Z"
-key Tab +Shift-Ansi : "\t"
-key Backtab +Ansi : "\E[Z"
-key Backtab -Ansi : "\t"
-key Tab +Control+Ansi : "\E[27;5;9~"
-key Backtab +Control+Ansi : "\E[27;6;9~"
-key Tab +Control-Ansi : "\t"
-key Backtab +Control-Ansi : "\t"
-key Return-Shift-NewLine : "\r"
-key Return-Shift+NewLine : "\r\n"
-key Return+Shift : "\EOM"
-key Backspace -Control : "\x7f"
-key Backspace +Control : "\b"
-
-key Up -Shift-Ansi : "\EA"
-key Down -Shift-Ansi : "\EB"
-key Right-Shift-Ansi : "\EC"
-key Left -Shift-Ansi : "\ED"
-
-key Up -Shift-AnyMod+Ansi+AppCuKeys : "\EOA"
-key Down -Shift-AnyMod+Ansi+AppCuKeys : "\EOB"
-key Right -Shift-AnyMod+Ansi+AppCuKeys : "\EOC"
-key Left -Shift-AnyMod+Ansi+AppCuKeys : "\EOD"
-key Up -Shift-AnyMod+Ansi-AppCuKeys : "\E[A"
-key Down -Shift-AnyMod+Ansi-AppCuKeys : "\E[B"
-key Right -Shift-AnyMod+Ansi-AppCuKeys : "\E[C"
-key Left -Shift-AnyMod+Ansi-AppCuKeys : "\E[D"
-key Up -Shift+AnyMod+Ansi : "\E[1;*A"
-key Down -Shift+AnyMod+Ansi : "\E[1;*B"
-key Right -Shift+AnyMod+Ansi : "\E[1;*C"
-key Left -Shift+AnyMod+Ansi : "\E[1;*D"
-key Up +Shift+AppScreen : "\E[1;*A"
-key Down +Shift+AppScreen : "\E[1;*B"
-key Left +Shift+AppScreen : "\E[1;*D"
-key Right +Shift+AppScreen : "\E[1;*C"
-key Up +Shift+Alt-AppScreen : "\E[1;*A"
-key Down +Shift+Alt-AppScreen : "\E[1;*B"
-key Left +Shift+Alt-AppScreen : "\E[1;*D"
-key Right +Shift+Alt-AppScreen : "\E[1;*C"
-key Up +Shift+Ctrl-AppScreen : "\E[1;*A"
-key Down +Shift+Ctrl-AppScreen : "\E[1;*B"
-key Left +Shift+Ctrl-AppScreen : "\E[1;*D"
-key Right +Shift+Ctrl-AppScreen : "\E[1;*C"
-
-key Up -Shift+Ansi+AppCuKeys+KeyPad : "\EOA"
-key Down -Shift+Ansi+AppCuKeys+KeyPad : "\EOB"
-key Right -Shift+Ansi+AppCuKeys+KeyPad : "\EOC"
-key Left -Shift+Ansi+AppCuKeys+KeyPad : "\EOD"
-key Up -Shift+Ansi-AppCuKeys+KeyPad : "\E[A"
-key Down -Shift+Ansi-AppCuKeys+KeyPad : "\E[B"
-key Right -Shift+Ansi-AppCuKeys+KeyPad : "\E[C"
-key Left -Shift+Ansi-AppCuKeys+KeyPad : "\E[D"
-key Home +AppCuKeys+KeyPad : "\EOH"
-key End +AppCuKeys+KeyPad : "\EOF"
-key Home -AppCuKeys+KeyPad : "\E[H"
-key End -AppCuKeys+KeyPad : "\E[F"
-key Insert +KeyPad : "\E[2~"
-key Delete +KeyPad : "\E[3~"
-key PgUp -Shift+KeyPad : "\E[5~"
-key PgDown -Shift+KeyPad : "\E[6~"
-key Clear +KeyPad : "\E[E"
-
-key Enter+NewLine : "\r\n"
-key Enter-NewLine : "\r"
-key Home -AnyMod-AppCuKeys : "\E[H"
-key End -AnyMod-AppCuKeys : "\E[F"
-key Home -AnyMod+AppCuKeys : "\EOH"
-key End -AnyMod+AppCuKeys : "\EOF"
-key Home +AnyMod : "\E[1;*H"
-key End +AnyMod : "\E[1;*F"
-key Insert -AnyMod : "\E[2~"
-key Delete -AnyMod : "\E[3~"
-key Insert +AnyMod : "\E[2;*~"
-key Delete +AnyMod : "\E[3;*~"
-key PgUp -Shift-AnyMod : "\E[5~"
-key PgDown -Shift-AnyMod : "\E[6~"
-key PgUp -Shift+AnyMod : "\E[5;*~"
-key PgDown -Shift+AnyMod : "\E[6;*~"
-key PgUp +Shift+AppScreen : "\E[5;*~"
-key PgDown +Shift+AppScreen : "\E[6;*~"
-
-key F1 -AnyMod : "\EOP"
-key F2 -AnyMod : "\EOQ"
-key F3 -AnyMod : "\EOR"
-key F4 -AnyMod : "\EOS"
-key F5 -AnyMod : "\E[15~"
-key F6 -AnyMod : "\E[17~"
-key F7 -AnyMod : "\E[18~"
-key F8 -AnyMod : "\E[19~"
-key F9 -AnyMod : "\E[20~"
-key F10 -AnyMod : "\E[21~"
-key F11 -AnyMod : "\E[23~"
-key F12 -AnyMod : "\E[24~"
-key F1 +AnyMod : "\EO*P"
-key F2 +AnyMod : "\EO*Q"
-key F3 +AnyMod : "\EO*R"
-key F4 +AnyMod : "\EO*S"
-key F5 +AnyMod : "\E[15;*~"
-key F6 +AnyMod : "\E[17;*~"
-key F7 +AnyMod : "\E[18;*~"
-key F8 +AnyMod : "\E[19;*~"
-key F9 +AnyMod : "\E[20;*~"
-key F10 +AnyMod : "\E[21;*~"
-key F11 +AnyMod : "\E[23;*~"
-key F12 +AnyMod : "\E[24;*~"
-
-key Space +Control : "\x00"
-
-# Konsole scroll actions (Shift+Up/Down/Home/End removed on purpose for zsh-edit-select)
-key PgUp -Ctrl+Shift-AppScreen : scrollPageUp
-key PgUp +Ctrl+Shift-AppScreen : scrollPromptUp
-key PgDown -Ctrl+Shift-AppScreen : scrollPageDown
-key PgDown +Ctrl+Shift-AppScreen : scrollPromptDown
-
-# ── zsh-edit-select ──
-# Ctrl+C = copy, Ctrl+Shift+C = interrupt
-key C     +Control-Shift : "\E[67;6u"
-key C     +Control+Shift : "\x03"
-key Z     +Control+Shift : "\E[90;6u"
-key Up    +Shift-Alt-Ctrl-AppScreen : "\E[1;2A"
-key Down  +Shift-Alt-Ctrl-AppScreen : "\E[1;2B"
-key Right +Shift-Alt-Ctrl-AppScreen : "\E[1;2C"
-key Left  +Shift-Alt-Ctrl-AppScreen : "\E[1;2D"
-EOF
-```
-
-</details>
-
-<p align="center">
-  <strong>✦───────────✦</strong>
-</p>
-
-
-**2. Create a new profile** :
-- Menu (☰) → :More → Settings → Manage Profiles… → **+ New…**
-- Name it, e.g. `zsh-edit-select`
-- From the pages listed on the left, go to the **Keyboard** page → select **zsh-edit-select** → Apply → OK
-
-- The newly created profile `zsh-edit-select` will be listed in the profiles menu, Select it and click the "Set as Default" button on the right then click `OK`.
-  - If you missed it, go to Manage Profiles… → select your profile (`zsh-edit-select`) → **Set as Default** → OK
-
-<p align="center">
-  <strong>✦───────────✦</strong>
-</p>
-
-**3. Free the keys Konsole's own shortcuts grab:**
-Menu (☰) → Settings → Configure Keyboard Shortcuts → search for each of the following and clear them by setting their shortcut to **Custom** and pressing **Clear (⌫)**:
-- **Copy**
-- **Interrupt Task (INT)**
-
-And search for each of the following and set them to **Custom** and assign any shortcuts you like that don't conflict with the plugin's shortcuts:
-- **Next Tab** / **Previous Tab** (Shift+Right / Shift+Left by default)
-
-
-**Then Restart Konsole**
-
----
 
 </details>
 
 ---
 
-
-#### Foot _(Linux only)_
-
 <details>
-<summary><b>Linux configuration</b></summary>
-
-Foot uses `[key-bindings]` to disable built-in actions and `[text-bindings]` to send custom escape sequences to the shell. Two built-in bindings must be unbound before adding the plugin's sequences:
-
-- `clipboard-copy` (defaults to `Control+Shift+c`) — must be unbound so the copy escape sequence reaches the shell instead of triggering Foot's clipboard action.
-- `prompt-prev` (defaults to `Control+Shift+z`) — must be unbound so the undo escape sequence reaches the shell instead of triggering Foot's prompt navigation.
-
-Foot passes Shift+Arrow keys through to the terminal natively — **no additional configuration is needed for Shift selection.**
-
-Add the following to `foot.ini`, merging into any existing `[key-bindings]` and `[text-bindings]` sections (do not create duplicate section headers):
-
-```ini
-[key-bindings]
-# Unbind Foot's built-in clipboard-copy so the escape sequence reaches the shell
-clipboard-copy=none
-# Unbind Foot's built-in prompt-prev so the undo escape sequence reaches the shell
-prompt-prev=none
-
-[text-bindings]
-# ── zsh-edit-select copying shortcut ───────────────────────
-# Option A (Default): Ctrl+Shift+C = copy
-\x1b[67;6u = Control+Shift+c
-
-# Option B (Reversed): Ctrl+C = copy, Ctrl+Shift+C = interrupt
-# Use this if you prefer GUI-style copy behavior (like in regular desktop apps).
-# To use this option: replace the Option A line above with both lines below.
-# \x1b[67;6u = Control+c
-# \x03 = Control+Shift+c
-
-# ── zsh-edit-select undo / redo ─────────────────────────
-\x1b[90;6u = Control+Shift+z
-```
-
-</details>
-
----
-
-#### iTerm2 _(macOS only)_
-
-<details>
-<summary><b>macOS configuration</b></summary>
+<summary><h4 id="macos-iterm2">iTerm2</h4></summary>
 
 iTerm2 is configured through its GUI rather than a config file. Follow the steps below to add all required key bindings.
 
@@ -2217,51 +2184,18 @@ Add the following for the macOS-specific extended selection combinations:
 
 > **iTerm2 recommended setting:** iTerm2 has a built-in setting, **"Copy to pasteboard on selection"** (Settings → General → Selection), that is **enabled by default**. When it is on, every mouse drag in iTerm2 automatically copies the selected text to the clipboard. This does not affect the correctness of the implementation — but it means that every mouse drag overwrites your clipboard, even when you only meant to highlight text in order to replace it with a keystroke or something that was previously copied. To avoid that, disable the setting: **Settings → General → Selection → uncheck "Copy to pasteboard on selection"** (labeled "Copy to clipboard on selection" in some versions). With it disabled, mouse highlights are handled exclusively by the plugin's Accessibility path and never touch the clipboard.
 
-</details>
 
----
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
 
-#### Tmux integration & reversed copy mode (Linux)
-
-<details> <summary> <b> Click to expand </b></summary>
-
-If you use tmux and run the plugin in **reversed copy mode** (`Ctrl+C` copies, `Ctrl+Shift+C` interrupts), add
-this block to `~/.tmux.conf`:
-
-```tmux
-set -g default-terminal tmux-256color
-set -g xterm-keys on
-set -g extended-keys on
-set -as terminal-overrides ",*:extkeys"
-
-# Remove any existing root bindings
-unbind -n C-c
-unbind -n C-S-c
-
-# Hard-forward keys to pane:
-# Ctrl+C -> plugin copy sequence
-bind -n C-c send-keys C-c
-
-# Ctrl+Shift+C -> real SIGINT (^C)
-bind -n C-S-c send-keys -l "\033[67;6u"
-```
-
-And reload tmux:
-
-```bash
-tmux source-file ~/.tmux.conf
-```
 
 </details>
 
 ---
-
-#### Optional: Ctrl Key Remaps _(macOS only)_
-
-These are optional remaps for users who prefer `Ctrl` key fallbacks over `Cmd`. Neither is required for normal plugin operation — configure only what you need.
 
 <details>
-<summary><b>macOS configuration</b></summary>
+<summary><h4 id="macos-optional-ctrl-key-remaps">Optional: Ctrl Key Remaps</h4></summary>
+
+These are optional remaps for users who prefer `Ctrl` key fallbacks over `Cmd`. Neither is required for normal plugin operation — configure only what you need.
 
 ### Ctrl+C → Copy (CSI-u approach)
 
@@ -2343,6 +2277,184 @@ keybind = ctrl+shift+z=csi:90;6u
 ```
 
 **VS Code** — Uncomment the block already included at the bottom of the `keybindings.json` snippet above.
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+
+---
+
+
+</details>
+
+<p align="center">
+  <strong>────────── ✦ ──────────</strong>
+</p>
+
+<details>
+<summary><h3 id="wsl-configuration">Windows Terminal (WSL)</h3></summary>
+
+To use the reversed mode (copy with Ctrl+C and interrupt Ctrl+Shift+C) in Windows Terminal, you will need to edit the Windows Terminal settings. Expand the following guide to learn how to access the settings file:
+
+<details>
+<summary><b>How to Open Windows Terminal settings.json </b></summary>
+
+Use one of the following methods:
+
+- With Windows Terminal open, press `Ctrl+Shift+,`
+- In the UI: click the dropdown arrow next to the `+` tab button, select **Settings**, then click
+  **Open JSON file** at the bottom-left
+- Open directly from File Explorer:
+
+```text
+%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+<details>
+<summary><b>Disable copyOnSelect for optimal mouse integration</b></summary>
+
+By default, `"copyOnSelect"` is set to `false`. If you previously enabled `"copyOnSelect"`, it is recommended that you disable it for the best mouse integration experience. To verify this setting, search for the following entry in your terminal settings:
+
+```json
+"copyOnSelect": false
+```
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+<details>
+<summary><b>Reversed Copy Mode (Ctrl+C copy, Ctrl+Shift+C interrupt)</b></summary>
+
+To use `Ctrl+Shift+C` for interrupt (SIGINT), add one entry to `"actions"` and one to `"keybindings"` in the Windows Terminal settings.json:
+
+```json
+"actions": [
+  ...existing actions...,
+  {
+    "command": {
+      "action": "sendInput",
+      "input": "\u001d"
+    },
+    "id": "User.sendIntr"
+  }
+],
+```
+
+```json
+"keybindings": [
+  ...existing keybindings...,
+  {
+    "id": "User.sendIntr",
+    "keys": "ctrl+shift+c"
+  }
+],
+```
+
+Then add the following to your `~/.zshrc` file on the Linux side:
+
+```zsh
+stty intr ^]
+```
+
+Save `settings.json`, restart the profile, and run `source ~/.zshrc`. `Ctrl+Shift+C` will now send `0x1D` (`Ctrl+]`), which `stty` will treat as an interrupt signal.
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+<details>
+<summary><b> How to Verify Ctrl+C is set to Copy </b></summary>
+
+Windows Terminal defaults to `Ctrl+C` for copy. If you have ever changed it, add (or update) the
+following entries.
+
+Into `"actions"`:
+
+```json
+{
+  "command": {
+    "action": "copy",
+    "singleLine": false
+  },
+  "id": "User.copy.644BA8F2"
+},
+```
+
+Into `"keybindings"`:
+
+```json
+{
+  "id": "User.copy.644BA8F2",
+  "keys": "ctrl+c"
+},
+```
+
+If these entries already exist, update their current values to match the above.
+
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ---
+
+
+</details>
+
+**Note:** Mouse integration is currently most compatible with Windows Terminal and the VS Code terminal. If you use another terminal or encounter issues, you can **disable mouse integration and restore your terminal's default behavior** by turning off mouse replacement through the configuration wizard (`edit-select config`), then choosing the first option to configure mouse behavior.
+
+> Known Limitation in VS Code: With Mouse integration enabled, **Extremely** fast VS Code scrollback drags may still show a very small startup offset due to the currently unavoidable shell/helper handoff latency (planned to be optimized in future releases).
+
+
+---
+
+
+</details>
+
+<p align="center">
+  <strong>────────── ✦ ──────────</strong>
+</p>
+
+
+<details>
+<summary><h3 id="tmux-integration">Tmux integration & reversed copy mode (Linux)</h3></summary>
+
+If you use tmux and run the plugin in **reversed copy mode** (`Ctrl+C` copies, `Ctrl+Shift+C` interrupts), add
+this block to `~/.tmux.conf`:
+
+```tmux
+set -g default-terminal tmux-256color
+set -g xterm-keys on
+set -g extended-keys on
+set -as terminal-overrides ",*:extkeys"
+
+# Remove any existing root bindings
+unbind -n C-c
+unbind -n C-S-c
+
+# Hard-forward keys to pane:
+# Ctrl+C -> plugin copy sequence
+bind -n C-c send-keys C-c
+
+# Ctrl+Shift+C -> real SIGINT (^C)
+bind -n C-S-c send-keys -l "\033[67;6u"
+```
+
+And reload tmux:
+
+```bash
+tmux source-file ~/.tmux.conf
+```
 
 </details>
 
